@@ -9,7 +9,7 @@
 
 A self-hosted web workspace for Codex Desktop. Continue chats, review changes, switch models, and respond to approvals from a phone or another computer.
 
-The browser uses the local desktop's owning App Server through a private desktop bridge. It renders a responsive workspace rather than streaming a scaled desktop screen. Windows is the primary tested platform; macOS setup scripts are also included.
+The browser uses the local desktop's owning App Server through a private desktop bridge. It renders a responsive workspace rather than streaming a scaled desktop screen. Windows and macOS have installation and background service controls; both platforms are covered by CI. A signed-in Windows desktop has live acceptance; a signed-in macOS desktop still needs equivalent live acceptance.
 
 Community project. Not affiliated with or endorsed by OpenAI.
 
@@ -23,7 +23,9 @@ The screenshots show the actual frontend with synthetic projects, messages, path
 | --- | --- |
 | <img src="docs/images/mobile.png" alt="Phone chat workspace" width="280"> | <img src="docs/images/review.png" alt="Desktop change review panel" width="340"> |
 
-Desktop capture: **2560 × 1440**. Phone capture: **390 × 844**.
+Desktop capture: **2560 × 1440**. Phone capture: **390 × 844 CSS pixels**. These are capture sizes, not fixed rendering resolutions. The UI uses the browser's viewport and device pixel ratio, so a 390 × 844 CSS viewport on a 3× screen is rendered at 1170 × 2532 physical pixels.
+
+The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when the width/height ratio is less than 1.18. It includes dynamic viewport height and safe-area spacing. Reference viewport sizes are 2560 × 1440, 1440 × 900, 1024 × 768, 390 × 844, and 320 × 568.
 
 ## Features
 
@@ -36,7 +38,7 @@ Desktop capture: **2560 × 1440**. Phone capture: **390 × 844**.
 - **Responsive light UI.** Desktop sidebar, mobile navigation drawer, compact composer, and system typography.
 - **Connection recovery.** Heartbeat deadlines, handshake timeouts, network/foreground recovery, and drafts stored per chat in the browser.
 - **Self-hosted access.** Password login, signed HTTP-only sessions, local-only initial setup, and optional Cloudflare Tunnel.
-- **Windows controls.** Double-click files to enable or disable the server and its configured tunnel.
+- **Windows and macOS controls.** Double-click `.cmd` files on Windows or `.command` files on macOS to start and stop Remote.
 
 ## How It Works
 
@@ -100,8 +102,16 @@ open -a Codex --args --remote-debugging-port=9229 --remote-debugging-address=127
 
 Verify locally:
 
+Windows:
+
 ```powershell
 Invoke-RestMethod http://127.0.0.1:9229/json/list
+```
+
+macOS:
+
+```bash
+curl --fail http://127.0.0.1:9229/json/list
 ```
 
 The result should include a page whose URL contains `app://-/index.html`. Keep this endpoint private; it can control the local app.
@@ -117,21 +127,29 @@ npm start
 
 The setup script installs locked dependencies, builds the app, and prompts for an access password if one does not exist.
 
-**macOS / manual setup**
+**macOS**
 
 ```bash
-npm ci
-npm run build
-npm run set-password
+npm run setup:macos
 npm start
 ```
+
+Both setup commands use the lockfile, build the app, and ask for the first access password. Use `.env` for settings that must also apply to background services.
 
 Open **http://127.0.0.1:4545** and sign in. Initial password setup is accepted only from the host computer.
 
 ### 4. Confirm the Transport
 
+Windows:
+
 ```powershell
 Invoke-RestMethod http://127.0.0.1:4545/health
+```
+
+macOS:
+
+```bash
+curl --fail http://127.0.0.1:4545/health
 ```
 
 For live desktop synchronization, expect `codex: ready` and `transport: desktop`. A `standalone` transport means Remote is using a separate App Server.
@@ -164,7 +182,29 @@ npm run install-task:windows
 npm run uninstall-task:windows
 ```
 
-On macOS, `bash scripts/install-service.sh` installs a login LaunchAgent for the web server. The double-click controls are Windows-specific.
+## macOS Start / Stop
+
+After `npm run setup:macos`, use the executable files from a Git clone:
+
+| File | Behavior |
+| --- | --- |
+| `Start Remote.command` | Installs a current-user LaunchAgent if absent, enables login startup, checks readiness, and opens the configured page |
+| `Stop Remote.command` | Stops Remote and disables login startup; Codex Desktop remains open |
+
+No administrator account is needed for the Remote service. The helpers find Node in the current `PATH` and standard Apple Silicon / Intel Homebrew paths. Codex detection includes `/Applications` and `~/Applications`; `CODEX_BINARY` can override detection.
+
+```bash
+npm run start:macos -- --no-browser
+npm run status:macos
+npm run stop:macos
+npm run uninstall-service:macos
+```
+
+The service lives at `~/Library/LaunchAgents/com.codex.remote.plist`. Logs go to `DATA_DIR` (default `data/`). Another checkout's existing service is left untouched. Changes to `.env` take effect after stopping and starting Remote.
+
+The macOS controls manage the Remote web server. An independently installed `cloudflared` service or reverse proxy is managed separately; stopping Remote closes its web endpoint. Windows controls also manage the project's configured tunnel task.
+
+ZIP downloads may lose executable permissions. Restore them with `chmod +x *.command`, or use the npm commands above. If Node was installed with a shell version manager and Finder cannot find it, run Start from an initialized terminal once to install the service with the resolved Node path.
 
 ## Public Access
 
@@ -195,8 +235,16 @@ Another HTTPS reverse proxy is possible when it supports WebSocket upgrades and 
 
 Copy `.env.example` to `.env` for overrides:
 
+Windows:
+
 ```powershell
 Copy-Item .env.example .env
+```
+
+macOS:
+
+```bash
+cp .env.example .env
 ```
 
 | Variable | Default | Purpose |
@@ -254,13 +302,13 @@ npm test
 npm run build
 ```
 
-The publication baseline has **50 tests across 13 test files**. CI runs type checking, tests, and a production build on Windows and Ubuntu; an Ubuntu build does not establish Linux desktop support.
+The suite has **53 tests across 14 test files**. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
 
 ```text
 src/client/       React workspace, composer, history, approvals, reconnect
 src/server/       Express, authentication, desktop bridge, native history
 src/shared/       Protocol and permission helpers
-scripts/          Setup, service, tunnel, and Windows controls
+scripts/          Setup, services, tunnel, and platform controls
 public/           Application assets
 docs/images/      Sanitized documentation screenshots
 ```
@@ -274,7 +322,7 @@ docs/images/      Sanitized documentation screenshots
 - Live command approval is verified. File-change, user-input, and persistent command/network-policy approvals have helpers and tests but still need dedicated live acceptance.
 - Browser dictation requires browser support and microphone permission; actual spoken input has not been accepted in the release verification.
 - Heartbeats recover stale connections, but cannot guarantee network uptime. Interrupted requests are not replayed automatically.
-- Windows is the live-tested deployment. macOS scripts are included without equivalent end-to-end acceptance in this release.
+- Windows is the live-tested deployment. macOS has build, unit-test, shell, and LaunchAgent CI coverage, but live desktop sync, login persistence, and the legacy tunnel still require acceptance on a signed-in Mac.
 
 ## Troubleshooting
 

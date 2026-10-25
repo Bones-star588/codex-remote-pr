@@ -51,7 +51,7 @@ YAML
 
 echo "==> Updating .env"
 if [[ -f .env ]]; then
-  grep -v '^PUBLIC_ORIGIN=' .env | grep -v '^ALLOWED_ORIGINS=' > .env.tmp
+  awk '!/^(PUBLIC_ORIGIN|ALLOWED_ORIGINS)=/' .env > .env.tmp
   mv .env.tmp .env
 fi
 {

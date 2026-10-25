@@ -62,15 +62,17 @@ function windowsCodexBinaryCandidates(): string[] {
 
 function unixCodexBinaryCandidates(): string[] {
   return [
-    '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex',
     '/Applications/Codex.app/Contents/Resources/codex',
+    path.join(os.homedir(), 'Applications/Codex.app/Contents/Resources/codex'),
+    '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex',
+    path.join(os.homedir(), 'Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'),
     path.join(os.homedir(), '.codex/packages/standalone/current/codex'),
     'codex'
   ];
 }
 
-function codexBinaryCandidates(): string[] {
-  return process.platform === 'win32' ? windowsCodexBinaryCandidates() : unixCodexBinaryCandidates();
+export function codexBinaryCandidates(platform = process.platform): string[] {
+  return platform === 'win32' ? windowsCodexBinaryCandidates() : unixCodexBinaryCandidates();
 }
 
 function resolveCodexBinary(candidates: string[]): string {

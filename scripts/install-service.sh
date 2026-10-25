@@ -2,62 +2,74 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NODE_BIN="$(command -v node)"
-PLIST="$HOME/Library/LaunchAgents/com.codex.remote.plist"
-LABEL="com.codex.remote"
+cd "$ROOT_DIR"
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 
-if [[ -z "$NODE_BIN" ]]; then
-  echo "node was not found in PATH" >&2
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "This service installer requires macOS." >&2
+  exit 1
+fi
+if [[ "${1:-}" != "" && "${1:-}" != "--no-start" ]]; then
+  echo "Usage: bash scripts/install-service.sh [--no-start]" >&2
+  exit 1
+fi
+if ! NODE_BIN="$(command -v node)"; then
+  echo "Node.js 22.19 or newer was not found. Install Node.js first." >&2
   exit 1
 fi
 
-if [[ ! -f "$ROOT_DIR/dist-server/server/index.js" ]]; then
+if [[ ! -f dist-server/server/index.js ]]; then
   echo "Build output is missing. Run npm run build first." >&2
   exit 1
 fi
 
-mkdir -p "$HOME/Library/LaunchAgents"
+PLIST="$HOME/Library/LaunchAgents/com.codex.remote.plist"
+if [[ -f "$PLIST" ]]; then
+  OWNER="$(/usr/libexec/PlistBuddy -c 'Print :WorkingDirectory' "$PLIST")"
+  if [[ "$OWNER" != "$ROOT_DIR" ]]; then
+    echo "The existing Codex Remote service belongs to another checkout: $OWNER" >&2
+    exit 1
+  fi
+fi
 
-cat > "$PLIST" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
+"$NODE_BIN" --input-type=module - "$ROOT_DIR" "$NODE_BIN" "$PLIST" <<'NODE'
+import 'dotenv/config';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const [root, node, plist] = process.argv.slice(2);
+const dataDir = path.resolve(process.env.DATA_DIR?.trim() || 'data');
+fs.mkdirSync(dataDir, { recursive: true });
+fs.mkdirSync(path.dirname(plist), { recursive: true });
+const escape = (value) => String(value).replace(/[<>&"']/g, (char) => ({
+  '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;'
+}[char]));
+const string = (value) => `<string>${escape(value)}</string>`;
+const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key>
-  <string>${LABEL}</string>
+  <key>Label</key>${string('com.codex.remote')}
   <key>ProgramArguments</key>
-  <array>
-    <string>${NODE_BIN}</string>
-    <string>${ROOT_DIR}/dist-server/server/index.js</string>
-  </array>
-  <key>WorkingDirectory</key>
-  <string>${ROOT_DIR}</string>
+  <array>${string(node)}${string(path.join(root, 'dist-server/server/index.js'))}</array>
+  <key>WorkingDirectory</key>${string(root)}
   <key>EnvironmentVariables</key>
   <dict>
-    <key>HOST</key>
-    <string>127.0.0.1</string>
-    <key>PORT</key>
-    <string>${PORT:-4545}</string>
-    <key>TRUST_PROXY</key>
-    <string>1</string>
-    <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PATH</key>${string(`${path.dirname(node)}:${process.env.PATH || ''}`)}
   </dict>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>${ROOT_DIR}/data/codex-remote.out.log</string>
-  <key>StandardErrorPath</key>
-  <string>${ROOT_DIR}/data/codex-remote.err.log</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>StandardOutPath</key>${string(path.join(dataDir, 'codex-remote.out.log'))}
+  <key>StandardErrorPath</key>${string(path.join(dataDir, 'codex-remote.err.log'))}
 </dict>
 </plist>
-PLIST
+`;
+fs.writeFileSync(plist, xml, 'utf8');
+NODE
 
-launchctl bootout "gui/$(id -u)/${LABEL}" >/dev/null 2>&1 || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
-launchctl enable "gui/$(id -u)/${LABEL}"
-
-echo "Installed ${LABEL}"
-echo "Open http://127.0.0.1:${PORT:-4545}"
+plutil -lint "$PLIST"
+echo "Installed $PLIST"
+if [[ "${1:-}" != "--no-start" ]]; then
+  exec bash "$ROOT_DIR/scripts/remote-control-macos.sh" Start --no-browser
+fi

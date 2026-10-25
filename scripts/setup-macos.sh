@@ -3,6 +3,12 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "This setup script requires macOS. Use npm run setup:windows on Windows." >&2
+  exit 1
+fi
 
 if ! command -v node >/dev/null 2>&1; then
   echo "Node.js is required. Install Node.js 22.19 or newer first." >&2
@@ -21,8 +27,8 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "==> Installing dependencies"
-npm install
+echo "==> Installing locked dependencies"
+npm ci
 
 echo "==> Building"
 npm run build
@@ -37,3 +43,4 @@ fi
 echo "==> Done"
 echo "Start locally with: npm start"
 echo "Then open: http://127.0.0.1:${PORT:-4545}"
+echo "For background startup, double-click Start Remote.command."

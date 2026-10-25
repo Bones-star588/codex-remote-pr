@@ -9,7 +9,7 @@
 
 一个自托管的 Codex Desktop 网页工作区。通过手机或另一台电脑继续会话、查看代码变更、切换模型，并处理审批请求。
 
-网页通过本机私有桥接连接桌面端所属的 App Server，提供响应式界面。Windows 是主要实测平台，同时保留 macOS 安装脚本。
+网页通过本机私有桥接连接桌面端所属的 App Server，提供响应式界面。Windows 和 macOS 均提供安装、后台服务及开关，并纳入 CI。Windows 已完成登录桌面端的实机验收；macOS 登录桌面端仍需同等实机验收。
 
 本项目由社区独立维护，与 OpenAI 无隶属或背书关系。
 
@@ -23,7 +23,9 @@
 | --- | --- |
 | <img src="docs/images/mobile.png" alt="手机聊天工作区" width="280"> | <img src="docs/images/review.png" alt="桌面代码审阅面板" width="340"> |
 
-桌面截图分辨率：**2560 × 1440**。手机截图分辨率：**390 × 844**。
+桌面截图分辨率：**2560 × 1440**。手机截图：**390 × 844 CSS 像素**。这些是截图尺寸，不是网页固定渲染分辨率。页面跟随浏览器视口及设备像素比渲染，例如 3 倍屏幕上的 390 × 844 CSS 视口对应 1170 × 2532 物理像素。
+
+宽度小于 720 CSS 像素，或宽度小于 980 且宽高比小于 1.18 时，启用手机布局；同时考虑动态视口高度和屏幕安全区域。参考视口尺寸为 2560 × 1440、1440 × 900、1024 × 768、390 × 844 和 320 × 568。
 
 ## 主要功能
 
@@ -36,7 +38,7 @@
 - **响应式浅色界面**：桌面侧边栏、手机导航抽屉、紧凑输入框和系统字体。
 - **连接恢复**：心跳检测、连接超时、网络与前台恢复，以及按会话保存的浏览器草稿。
 - **自托管访问**：密码登录、签名 HTTP-only 会话、本机初始化，以及可选的 Cloudflare Tunnel。
-- **Windows 双击开关**：通过运行文件开启或关闭本地服务及已配置隧道。
+- **Windows 与 macOS 双击开关**：Windows 使用 `.cmd`，macOS 使用 `.command` 开启或关闭远控。
 
 ## 工作原理
 
@@ -100,8 +102,16 @@ open -a Codex --args --remote-debugging-port=9229 --remote-debugging-address=127
 
 在本机检查：
 
+Windows：
+
 ```powershell
 Invoke-RestMethod http://127.0.0.1:9229/json/list
+```
+
+macOS：
+
+```bash
+curl --fail http://127.0.0.1:9229/json/list
 ```
 
 结果中应包含 URL 带有 `app://-/index.html` 的页面。该端口能控制本地应用，必须保持本机私有访问。
@@ -117,21 +127,29 @@ npm start
 
 安装脚本会按锁文件安装依赖、构建应用，并在尚未配置时要求设置访问密码。
 
-**macOS / 手动安装**
+**macOS**
 
 ```bash
-npm ci
-npm run build
-npm run set-password
+npm run setup:macos
 npm start
 ```
+
+两套安装命令均按锁文件安装依赖、构建应用，并在首次运行时设置访问密码。后台服务需要使用的设置请写入 `.env`。
 
 打开 **http://127.0.0.1:4545** 并登录。首次密码初始化仅接受本机请求。
 
 ### 4. 检查连接方式
 
+Windows：
+
 ```powershell
 Invoke-RestMethod http://127.0.0.1:4545/health
+```
+
+macOS：
+
+```bash
+curl --fail http://127.0.0.1:4545/health
 ```
 
 实时桌面同步应显示 `codex: ready`、`transport: desktop`。若为 `standalone`，说明 Remote 正在使用独立 App Server。
@@ -164,7 +182,29 @@ npm run install-task:windows
 npm run uninstall-task:windows
 ```
 
-macOS 可运行 `bash scripts/install-service.sh` 为网页服务安装登录 LaunchAgent。双击开关仅适用于 Windows。
+## macOS 开启与关闭
+
+执行 `npm run setup:macos` 后，使用 Git 克隆目录中的可执行文件：
+
+| 文件 | 行为 |
+| --- | --- |
+| `Start Remote.command` | 服务不存在时安装当前用户 LaunchAgent，启用登录自启，检查就绪状态并打开配置页面 |
+| `Stop Remote.command` | 停止远控并禁用登录自启，保留 Codex Desktop 运行 |
+
+远控服务不需要管理员权限。助手从当前 `PATH` 及 Apple Silicon、Intel 的标准 Homebrew 路径寻找 Node；Codex 探测包含 `/Applications` 和 `~/Applications`，也可通过 `CODEX_BINARY` 指定。
+
+```bash
+npm run start:macos -- --no-browser
+npm run status:macos
+npm run stop:macos
+npm run uninstall-service:macos
+```
+
+服务配置位于 `~/Library/LaunchAgents/com.codex.remote.plist`，日志位于 `DATA_DIR`（默认 `data/`）。已有服务若属于其他项目副本，助手会拒绝覆盖。修改 `.env` 后需要先关闭再开启远控。
+
+macOS 开关管理远控网页服务；独立安装的 `cloudflared` 服务或反向代理需单独管理，关闭远控会使其网页端点停止提供服务。Windows 开关还会管理项目配置的隧道任务。
+
+ZIP 下载可能丢失执行权限，可运行 `chmod +x *.command` 恢复，或使用上述 npm 命令。如果 Node 由 shell 版本管理器安装而 Finder 找不到它，请先在初始化过的终端运行一次 Start，以实际 Node 路径安装服务。
 
 ## 公网访问
 
@@ -195,8 +235,16 @@ npm run tunnel:windows -- -PublicHost codex.example.com
 
 将 `.env.example` 复制为 `.env` 后按需修改：
 
+Windows：
+
 ```powershell
 Copy-Item .env.example .env
+```
+
+macOS：
+
+```bash
+cp .env.example .env
 ```
 
 | 变量 | 默认值 | 用途 |
@@ -254,13 +302,13 @@ npm test
 npm run build
 ```
 
-发布基线包含 **13 个测试文件、50 项测试**。CI 在 Windows 和 Ubuntu 上运行类型检查、测试和生产构建；Ubuntu 构建不代表 Linux 桌面集成已经验证。
+测试集包含 **14 个测试文件、53 项测试**。CI 在 Windows、macOS 和 Ubuntu 上运行类型检查、测试和生产构建。macOS 任务还检查 shell 语法，并用系统原生 plist 工具验证生成的 LaunchAgent。这些检查不能替代已登录桌面端的实机测试；Ubuntu 构建不代表 Linux 桌面集成已经验证。
 
 ```text
 src/client/       React 工作区、输入框、历史、审批与重连
 src/server/       Express、认证、桌面桥接与原生历史
 src/shared/       协议与权限辅助逻辑
-scripts/          安装、自启、隧道与 Windows 开关
+scripts/          安装、自启、隧道与平台开关
 public/           应用资源
 docs/images/      脱敏文档截图
 ```
@@ -274,7 +322,7 @@ docs/images/      脱敏文档截图
 - 命令审批已完成实机验证。文件修改、用户输入、持久命令和网络策略审批有辅助逻辑与测试，但仍需分别完成实机验收。
 - 听写依赖浏览器支持和麦克风权限，本次发布尚未验收真实语音输入。
 - 心跳重连不能保证网络永不掉线，已中断的请求不会自动重放。
-- Windows 已完成在线实测，macOS 脚本本次尚无同等完整验收。
+- Windows 已完成在线实测。macOS 已纳入构建、单元测试、shell 与 LaunchAgent CI；桌面实时同步、登录自启和旧隧道方案仍需在已登录的 Mac 上验收。
 
 ## 常见问题
 

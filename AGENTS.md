@@ -16,7 +16,7 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 - `src/server/`: authentication, HTTP/WebSocket transport, native desktop bridge.
 - `src/server/thread-history.ts`: native bounded history pagination.
 - `src/shared/`: protocol and permission profiles.
-- `scripts/`: Windows/macOS setup, services, tunnel, and Windows controls.
+- `scripts/`: Windows/macOS setup, services, tunnel, and platform controls.
 
 ## Product Constraints
 
@@ -45,4 +45,6 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   can differ from global configuration overrides. Do not imply otherwise.
 - Command records are not an interactive terminal. Some approval forms and
   actual dictation still need dedicated live acceptance.
-- Windows has live acceptance; macOS scripts do not have equivalent coverage.
+- Windows has live desktop acceptance. macOS has CI coverage for builds, unit
+  tests, shell syntax, and generated LaunchAgents; signed-in desktop integration,
+  login persistence, and the legacy tunnel still need live macOS acceptance.
