@@ -1,0 +1,463 @@
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import express, { type NextFunction, type Request, type Response } from 'express';
+import { WebSocket, WebSocketServer } from 'ws';
+
+import type { ClientMessage, ServerMessage } from '../shared/protocol.js';
+import { permissionProfileId, type PermissionProfile, type PermissionSettings } from '../shared/permissions.js';
+import {
+  authFilePath,
+  clearSessionCookie,
+  isLoopback,
+  isPasswordConfigured,
+  issueSession,
+  readSessionCookie,
+  sessionCookie,
+  setPassword,
+  verifyPassword
+} from './auth.js';
+import { codexBridge } from './codex-bridge.js';
+import { config } from './config.js';
+import { desktopBridge } from './desktop-bridge.js';
+import { readThreadHistoryPage } from './thread-history.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({ noServer: true });
+const clients = new Set<WebSocket>();
+const watchedThreads = new Map<WebSocket, string | null>();
+
+app.set('trust proxy', config.trustProxy);
+app.disable('x-powered-by');
+app.use(express.json({ limit: '1mb' }));
+
+function isAuthenticated(req: Request): boolean {
+  return Boolean(readSessionCookie(req.headers.cookie));
+}
+
+function isLocalRequest(req: Request): boolean {
+  return isLoopback(req.ip);
+}
+
+function isSecureRequest(req: Request): boolean {
+  return req.secure || req.get('x-forwarded-proto')?.split(',')[0]?.trim() === 'https';
+}
+
+function allowedOrigins(): string[] {
+  const origin = config.publicOrigin;
+  const defaults = [
+    `http://127.0.0.1:${config.port}`,
+    `http://localhost:${config.port}`,
+    'http://127.0.0.1:5173',
+    'http://localhost:5173'
+  ];
+  return [...new Set([...(origin ? [origin] : []), ...config.allowedOrigins, ...defaults])];
+}
+
+function assertTrustedOrigin(req: Request): void {
+  const origin = req.get('origin');
+  if (!origin) return;
+  if (allowedOrigins().includes(origin)) return;
+  throw new Error('Untrusted request origin.');
+}
+
+function asyncRoute(
+  handler: (req: Request, res: Response, next: NextFunction) => Promise<void> | void
+): (req: Request, res: Response, next: NextFunction) => void {
+  return (req, res, next) => {
+    Promise.resolve(handler(req, res, next)).catch(next);
+  };
+}
+
+function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  if (!isAuthenticated(req)) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return;
+  }
+  next();
+}
+
+function clientAddress(req: Request): string {
+  return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+const loginAttempts = new Map<string, { count: number; blockedUntil: number; lastAttempt: number }>();
+
+function checkLoginRateLimit(key: string): void {
+  const now = Date.now();
+  const entry = loginAttempts.get(key);
+  if (!entry) return;
+  if (entry.blockedUntil > now) {
+    const seconds = Math.ceil((entry.blockedUntil - now) / 1000);
+    throw new Error(`Too many attempts. Try again in ${seconds} seconds.`);
+  }
+  if (now - entry.lastAttempt > 10 * 60_000) loginAttempts.delete(key);
+}
+
+function recordFailedLogin(key: string): void {
+  const now = Date.now();
+  const entry = loginAttempts.get(key) ?? { count: 0, blockedUntil: 0, lastAttempt: now };
+  entry.count += 1;
+  entry.lastAttempt = now;
+  entry.blockedUntil = entry.count >= 5 ? now + Math.min(10 * 60_000, entry.count * 20_000) : 0;
+  loginAttempts.set(key, entry);
+}
+
+function clearLoginFailures(key: string): void {
+  loginAttempts.delete(key);
+}
+
+app.get('/health', (_req, res) => {
+  res.json({
+    ok: true,
+    codex: codexBridge.getStatus(),
+    transport: codexBridge.getTransport(),
+    binary: codexBridge.getBinary(),
+    passwordConfigured: isPasswordConfigured()
+  });
+});
+
+app.get(
+  '/api/auth/status',
+  asyncRoute(async (req, res) => {
+    const configured = isPasswordConfigured();
+    res.json({
+      configured,
+      authenticated: isAuthenticated(req),
+      setupAllowed: !configured && isLocalRequest(req),
+      authFile: isLocalRequest(req) ? authFilePath() : undefined
+    });
+  })
+);
+
+app.post(
+  '/api/auth/setup',
+  asyncRoute(async (req, res) => {
+    assertTrustedOrigin(req);
+    if (isPasswordConfigured()) {
+      res.status(409).json({ error: 'Password is already configured. Use the local CLI to reset it.' });
+      return;
+    }
+    if (!isLocalRequest(req)) {
+      res.status(403).json({ error: 'Initial password setup is only allowed from this computer.' });
+      return;
+    }
+
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    await setPassword(password);
+    const token = issueSession();
+    res.setHeader('Set-Cookie', sessionCookie(token, isSecureRequest(req)));
+    res.json({ ok: true });
+  })
+);
+
+app.post(
+  '/api/auth/login',
+  asyncRoute(async (req, res) => {
+    assertTrustedOrigin(req);
+    if (!isPasswordConfigured()) {
+      res.status(409).json({ error: 'Password is not configured yet.' });
+      return;
+    }
+
+    const key = clientAddress(req);
+    checkLoginRateLimit(key);
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    const valid = await verifyPassword(password);
+    if (!valid) {
+      recordFailedLogin(key);
+      res.status(401).json({ error: 'Incorrect password.' });
+      return;
+    }
+
+    clearLoginFailures(key);
+    const token = issueSession();
+    res.setHeader('Set-Cookie', sessionCookie(token, isSecureRequest(req)));
+    res.json({ ok: true });
+  })
+);
+
+app.post(
+  '/api/auth/logout',
+  asyncRoute(async (req, res) => {
+    assertTrustedOrigin(req);
+    res.setHeader('Set-Cookie', clearSessionCookie(isSecureRequest(req)));
+    res.json({ ok: true });
+  })
+);
+
+app.get(
+  '/api/bootstrap',
+  requireAuth,
+  asyncRoute(async (_req, res) => {
+    const [auth, models, projects] = await Promise.allSettled([
+      codexBridge.request('getAuthStatus', {}),
+      codexBridge.request('model/list', { limit: 100, includeHidden: false }),
+      codexBridge.request('project/list', { limit: 100 })
+    ]);
+
+    res.json({
+      codex: {
+        status: codexBridge.getStatus(),
+        binary: codexBridge.getBinary()
+      },
+      auth: auth.status === 'fulfilled' ? auth.value : null,
+      models: models.status === 'fulfilled' ? models.value : null,
+      projects: projects.status === 'fulfilled' ? projects.value : null
+    });
+  })
+);
+
+app.get(
+  '/api/desktop/status',
+  requireAuth,
+  asyncRoute(async (_req, res) => {
+    res.json(await desktopBridge.getStatus());
+  })
+);
+
+app.get(
+  '/api/thread/history',
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    const threadId = typeof req.query.threadId === 'string' ? req.query.threadId.trim() : '';
+    if (!threadId) {
+      res.status(400).json({ error: 'threadId is required.' });
+      return;
+    }
+    const cursor = typeof req.query.before === 'string' ? req.query.before : null;
+    const limitValue =
+      typeof req.query.limit === 'string' ? Number.parseInt(req.query.limit, 10) : 200;
+    const limit = Number.isFinite(limitValue) ? Math.min(400, Math.max(1, limitValue)) : 200;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await readThreadHistoryPage(
+      (method, params) => codexBridge.request(method, params), threadId, cursor, limit
+    ));
+  })
+);
+
+app.get(
+  '/api/permissions',
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    const cwd = typeof req.query.cwd === 'string' && req.query.cwd ? req.query.cwd : config.codexWorkdir;
+    const profiles: PermissionProfile[] = [];
+    let cursor: string | null = null;
+    do {
+      const result = await codexBridge.request('permissionProfile/list', { cwd, limit: 100, ...(cursor ? { cursor } : {}) }) as {
+        data: PermissionProfile[]; nextCursor?: string | null;
+      };
+      profiles.push(...result.data.filter((profile) => profile.allowed));
+      cursor = result.nextCursor ?? null;
+    } while (cursor);
+    const result = await codexBridge.request('config/read', { cwd, includeLayers: false }) as { config: PermissionSettings };
+    const defaultProfile = permissionProfileId(result.config);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ data: profiles, defaultProfile: profiles.some((profile) => profile.id === defaultProfile) ? defaultProfile : null });
+  })
+);
+
+app.get(
+  '/api/local-image',
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    const requestedPath = typeof req.query.path === 'string' ? req.query.path.trim() : '';
+    if (!requestedPath) {
+      res.status(400).json({ error: 'path is required.' });
+      return;
+    }
+    const imagePath = path.resolve(requestedPath);
+    const extension = path.extname(imagePath).toLowerCase();
+    if (!['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif'].includes(extension)) {
+      res.status(415).json({ error: 'Only local image files are supported.' });
+      return;
+    }
+    const stats = await fs.promises.stat(imagePath).catch(() => null);
+    if (!stats?.isFile()) {
+      res.status(404).json({ error: 'Local image was not found.' });
+      return;
+    }
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.sendFile(imagePath);
+  })
+);
+
+server.on('upgrade', (req, socket, head) => {
+  try {
+    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    if (url.pathname !== '/ws') {
+      socket.destroy();
+      return;
+    }
+
+    const origin = req.headers.origin;
+    if (origin && !allowedOrigins().includes(origin)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    if (!readSessionCookie(req.headers.cookie)) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req);
+    });
+  } catch {
+    socket.destroy();
+  }
+});
+
+wss.on('connection', (socket) => {
+  clients.add(socket);
+  watchedThreads.set(socket, null);
+  send(socket, {
+    type: 'hello',
+    connectedAt: new Date().toISOString(),
+    codexAvailable: true,
+    binary: codexBridge.getBinary()
+  });
+  send(socket, {
+    type: 'bridge.status',
+    status: codexBridge.getStatus()
+  });
+  send(socket, {
+    type: 'server.request.snapshot',
+    requests: codexBridge.getPendingServerRequests()
+  });
+
+  socket.on('message', (data) => {
+    void handleClientMessage(socket, data.toString());
+  });
+  socket.on('close', () => {
+    clients.delete(socket);
+    watchedThreads.delete(socket);
+  });
+});
+
+async function handleClientMessage(socket: WebSocket, raw: string): Promise<void> {
+  let message: ClientMessage;
+  try {
+    message = JSON.parse(raw) as ClientMessage;
+  } catch {
+    send(socket, { type: 'error', error: { message: 'Invalid JSON message.' } });
+    return;
+  }
+
+  if (message.type === 'ping') {
+    send(socket, { type: 'pong', at: new Date().toISOString() });
+    return;
+  }
+  if (message.type === 'thread.watch') {
+    watchedThreads.set(socket, message.threadId);
+    return;
+  }
+
+  if (message.type === 'rpc') {
+    try {
+      const result = await codexBridge.request(message.method, message.params ?? {});
+      send(socket, { type: 'rpc.result', id: message.id, result });
+    } catch (error) {
+      send(socket, {
+        type: 'rpc.error',
+        id: message.id,
+        error: { message: error instanceof Error ? error.message : String(error) }
+      });
+    }
+    return;
+  }
+
+  if (message.type === 'server.request.respond') {
+    try {
+      await codexBridge.respondToServerRequest(message.requestId, message.result, message.error);
+      broadcast({ type: 'server.request.resolved', requestId: message.requestId });
+    } catch (error) {
+      send(socket, {
+        type: 'server.request.failed',
+        requestId: message.requestId,
+        error: { message: error instanceof Error ? error.message : String(error) }
+      });
+    }
+  }
+}
+
+function broadcast(message: ServerMessage): void {
+  const threadId = message.type === 'event' && /^(item|turn)\//.test(message.method)
+    ? (message.params as { threadId?: string })?.threadId
+    : null;
+  const recipients = [...clients].filter((client) =>
+    client.readyState === WebSocket.OPEN && (!threadId || watchedThreads.get(client) === threadId)
+  );
+  if (recipients.length === 0) return;
+  const payload = JSON.stringify(message);
+  for (const client of recipients) client.send(payload);
+}
+
+function send(socket: WebSocket, message: ServerMessage): void {
+  if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+}
+
+codexBridge.on('event', ({ method, params }) => {
+  broadcast({ type: 'event', method, params });
+});
+codexBridge.on('server-request', ({ requestId, method, params }) => {
+  broadcast({ type: 'server.request', requestId, method, params });
+});
+codexBridge.on('status', (status) => {
+  broadcast({ type: 'bridge.status', status });
+});
+codexBridge.on('resolved', (requestId) => broadcast({ type: 'server.request.resolved', requestId }));
+codexBridge.on('stderr', (message: string) => {
+  console.warn('[codex app-server]', message);
+});
+
+const productionClientDir = path.resolve(__dirname, '../../dist/client');
+if (fs.existsSync(productionClientDir)) {
+  app.use(
+    express.static(productionClientDir, {
+      setHeaders: (res, filePath) => {
+        if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      }
+    })
+  );
+  app.get('/{*splat}', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path === '/ws' || req.path === '/health') return next();
+    res.sendFile(path.join(productionClientDir, 'index.html'));
+  });
+}
+
+app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error('[request]', message);
+  res.status(500).json({ error: message });
+});
+
+server.listen(config.port, config.host, () => {
+  console.log(`Codex Remote listening on http://${config.host}:${config.port}`);
+  console.log(`Codex binary: ${codexBridge.getBinary()}`);
+  console.log(`Auth file: ${authFilePath()}`);
+  void codexBridge.ensureStarted().catch((error) => {
+    console.error('[codex] Failed to start app-server:', error instanceof Error ? error.message : String(error));
+  });
+});
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
+function shutdown(): void {
+  for (const client of clients) client.close();
+  codexBridge.shutdown();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 3000).unref();
+}

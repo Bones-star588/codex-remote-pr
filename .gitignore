@@ -1,0 +1,17 @@
+node_modules/
+node_modules.pnpm-backup/
+dist/
+dist-server/
+data/
+.tmp-test/
+pnpm-lock.yaml.bak
+.env*
+!.env.example
+*.log
+*.pem
+*.key
+.DS_Store
+coverage/
+*.tsbuildinfo
+.playwright-cli/
+output/

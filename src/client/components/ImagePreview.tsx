@@ -1,0 +1,35 @@
+import { ArrowUpRight, Download, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+
+export function ImagePreview({ src, alt = '' }: { src: string; alt?: string }) {
+  const [open, setOpen] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (open) dialogRef.current?.showModal();
+  }, [open]);
+  return (
+    <>
+      <button type="button" className="image-thumbnail" aria-label={alt ? `查看图片：${alt}` : '查看图片'}
+        onClick={() => setOpen(true)}>
+        <img src={src} alt={alt} loading="lazy" decoding="async" />
+      </button>
+      {open && createPortal(
+        <dialog ref={dialogRef} className="image-viewer" aria-label="图片预览"
+          onClose={() => setOpen(false)} onClick={(event) => {
+            if (event.target === event.currentTarget) dialogRef.current?.close();
+          }}>
+          <div className="image-viewer-toolbar">
+            <span>{alt || '图片'}</span>
+            <a className="icon-button" href={src} target="_blank" rel="noreferrer" aria-label="打开原图" title="打开原图"><ArrowUpRight size={18} /></a>
+            <a className="icon-button" href={src} download aria-label="下载图片" title="下载图片"><Download size={18} /></a>
+            <button type="button" className="icon-button" aria-label="关闭图片预览" title="关闭图片预览"
+              onClick={() => dialogRef.current?.close()}><X size={18} /></button>
+          </div>
+          <div className="image-viewer-stage"><img src={src} alt={alt} /></div>
+        </dialog>,
+        document.body
+      )}
+    </>
+  );
+}

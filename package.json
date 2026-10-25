@@ -1,0 +1,56 @@
+{
+  "name": "codex-remote",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Responsive remote control UI for the Codex desktop app.",
+  "license": "MIT",
+  "author": "CoralFlower325",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CoralFlower325/Codex-remote.git"
+  },
+  "homepage": "https://github.com/CoralFlower325/Codex-remote#readme",
+  "bugs": {
+    "url": "https://github.com/CoralFlower325/Codex-remote/issues"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c cyan,magenta \"tsx watch src/server/index.ts\" \"vite --host 127.0.0.1\"",
+    "build": "tsc -p tsconfig.server.json && tsc -p tsconfig.client.json && vite build",
+    "start": "node dist-server/server/index.js",
+    "set-password": "tsx src/server/cli/set-password.ts",
+    "setup:windows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
+    "install-task:windows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/install-task-windows.ps1",
+    "uninstall-task:windows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/install-task-windows.ps1 -Unregister",
+    "tunnel:windows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/cloudflared-tunnel-windows.ps1",
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.5",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.6",
+    "vitest": "^5.0.5"
+  }
+}

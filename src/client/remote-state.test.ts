@@ -1,0 +1,58 @@
+import { describe, expect, it } from 'vitest';
+
+import { displayThreadTitle, findActiveTurnId, mergeLatestHistoryItems, mergeOlderHistoryItems, upsertItem } from './remote-state';
+import type { Thread, ThreadItem } from './types';
+
+describe('remote thread state', () => {
+  it('preserves live updates received after a history request began and inserts missing items in order', () => {
+    const message = (id: string, text = id): ThreadItem => ({ type: 'agentMessage', id, text });
+    const baseline = [message('old'), message('shared', 'partial')];
+    const streamed = { ...baseline[1]!, text: 'partial and live' } as ThreadItem;
+    expect(mergeLatestHistoryItems(
+      [baseline[0]!, streamed, message('live')],
+      [message('missing'), message('shared', 'partial')],
+      baseline
+    )).toEqual([baseline[0], message('missing'), streamed, message('live')]);
+  });
+  it('keeps reused item ids in separate turns and retains unchanged objects', () => {
+    const first: ThreadItem = { type: 'agentMessage', id: '0', turnId: 'one', text: 'First' };
+    const second: ThreadItem = { type: 'agentMessage', id: '0', turnId: 'two', text: 'Second' };
+    expect(upsertItem([first], second)).toEqual([first, second]);
+    expect(mergeOlderHistoryItems([first], [second])).toEqual([first, second]);
+    const items = [first, second];
+    expect(mergeLatestHistoryItems(items, [{ ...second }])).toBe(items);
+    expect(mergeLatestHistoryItems(items, [{ ...second, text: 'Updated' }])).toEqual([first, { ...second, text: 'Updated' }]);
+  });
+  it('restores the latest in-progress turn', () => {
+    expect(
+      findActiveTurnId([
+        { id: 'done', status: 'completed', items: [], startedAt: null, completedAt: null, durationMs: null },
+        { id: 'active', status: 'inProgress', items: [], startedAt: null, completedAt: null, durationMs: null }
+      ])
+    ).toBe('active');
+  });
+
+  it('appends streamed agent text without replacing existing content', () => {
+    const items: ThreadItem[] = [{ type: 'agentMessage', id: 'agent-1', text: 'hello' }];
+    expect(
+      upsertItem(items, { type: 'agentMessage', id: 'agent-1', text: ' world' }, true)
+    ).toEqual([{ type: 'agentMessage', id: 'agent-1', text: 'hello world' }]);
+  });
+
+  it('uses a stable fallback title', () => {
+    const thread: Thread = {
+      id: 'thread-1',
+      name: null,
+      preview: '',
+      cwd: 'C:\\workspace',
+      projectId: null,
+      model: null,
+      modelProvider: 'openai',
+      reasoningEffort: null,
+      createdAt: 0,
+      updatedAt: 0,
+      status: { type: 'idle' }
+    };
+    expect(displayThreadTitle(thread)).toBe('未命名任务');
+  });
+});

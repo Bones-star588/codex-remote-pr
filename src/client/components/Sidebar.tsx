@@ -1,0 +1,204 @@
+import {
+  Archive, ChevronDown, ChevronRight, CircleAlert, CircleHelp, FolderOpen,
+  LoaderCircle, LogOut, MessageSquare, Plus, RefreshCw, Search, Wrench, X
+} from 'lucide-react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { displayThreadTitle } from '../remote-state';
+import type { RemoteState } from '../useRemote';
+import type { Thread } from '../types';
+import { buildSidebarGroups, connectionLabel } from '../workspace-model';
+
+interface SidebarProps {
+  remote: RemoteState;
+  activeThreadId: string | null;
+  layout: 'desktop' | 'mobile';
+  open: boolean;
+  collapsed: boolean;
+  search: string;
+  onSearchChange: (value: string) => void;
+  onClose: () => void;
+  onToggleCollapse: () => void;
+  onNewTask: (projectId?: string) => void;
+  onSelectThread: (threadId: string) => void;
+  onLogout: () => void;
+}
+
+export function Sidebar({
+  remote, activeThreadId, layout, open, collapsed, search, onSearchChange,
+  onClose, onNewTask, onSelectThread, onLogout
+}: SidebarProps) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [expansion, setExpansion] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem('sidebar-project-expansion') ?? '{}') as Record<string, boolean>; }
+    catch { return {}; }
+  });
+  const footerRef = useRef<HTMLDivElement>(null);
+  const productRef = useRef<HTMLButtonElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const projectDialogRef = useRef<HTMLDialogElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const deferredSearch = useDeferredValue(search);
+  const groups = useMemo(
+    () => buildSidebarGroups(remote.threads, remote.projects, deferredSearch, 'all'),
+    [remote.projects, remote.threads, deferredSearch]
+  );
+  const isCollapsed = layout === 'desktop' && collapsed;
+  const sections = [
+    ...groups.projects.map((group) => ({
+      id: group.project.id, name: group.project.name, threads: group.threads, project: true
+    })),
+    ...(groups.standalone.length ? [{ id: 'tasks', name: remote.showArchived ? '已归档' : '任务', threads: groups.standalone, project: false }] : [])
+  ];
+
+  useEffect(() => {
+    if (searchOpen) searchRef.current?.focus();
+  }, [searchOpen]);
+  useEffect(() => {
+    if (layout !== 'mobile' || !open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    sidebarRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    return () => previous?.focus({ preventScroll: true });
+  }, [layout, open]);
+  useEffect(() => {
+    if (projectPickerOpen) projectDialogRef.current?.showModal();
+  }, [projectPickerOpen]);
+  useEffect(() => {
+    if (!accountOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!footerRef.current?.contains(event.target as Node) && !productRef.current?.contains(event.target as Node)) setAccountOpen(false);
+    };
+    window.addEventListener('pointerdown', dismiss);
+    return () => window.removeEventListener('pointerdown', dismiss);
+  }, [accountOpen]);
+
+  return (
+    <aside ref={sidebarRef} className={`sidebar${open ? ' sidebar--open' : ''}${isCollapsed ? ' sidebar--collapsed' : ''}`}
+      aria-label="项目与任务" aria-hidden={(layout === 'mobile' && !open) || isCollapsed}
+      inert={(layout === 'mobile' && !open) || isCollapsed}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          setAccountOpen(false); setSearchOpen(false);
+          if (layout === 'mobile') onClose();
+        }
+        if (event.key === 'Tab' && layout === 'mobile' && open) {
+          const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input, a[href]')];
+          if (event.shiftKey && document.activeElement === controls[0]) {
+            event.preventDefault(); controls.at(-1)?.focus();
+          } else if (!event.shiftKey && document.activeElement === controls.at(-1)) {
+            event.preventDefault(); controls[0]?.focus();
+          }
+        }
+      }}>
+      <div className="sidebar-top">
+        <div className="sidebar-mode-row">
+          <button type="button" ref={productRef} className="sidebar-product" aria-label="Codex 菜单"
+            aria-expanded={accountOpen} onClick={() => setAccountOpen(!accountOpen)}>
+            <strong>Codex</strong><ChevronDown size={10} />
+          </button>
+          <button type="button" className="icon-button sidebar-toolbar-button" aria-label="搜索任务"
+            title="搜索任务" aria-expanded={searchOpen} onClick={() => setSearchOpen(!searchOpen)}>
+            <Search size={16} />
+          </button>
+        </div>
+        {searchOpen && (
+          <div className="sidebar-search-panel">
+            <Search size={15} />
+            <input ref={searchRef} value={search} onChange={(event) => onSearchChange(event.target.value)}
+              placeholder="搜索任务" aria-label="搜索任务" />
+            <button type="button" className="icon-button icon-button--small" aria-label="关闭搜索"
+              onClick={() => { onSearchChange(''); setSearchOpen(false); }}><X size={14} /></button>
+          </div>
+        )}
+        <button type="button" className="sidebar-row new-chat-row" onClick={() => onNewTask()}>
+          <Plus size={16} /><span>新聊天</span>
+        </button>
+      </div>
+      <div className="sidebar-scroll">
+        <button type="button" className="sidebar-row sidebar-projects-button" onClick={() => setProjectPickerOpen(true)}>
+          <FolderOpen size={16} /><span>项目</span>
+        </button>
+        <nav aria-label="项目和任务">
+          {remote.threadsLoading && remote.threads.length === 0 && (
+            <div className="sidebar-skeleton" aria-label="正在加载任务"><span /><span /><span /></div>
+          )}
+          {sections.map((section) => {
+            const expanded = Boolean(deferredSearch) || (expansion[section.id] ??
+              (section.threads.some((thread) => thread.id === activeThreadId) || section.id === 'tasks'));
+            return (
+              <section className="project-group" key={section.id}>
+                <button type="button" className="sidebar-project-row" aria-expanded={expanded}
+                  onClick={() => setExpansion((current) => {
+                    const next = { ...current, [section.id]: !expanded };
+                    localStorage.setItem('sidebar-project-expansion', JSON.stringify(next));
+                    return next;
+                  })}>
+                  {section.project ? <FolderOpen size={16} /> : <MessageSquare size={16} />}
+                  <span>{section.name}</span><ChevronRight size={11} className="sidebar-project-chevron" />
+                </button>
+                {expanded && section.threads.map((thread) => (
+                  <ThreadRow key={thread.id} thread={thread} active={thread.id === activeThreadId}
+                    needsAttention={remote.serverRequests.some((request) => request.params.threadId === thread.id)}
+                    onClick={() => onSelectThread(thread.id)} />
+                ))}
+              </section>
+            );
+          })}
+          {groups.total === 0 && !remote.threadsLoading && <div className="sidebar-empty">{search ? '没有匹配的任务' : '还没有任务'}</div>}
+        </nav>
+      </div>
+      <div className="sidebar-footer" ref={footerRef}>
+        {accountOpen && (
+          <div className="account-menu" role="menu" aria-label="设置">
+            <div className="account-menu-status"><span className={`connection-dot connection-dot--${remote.status}`} />{connectionLabel(remote.status)}</div>
+            <button type="button" role="menuitem" onClick={() => {
+              setAccountOpen(false);
+              void remote.refreshThreads().catch((error: Error) => remote.setLastError(error.message));
+            }}><RefreshCw size={15} /><span>刷新任务</span></button>
+            <button type="button" role="menuitem" onClick={() => {
+              setAccountOpen(false);
+              void remote.toggleArchived().catch((error: Error) => remote.setLastError(error.message));
+            }}><Archive size={15} /><span>{remote.showArchived ? '返回所有任务' : '已归档任务'}</span></button>
+            <div className="account-menu-separator" />
+            <button type="button" role="menuitem" onClick={onLogout}><LogOut size={15} /><span>退出登录</span></button>
+          </div>
+        )}
+        <button type="button" className="account-button" aria-label="设置" aria-haspopup="menu"
+          aria-expanded={accountOpen} onClick={() => setAccountOpen(!accountOpen)}>
+          <Wrench size={16} /><span>设置</span>
+        </button>
+        <a className="icon-button" href="https://developers.openai.com/codex/" target="_blank" rel="noreferrer"
+          aria-label="帮助" title="帮助"><CircleHelp size={20} /></a>
+      </div>
+      {projectPickerOpen && (
+        <dialog ref={projectDialogRef} className="project-dialog" aria-label="选择项目"
+          onClose={() => setProjectPickerOpen(false)}>
+          <header><strong>项目</strong><button type="button" className="icon-button" aria-label="关闭项目"
+            onClick={() => projectDialogRef.current?.close()}><X size={18} /></button></header>
+          {remote.projects.map((project) => (
+            <button type="button" className="project-dialog-row" key={project.id} onClick={() => {
+              projectDialogRef.current?.close(); onNewTask(project.id);
+            }}><FolderOpen size={18} /><span><strong>{project.name}</strong><small>{project.roots[0]?.path}</small></span><Plus size={16} /></button>
+          ))}
+        </dialog>
+      )}
+    </aside>
+  );
+}
+
+function ThreadRow({ thread, active, needsAttention, onClick }: {
+  thread: Thread; active: boolean; needsAttention: boolean; onClick: () => void;
+}) {
+  const running = thread.status.type === 'active';
+  return (
+    <button type="button" className={`thread-row${active ? ' thread-row--active' : ''}`} onClick={onClick}
+      aria-current={active ? 'page' : undefined} title={displayThreadTitle(thread)} data-thread-id={thread.id}>
+      <span className="thread-state" aria-hidden="true">
+        {needsAttention ? <CircleAlert size={13} /> : running ? <LoaderCircle size={12} className="spin" /> : null}
+      </span>
+      {needsAttention && <span className="sr-only">等待审批：</span>}
+      <span className="thread-row-title">{displayThreadTitle(thread)}</span>
+    </button>
+  );
+}

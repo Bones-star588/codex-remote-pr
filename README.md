@@ -1,0 +1,307 @@
+# Codex Remote
+
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.19-43853d)
+![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-0078d4)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![CI](https://github.com/CoralFlower325/Codex-remote/actions/workflows/ci.yml/badge.svg)](https://github.com/CoralFlower325/Codex-remote/actions/workflows/ci.yml)
+
+A self-hosted web workspace for Codex Desktop. Continue chats, review changes, switch models, and respond to approvals from a phone or another computer.
+
+The browser uses the local desktop's owning App Server through a private desktop bridge. It renders a responsive workspace rather than streaming a scaled desktop screen. Windows is the primary tested platform; macOS setup scripts are also included.
+
+Community project. Not affiliated with or endorsed by OpenAI.
+
+![Codex Remote desktop workspace](docs/images/desktop.png)
+
+## Screenshots
+
+The screenshots show the actual frontend with synthetic projects, messages, paths, and model metadata. They contain no real account, conversation, or deployment data. The model shown is illustrative; available models depend on the connected runtime.
+
+| Phone workspace | Change review |
+| --- | --- |
+| <img src="docs/images/mobile.png" alt="Phone chat workspace" width="280"> | <img src="docs/images/review.png" alt="Desktop change review panel" width="340"> |
+
+Desktop capture: **2560 × 1440**. Phone capture: **390 × 844**.
+
+## Features
+
+- **Shared desktop chats.** Open and continue chats through the same desktop backend, including activity originating in Desktop.
+- **Projects and task navigation.** Browse all providers' tasks with paginated loading, search, archived browsing, rename, archive, and restore.
+- **Readable long histories.** Load older pages on demand, preserve the reading position, and fold consecutive tool activity into one group.
+- **Native model metadata.** Model choices and supported reasoning levels come from the runtime, including custom model catalogs exposed by it.
+- **Per-chat permissions.** Choose native read-only, workspace, or full-access profiles and respond to supported approval requests.
+- **Images and review.** Upload or paste images, open originals, inspect changed files, and use unified or split diffs.
+- **Responsive light UI.** Desktop sidebar, mobile navigation drawer, compact composer, and system typography.
+- **Connection recovery.** Heartbeat deadlines, handshake timeouts, network/foreground recovery, and drafts stored per chat in the browser.
+- **Self-hosted access.** Password login, signed HTTP-only sessions, local-only initial setup, and optional Cloudflare Tunnel.
+- **Windows controls.** Double-click files to enable or disable the server and its configured tunnel.
+
+## How It Works
+
+```text
+Phone / computer browser
+        |
+        | HTTPS + WebSocket
+        v
+Cloudflare Tunnel (optional)
+        |
+        v
+Local Node.js server (127.0.0.1:4545)
+        |
+        | Private CDP bridge (127.0.0.1:9229)
+        v
+Codex Desktop -> its owning App Server
+```
+
+When Desktop is unavailable, Remote can fall back to a standalone App Server. Standalone mode does **not** share the desktop process's live events. Check the active transport at `/health`.
+
+## Requirements
+
+| Component | Requirement |
+| --- | --- |
+| Host | Windows 10/11, or macOS |
+| Runtime | Node.js **22.19 or later**, with npm |
+| Codex | Installed and authenticated Codex Desktop / compatible bundled CLI |
+| Desktop sync | Desktop debug endpoint on loopback port `9229` |
+| Public access | Optional `cloudflared`; a Cloudflare-managed hostname for the Windows helper |
+| Windows tunnel helper | PowerShell 7 and an authenticated `cf` CLI |
+
+This application uses internal desktop interfaces. Compatibility may change when Codex Desktop updates. Linux desktop integration is not validated.
+
+## Quick Start
+
+### 1. Clone
+
+```bash
+git clone https://github.com/CoralFlower325/Codex-remote.git
+cd Codex-remote
+```
+
+### 2. Enable Desktop Synchronization
+
+Save your work and fully quit Codex Desktop before launching it with the debug argument. This setup does not require Remote to restart Desktop during normal use.
+
+For a Windows Store installation, in PowerShell:
+
+```powershell
+$package = Get-AppxPackage -Name "*Codex*" | Select-Object -First 1
+& (Join-Path $package.InstallLocation "app\Codex.exe") --remote-debugging-port=9229 --remote-debugging-address=127.0.0.1
+```
+
+For another Windows installation, launch its actual `Codex.exe` with the same arguments. Package layouts can vary.
+
+On macOS:
+
+```bash
+open -a Codex --args --remote-debugging-port=9229 --remote-debugging-address=127.0.0.1
+```
+
+Verify locally:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:9229/json/list
+```
+
+The result should include a page whose URL contains `app://-/index.html`. Keep this endpoint private; it can control the local app.
+
+### 3. Install and Run
+
+**Windows**
+
+```powershell
+npm run setup:windows
+npm start
+```
+
+The setup script installs locked dependencies, builds the app, and prompts for an access password if one does not exist.
+
+**macOS / manual setup**
+
+```bash
+npm ci
+npm run build
+npm run set-password
+npm start
+```
+
+Open **http://127.0.0.1:4545** and sign in. Initial password setup is accepted only from the host computer.
+
+### 4. Confirm the Transport
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:4545/health
+```
+
+For live desktop synchronization, expect `codex: ready` and `transport: desktop`. A `standalone` transport means Remote is using a separate App Server.
+
+## Windows Start / Stop
+
+After building and setting the password:
+
+| File | Behavior |
+| --- | --- |
+| `Start Remote.cmd` | Enables and starts scheduled tasks, checks local readiness, and opens the configured page |
+| `Stop Remote.cmd` | Stops server and tunnel, and disables their login tasks |
+
+Stopping Remote leaves Codex Desktop running. The tasks stay disabled across sign-in until Start is used again. Repeated Start does not create another running instance.
+
+The first Start installs the current-user scheduled tasks when they are missing. If `data/cloudflared-token` exists, the tunnel task is included.
+
+For terminal use:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/remote-control-windows.ps1 -Action Start -NoBrowser
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/remote-control-windows.ps1 -Action Status
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/remote-control-windows.ps1 -Action Stop
+```
+
+Task installation and removal:
+
+```powershell
+npm run install-task:windows
+npm run uninstall-task:windows
+```
+
+On macOS, `bash scripts/install-service.sh` installs a login LaunchAgent for the web server. The double-click controls are Windows-specific.
+
+## Public Access
+
+Local access does not require a domain. For a stable public URL, configure a hostname such as `codex.example.com`.
+
+### Windows Cloudflare Helper
+
+Install `cloudflared` and PowerShell 7, install the Cloudflare `cf` CLI, and authenticate:
+
+```powershell
+npm install --global cf
+cf auth login
+cf auth whoami
+npm run tunnel:windows -- -PublicHost codex.example.com
+```
+
+The helper creates or reuses a remotely managed tunnel, sets its ingress, creates a matching DNS record when absent, saves the tunnel token locally, updates `.env`, and installs login tasks. An existing DNS record pointing elsewhere is not overwritten.
+
+The tunnel targets `http://127.0.0.1:4545`. Its readiness endpoint is `http://127.0.0.1:20241/ready`; ordinary connection logs are written to `data/cloudflared.log`. These are local diagnostics.
+
+### macOS
+
+The included `scripts/cloudflared-tunnel.sh` is a legacy, interactive, locally managed setup. It writes `~/.cloudflared/config.yml` and installs a system service, requiring `sudo`. Review it before use if cloudflared is already configured. This path has not been revalidated on macOS in this release.
+
+Another HTTPS reverse proxy is possible when it supports WebSocket upgrades and forwards to the local server. Set `PUBLIC_ORIGIN` and `ALLOWED_ORIGINS` accordingly. Do not expose the desktop debug port.
+
+## Configuration
+
+Copy `.env.example` to `.env` for overrides:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `HOST` | `127.0.0.1` | Local web listener |
+| `PORT` | `4545` | Web server port |
+| `PUBLIC_ORIGIN` | Empty | Final HTTPS origin |
+| `ALLOWED_ORIGINS` | Empty | Additional comma-separated browser origins |
+| `CODEX_BINARY` | Auto-detected | Explicit path to the bundled Codex CLI |
+| `CODEX_HOME` | `~/.codex` | Codex state and configuration directory |
+| `CODEX_WORKDIR` | Home directory | Default working directory |
+| `CODEX_DESKTOP_DEBUG_PORT` | `9229` | Local Desktop debug endpoint |
+| `TRUST_PROXY` | `1` | Trust forwarding headers behind the intended local proxy |
+| `SESSION_DAYS` | `30` | Browser session lifetime |
+
+Keep `HOST` on loopback when using a local tunnel or reverse proxy. The Windows tunnel helper assumes port `4545` unless you pass its `-LocalUrl` parameter.
+
+Codex CLI detection checks Windows app packages, local standalone installations, and `PATH`. On macOS it checks supported app locations, the local standalone installation, and `PATH`. Set `CODEX_BINARY` if auto-detection does not find your installation.
+
+## Models, Permissions, and State
+
+- Models are read from native `model/list`; reasoning levels use each model's `supportedReasoningEfforts`. There is no fixed universal set of available levels.
+- Custom providers are configured in Codex, not in a separate Remote provider editor. Their exposed catalog determines the available choices.
+- Model and project metadata refresh on connection. They are not continuously refreshed while the connection stays open. Currently, these two lists read their first requested page; task history, task lists, and permission profiles have separate pagination.
+- New chats currently initialize reasoning from the model catalog default. This can differ from a global Codex configuration override; select the desired level explicitly.
+- Permission profiles come from `permissionProfile/list` and update the current chat. Builtins include `:read-only`, `:workspace`, and `:danger-full-access`.
+- Unsent drafts live in browser `sessionStorage`. They survive switching chats and reconnecting, but do not synchronize with the Desktop composer or other devices.
+- Uploads are sent to the local Codex workflow. The remote UI does not implement a separate hosted model service.
+
+## Security and Privacy
+
+This is a control surface for **one trusted operator's own machine**, not a multi-user hosting platform. A logged-in operator can access chats, images, and the capabilities allowed by the selected native permission profile.
+
+- Set a strong access password and use HTTPS for remote access.
+- Passwords use salted `scrypt` hashes. Sessions use signed, HTTP-only cookies, with `Secure` enabled over HTTPS and `SameSite=Strict`.
+- Wrong-password attempts are rate-limited. Reset the password locally with `npm run set-password`.
+- Keep `.env`, `data/`, tunnel credentials, session secrets, logs, and browser authentication exports private.
+- Keep the Codex debug endpoint and the App Server transport on the host. Publish only the protected web origin.
+- Full access can execute host actions; review the permission profile before running a task.
+
+The source release excludes local runtime data and old development history. Documentation screenshots use synthetic data. See [SECURITY.md](SECURITY.md) for private vulnerability reporting.
+
+## Development
+
+```bash
+npm ci
+npm run dev
+```
+
+Vite serves the frontend, and the development server forwards API/WebSocket traffic to the local backend. Do not run another Remote backend against the same desktop relay while a production instance is active.
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+The publication baseline has **50 tests across 13 test files**. CI runs type checking, tests, and a production build on Windows and Ubuntu; an Ubuntu build does not establish Linux desktop support.
+
+```text
+src/client/       React workspace, composer, history, approvals, reconnect
+src/server/       Express, authentication, desktop bridge, native history
+src/shared/       Protocol and permission helpers
+scripts/          Setup, service, tunnel, and Windows controls
+public/           Application assets
+docs/images/      Sanitized documentation screenshots
+```
+
+## Known Limits
+
+- Interface labels are currently Simplified Chinese; both English and Chinese documentation are provided.
+- This is an independent adaptation, not a pixel-exact copy of every Codex Desktop screen.
+- Internal Desktop protocol changes can break synchronization; standalone fallback cannot reproduce Desktop live events.
+- Command records are not an interactive terminal. The inspector derives review and file information from loaded chat history, not an unrestricted project explorer.
+- Live command approval is verified. File-change, user-input, and persistent command/network-policy approvals have helpers and tests but still need dedicated live acceptance.
+- Browser dictation requires browser support and microphone permission; actual spoken input has not been accepted in the release verification.
+- Heartbeats recover stale connections, but cannot guarantee network uptime. Interrupted requests are not replayed automatically.
+- Windows is the live-tested deployment. macOS scripts are included without equivalent end-to-end acceptance in this release.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Desktop chats do not update live | `/health` must report `transport: desktop`; confirm the debug target and authenticated Desktop app |
+| History appears incomplete | Load older history pages; confirm that the app is using the owning Desktop backend |
+| A model or reasoning level is absent | Check the catalog returned by Codex; reconnect after changing the provider |
+| Windows Start cannot find build output | Run `npm ci` and `npm run build` first |
+| Public URL fails but localhost works | Check tunnel readiness, its login task, DNS, and `data/cloudflared.log` |
+| Connection stalls after sleep | Return to the foreground or restore the network; the client probes and reconnects |
+| Password forgotten | Run `npm run set-password` on the host |
+| Codex logs an ignored global setting | Check your local Codex config; Remote does not manage deprecated global settings |
+
+When reporting a problem, include the operating system, Node version, relevant Codex version, transport, and a redacted error. Never include tokens, `.env`, auth files, raw chat exports, or unredacted screenshots.
+
+## Contributing
+
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, verification, and privacy expectations.
+
+## Credits and License
+
+Released under the [MIT License](LICENSE).
+
+- Original project: [Bones-star588/codex-remote](https://github.com/Bones-star588/codex-remote), copyright 2026 lezi-fun.
+- Workspace and review UI reference: [Bones-star588/codex-webui](https://github.com/Bones-star588/codex-webui), copyright 2026 lezi-fun.
+- Windows port and this distribution: [CoralFlower325](https://github.com/CoralFlower325).
+- Built with React, TypeScript, Vite, Express, WebSocket, and Lucide icons.
+
+Full upstream notices are preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Codex and related branding belong to OpenAI; the software license does not grant trademark rights.

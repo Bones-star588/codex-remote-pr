@@ -1,0 +1,8 @@
+@echo off
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\remote-control-windows.ps1" -Action Stop
+if errorlevel 1 (
+  echo.
+  echo Could not stop Codex Remote. See the error above.
+  pause
+  exit /b 1
+)
