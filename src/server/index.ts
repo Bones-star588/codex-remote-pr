@@ -28,6 +28,8 @@ import { readWorkspaceBootstrap } from './bootstrap.js';
 import { readOpenThread } from './thread-open.js';
 import { TerminalManager } from './terminal-manager.js';
 import { handleTerminalSocket } from './terminal-socket.js';
+import { EphemeralChats } from './ephemeral-chats.js';
+import { QueueDispatcher } from './queue-dispatcher.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -42,7 +44,10 @@ const wss = new WebSocketServer({
   }
 });
 const clients = new Set<WebSocket>();
-const watchedThreads = new Map<WebSocket, string | null>();
+const watchedThreads = new Map<WebSocket, Set<string>>();
+const ephemeralChats = new EphemeralChats<WebSocket>(threadId => codexBridge.request('thread/unsubscribe', { threadId }));
+const queueDispatcher = new QueueDispatcher(<T,>(method: import('../shared/protocol.js').ClientRpcMethod, params: unknown) =>
+  codexBridge.request(method, params) as Promise<T>);
 const terminalWss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024 });
 const terminals = new TerminalManager(config.codexWorkdir);
 terminalWss.on('connection', (socket) => handleTerminalSocket(socket, terminals));
@@ -233,6 +238,17 @@ app.get(
 );
 
 app.get(
+  '/api/side-chat',
+  requireAuth,
+  asyncRoute((req, res) => {
+    const snapshot = ephemeralChats.snapshot(String(req.query.threadId ?? ''));
+    if (!snapshot) { res.status(404).json({ error: 'Temporary chat is no longer available.' }); return; }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(snapshot);
+  })
+);
+
+app.get(
   '/api/thread/open',
   requireAuth,
   asyncRoute(async (req, res) => {
@@ -372,7 +388,7 @@ server.on('upgrade', (req, socket, head) => {
 
 wss.on('connection', (socket) => {
   clients.add(socket);
-  watchedThreads.set(socket, null);
+  watchedThreads.set(socket, new Set());
   send(socket, {
     type: 'hello',
     connectedAt: new Date().toISOString(),
@@ -394,6 +410,7 @@ wss.on('connection', (socket) => {
   socket.on('close', () => {
     clients.delete(socket);
     watchedThreads.delete(socket);
+    ephemeralChats.disconnect(socket);
   });
 });
 
@@ -411,13 +428,29 @@ async function handleClientMessage(socket: WebSocket, raw: string): Promise<void
     return;
   }
   if (message.type === 'thread.watch') {
-    watchedThreads.set(socket, message.threadId);
+    const ids = [message.threadId, ...(message.additionalThreadIds ?? [])].filter((id): id is string => typeof id === 'string');
+    watchedThreads.set(socket, new Set(ids));
+    ephemeralChats.claim(message.additionalThreadIds ?? [], socket);
     return;
   }
 
   if (message.type === 'rpc') {
     try {
       const result = await codexBridge.request(message.method, message.params ?? {});
+      const params = message.params as { ephemeral?: boolean; threadId?: string;
+        clientUserMessageId?: string; input?: unknown[]; expectedTurnId?: string } | undefined;
+      if ((message.method === 'thread/start' || message.method === 'thread/fork') && params?.ephemeral) {
+        const id = (result as { thread: { id: string } }).thread.id;
+        ephemeralChats.add(id, socket);
+        if (socket.readyState !== WebSocket.OPEN) ephemeralChats.disconnect(socket);
+      }
+      if (message.method === 'thread/unsubscribe' && params?.threadId) ephemeralChats.remove(params.threadId);
+      if ((message.method === 'turn/start' || message.method === 'turn/steer') &&
+          params?.threadId && params.clientUserMessageId && params.input) {
+        const turnId = message.method === 'turn/start' ? (result as { turn: { id: string } }).turn.id : params.expectedTurnId!;
+        ephemeralChats.recordInput(params.threadId, turnId, params.clientUserMessageId, params.input);
+      }
+      if (message.method === 'thread/queue/add' && params?.threadId) void queueDispatcher.track(params.threadId);
       send(socket, { type: 'rpc.result', id: message.id, result });
     } catch (error) {
       send(socket, {
@@ -448,7 +481,7 @@ function broadcast(message: ServerMessage): void {
     ? (message.params as { threadId?: string })?.threadId
     : null;
   const recipients = [...clients].filter((client) =>
-    client.readyState === WebSocket.OPEN && (!threadId || watchedThreads.get(client) === threadId)
+    client.readyState === WebSocket.OPEN && (!threadId || watchedThreads.get(client)?.has(threadId))
   );
   if (recipients.length === 0) return;
   const payload = JSON.stringify(message);
@@ -460,7 +493,9 @@ function send(socket: WebSocket, message: ServerMessage): void {
 }
 
 codexBridge.on('event', ({ method, params }) => {
+  ephemeralChats.record(method, params ?? {});
   broadcast({ type: 'event', method, params });
+  if (method === 'turn/completed' && params?.threadId) void queueDispatcher.drain(params.threadId);
 });
 codexBridge.on('server-request', ({ requestId, method, params }) => {
   broadcast({ type: 'server.request', requestId, method, params });

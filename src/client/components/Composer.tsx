@@ -2,7 +2,7 @@ import {
   ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, Eye, Folder,
   LoaderCircle, ShieldAlert, ShieldCheck, Square, X, Plus, Mic, FileImage, MessageSquare, Sparkles, ListTodo
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { permissionLabel, type PermissionProfile } from '../../shared/permissions';
 import type { ComposerAttachment, ContextUsage, ModelInfo, ProjectInfo, SkillInfo, SkillsResult } from '../types';
@@ -24,6 +24,9 @@ interface ComposerProps {
   activeTurnId?: string | null;
   focusRequest?: number;
   draftKey?: string;
+  temporary?: boolean;
+  queueMessages?: boolean;
+  initialInput?: { text: string; attachments: ComposerAttachment[]; skills: SkillInfo[] };
   disabled?: boolean;
   placeholder?: string;
   onProjectChange?: (projectId: string) => void;
@@ -45,14 +48,15 @@ export function Composer({
   projects = [], selectedProjectId = '', activeTurnId, focusRequest = 0,
   draftKey = variant, disabled = false, placeholder, onProjectChange,
   onModelChange, onEffortChange, onSubmit, onStop, onError, contextUsage,
-  onCommand, loadSkills, skillScope, hasSavedThread, mode
+  onCommand, loadSkills, skillScope, hasSavedThread, mode, temporary = false, initialInput, queueMessages = false
 }: ComposerProps) {
-  const [draft, setDraft] = useState(() => sessionStorage.getItem(`draft:${draftKey}`) ?? '');
+  const controlId = useId();
+  const [draft, setDraft] = useState(() => initialInput?.text ?? (temporary ? '' : sessionStorage.getItem(`draft:${draftKey}`) ?? ''));
   const [sending, setSending] = useState(false);
   const [changing, setChanging] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const [selectedSkills, setSelectedSkills] = useState<SkillInfo[]>([]);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>(initialInput?.attachments ?? []);
+  const [selectedSkills, setSelectedSkills] = useState<SkillInfo[]>(initialInput?.skills ?? []);
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsError, setSkillsError] = useState<string | null>(null);
@@ -89,13 +93,15 @@ export function Composer({
   const options = useMemo(() => slashOptions(slashQuery ?? { name: '', argument: '' }, skills, {
     hasThread: hasSavedThread, running: Boolean(activeTurnId), skillsOnly
   }), [slashQuery?.name, slashQuery?.argument, skills, hasSavedThread, activeTurnId, skillsOnly]);
-  const slashId = `slash-${variant}`;
+  const slashId = `slash-${controlId}`;
 
   const updateDraft = (text: string) => {
     draftRef.current = text;
     setDraft(text);
-    if (text) sessionStorage.setItem(`draft:${draftKey}`, text);
-    else sessionStorage.removeItem(`draft:${draftKey}`);
+    if (!temporary) {
+      if (text) sessionStorage.setItem(`draft:${draftKey}`, text);
+      else sessionStorage.removeItem(`draft:${draftKey}`);
+    }
     setSlashDismissed(false);
   };
   useEffect(() => {
@@ -138,7 +144,7 @@ export function Composer({
       const transcript = Array.from(event.results).map((result) => result[0]?.transcript ?? '').join('');
       setDraft((current) => {
         const next = `${current}${current && !/\s$/.test(current) ? ' ' : ''}${transcript}`;
-        sessionStorage.setItem(`draft:${draftKey}`, next);
+        if (!temporary) sessionStorage.setItem(`draft:${draftKey}`, next);
         return next;
       });
     };
@@ -327,7 +333,7 @@ export function Composer({
       setSelectedSkills([]);
       if (draftRef.current.trim() === text) {
         setDraft('');
-        sessionStorage.removeItem(`draft:${draftKey}`);
+        if (!temporary) sessionStorage.removeItem(`draft:${draftKey}`);
       }
     } catch (error) {
       onError(error);
@@ -447,8 +453,8 @@ export function Composer({
         </div>}
         <input type="file" ref={fileRef} hidden multiple accept="image/*"
           onChange={(event) => void addFiles(event.target.files)} />
-        <label className="sr-only" htmlFor={`composer-${variant}`}>{variant === 'home' ? '输入任务内容' : '继续当前任务'}</label>
-        <textarea id={`composer-${variant}`} ref={textareaRef} value={draft}
+        <label className="sr-only" htmlFor={controlId}>{temporary ? '侧边聊天消息' : variant === 'home' ? '输入任务内容' : '继续当前任务'}</label>
+        <textarea id={controlId} ref={textareaRef} value={draft}
           role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded={slashOpen}
           aria-controls={slashOpen ? slashId : undefined}
           aria-activedescendant={slashOpen && options[slashIndex] ? `${slashId}-${slashIndex}` : undefined}
@@ -549,8 +555,8 @@ export function Composer({
               </button>
             ) : (
               <button type="button" className="composer-send" disabled={(!draft.trim() && attachments.length === 0 && selectedSkills.length === 0) || sending || disabled}
-                onClick={() => void submit()} aria-label={activeTurnId ? '发送补充要求' : '发送任务'}
-                title={activeTurnId ? '发送补充要求' : '发送任务'}>
+                 onClick={() => void submit()} aria-label={activeTurnId ? queueMessages ? '加入队列' : '发送补充要求' : '发送任务'}
+                 title={activeTurnId ? queueMessages ? '加入队列' : '发送补充要求' : '发送任务'}>
                 {sending ? <LoaderCircle size={17} className="spin" /> : <ArrowUp size={18} />}
               </button>
             )}

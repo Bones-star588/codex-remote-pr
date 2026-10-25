@@ -1,5 +1,5 @@
 import {
-  Archive, ChevronDown, ChevronRight, CircleAlert, CircleHelp, FolderOpen,
+  Archive, ArchiveRestore, ChevronDown, ChevronRight, CircleAlert, CircleHelp, FolderOpen, FolderPlus,
   LoaderCircle, LogOut, MessageSquare, Plus, RefreshCw, Search, Wrench, X
 } from 'lucide-react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
@@ -7,6 +7,7 @@ import { displayThreadTitle } from '../remote-state';
 import type { RemoteState } from '../useRemote';
 import type { Thread } from '../types';
 import { buildSidebarGroups, connectionLabel } from '../workspace-model';
+import { WorkspaceFolderDialog } from './WorkspaceFolderDialog';
 
 interface SidebarProps {
   remote: RemoteState;
@@ -30,6 +31,7 @@ export function Sidebar({
   const [searchOpen, setSearchOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [expansion, setExpansion] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(localStorage.getItem('sidebar-project-expansion') ?? '{}') as Record<string, boolean>; }
     catch { return {}; }
@@ -116,9 +118,10 @@ export function Sidebar({
         </button>
       </div>
       <div className="sidebar-scroll">
-        <button type="button" className="sidebar-row sidebar-projects-button" onClick={() => setProjectPickerOpen(true)}>
+        <div className="sidebar-project-heading"><button type="button" className="sidebar-row sidebar-projects-button" onClick={() => setProjectPickerOpen(true)}>
           <FolderOpen size={16} /><span>项目</span>
-        </button>
+        </button><button type="button" className="icon-button" aria-label="添加工作区" title="添加工作区"
+          onClick={() => setFolderDialogOpen(true)}><FolderPlus size={16} /></button></div>
         <nav aria-label="项目和任务">
           {remote.threadsLoading && remote.threads.length === 0 && (
             <div className="sidebar-skeleton" aria-label="正在加载任务"><span /><span /><span /></div>
@@ -140,6 +143,8 @@ export function Sidebar({
                 {expanded && section.threads.map((thread) => (
                   <ThreadRow key={thread.id} thread={thread} active={thread.id === activeThreadId}
                     needsAttention={remote.serverRequests.some((request) => request.params.threadId === thread.id)}
+                    onArchive={() => remote.archiveThread(thread.id, !remote.showArchived)}
+                    onError={error => remote.setLastError(error instanceof Error ? error.message : String(error))}
                     onClick={() => onSelectThread(thread.id)} />
                 ))}
               </section>
@@ -181,18 +186,24 @@ export function Sidebar({
               projectDialogRef.current?.close(); onNewTask(project.id);
             }}><FolderOpen size={18} /><span><strong>{project.name}</strong><small>{project.roots[0]?.path}</small></span><Plus size={16} /></button>
           ))}
+          <button type="button" className="project-dialog-row" onClick={() => {
+            projectDialogRef.current?.close(); setFolderDialogOpen(true);
+          }}><FolderPlus size={18} /><span>添加工作区</span></button>
         </dialog>
       )}
+      {folderDialogOpen && <WorkspaceFolderDialog remote={remote} onSelect={onNewTask} onClose={() => setFolderDialogOpen(false)} />}
     </aside>
   );
 }
 
-function ThreadRow({ thread, active, needsAttention, onClick }: {
+function ThreadRow({ thread, active, needsAttention, onClick, onArchive, onError }: {
   thread: Thread; active: boolean; needsAttention: boolean; onClick: () => void;
+  onArchive: () => Promise<void>; onError: (error: unknown) => void;
 }) {
+  const [busy, setBusy] = useState(false);
   const running = thread.status.type === 'active';
   return (
-    <button type="button" className={`thread-row${active ? ' thread-row--active' : ''}`} onClick={onClick}
+    <div className="thread-row-container"><button type="button" className={`thread-row${active ? ' thread-row--active' : ''}`} onClick={onClick}
       aria-current={active ? 'page' : undefined} title={displayThreadTitle(thread)} data-thread-id={thread.id}>
       <span className="thread-state" aria-hidden="true">
         {needsAttention ? <CircleAlert size={13} /> : running ? <LoaderCircle size={12} className="spin" /> : null}
@@ -200,5 +211,9 @@ function ThreadRow({ thread, active, needsAttention, onClick }: {
       {needsAttention && <span className="sr-only">等待审批：</span>}
       <span className="thread-row-title">{displayThreadTitle(thread)}</span>
     </button>
+    <button type="button" className="thread-archive icon-button" aria-label={thread.archived ? '恢复聊天' : '归档聊天'}
+      title={thread.archived ? '恢复聊天' : '归档聊天'} disabled={busy} onClick={() => {
+        setBusy(true); void onArchive().catch(onError).finally(() => setBusy(false));
+      }}>{busy ? <LoaderCircle size={14} className="spin" /> : thread.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}</button></div>
   );
 }

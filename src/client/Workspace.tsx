@@ -28,6 +28,9 @@ import type { ComposerAttachment, SkillInfo, Thread, WorkspaceBootstrap } from '
 import { modelDisplayName, reasoningLabel, resolveReasoningEffort } from './workspace-model';
 import { collaborationMode, slashCommands, type SlashCommandId } from './slash-commands';
 import { permissionLabel } from '../shared/permissions';
+import type { ChatInput } from './queued-messages';
+import { turnInput } from './slash-commands';
+import { QueuedMessages } from './components/QueuedMessages';
 
 interface WorkspaceProps {
   onAuthExpired: () => void;
@@ -57,6 +60,7 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
   const [newTaskMode, setNewTaskMode] = useState<'default' | 'plan'>('default');
   const [commandDialog, setCommandDialog] = useState<CommandDialogState | null>(null);
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
+  const [sideChatRequest, setSideChatRequest] = useState<{ id: number; input?: ChatInput } | null>(null);
 
   const activeThread = remote.activeThread;
   const defaultModel = remote.models.find((model) => model.isDefault) ?? remote.models[0];
@@ -240,6 +244,11 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
     }, attachments, skills);
   }
 
+  function openSideChat(input: ChatInput) {
+    setSideChatRequest({ id: Date.now(), input });
+    setInspectorOpen(true);
+  }
+
   async function logout() {
     try {
       await api('/api/auth/logout', { method: 'POST' });
@@ -383,6 +392,7 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
             onSubmit={submitThread}
             onError={showError}
             commandProps={commandProps}
+            onOpenSideChat={openSideChat}
           />
         ) : (
           <HomeView
@@ -412,13 +422,15 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
       </main>
 
       <Inspector
-        key={activeThread?.id ?? 'home'}
         open={inspectorOpen}
         view={inspectorView}
         layout={layout}
         thread={activeThread}
         items={remote.items}
         onClose={() => setInspectorOpen(false)}
+        remote={remote}
+        cwd={permissionCwd}
+        sideChatRequest={sideChatRequest}
       />
       {commandDialog && <CommandDialog key={`${activeThread?.id ?? 'home'}:${commandDialog.type}`}
         state={commandDialog}
@@ -522,7 +534,8 @@ function ThreadScreen({
   onEffortChange,
   onSubmit,
   onError,
-  commandProps
+  commandProps,
+  onOpenSideChat
 }: {
   remote: ReturnType<typeof useRemote>;
   thread: Thread;
@@ -536,7 +549,10 @@ function ThreadScreen({
   onSubmit: (text: string, attachments: ComposerAttachment[], skills: SkillInfo[]) => Promise<void>;
   onError: (error: unknown) => void;
   commandProps: Pick<Parameters<typeof Composer>[0], 'onCommand' | 'loadSkills' | 'skillScope' | 'hasSavedThread' | 'mode'>;
+  onOpenSideChat: (input: ChatInput) => void;
 }) {
+  const [queueEnabled, setQueueEnabled] = useState(true);
+  useEffect(() => { if (!remote.activeTurnId) setQueueEnabled(true); }, [remote.activeTurnId]);
   return (
     <div className="thread-screen">
       <ThreadTimeline
@@ -559,6 +575,8 @@ function ThreadScreen({
         onRevealHistory={remote.revealHistory}
         onCancelHistoryReveal={remote.cancelHistoryReveal}
         onReturnToLatest={remote.returnToLatest}
+        onFork={turnId => remote.forkThread(thread.id, turnId)}
+        onActionError={onError}
       />
 
       <div className="thread-bottom">
@@ -567,6 +585,10 @@ function ThreadScreen({
           onRespond={remote.respondToRequest}
           onError={onError}
         />
+        {!remote.isNewThread && <QueuedMessages transport={remote.chatTransport} threadId={thread.id}
+          activeTurnId={remote.activeTurnId} connected={remote.connected}
+          onError={onError} onOpenSideChat={onOpenSideChat}
+          queueEnabled={queueEnabled} onQueueEnabledChange={setQueueEnabled} />}
         <Composer
           {...commandProps}
           variant="thread"
@@ -580,10 +602,17 @@ function ThreadScreen({
           onPermissionsChange={onPermissionsChange}
           models={remote.models}
           activeTurnId={remote.activeTurnId}
+          queueMessages={queueEnabled}
           {...(remote.contextUsage ? { contextUsage: remote.contextUsage } : {})}
           onModelChange={onModelChange}
           onEffortChange={onEffortChange}
-          onSubmit={onSubmit}
+          onSubmit={async (text, attachments, skills) => {
+            if (remote.activeTurnId && queueEnabled) {
+              await remote.chatTransport.rpc('thread/queue/add', {
+                threadId: thread.id, clientUserMessageId: crypto.randomUUID(), input: turnInput(text, attachments, skills)
+              });
+            } else await onSubmit(text, attachments, skills);
+          }}
           {...(remote.activeTurnId
             ? { onStop: () => remote.interruptTurn(thread.id, remote.activeTurnId!) }
             : {})}

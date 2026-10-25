@@ -14,6 +14,8 @@ import {
   Play,
   TerminalSquare
 } from 'lucide-react';
+import { Copy, Check, MoreHorizontal, GitFork } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -47,6 +49,8 @@ interface ThreadTimelineProps {
   onRevealHistory?: (turnId: string, itemId: string) => Promise<boolean>;
   onCancelHistoryReveal?: () => void;
   onReturnToLatest?: () => Promise<void>;
+  onFork?: (turnId: string) => Promise<void>;
+  onActionError?: (error: unknown) => void;
 }
 
 const INITIAL_ACTIVITY_ITEMS = 60;
@@ -70,7 +74,9 @@ export function ThreadTimeline({
   onLoadLater,
   onRevealHistory,
   onCancelHistoryReveal,
-  onReturnToLatest
+  onReturnToLatest,
+  onFork,
+  onActionError
 }: ThreadTimelineProps) {
   const streamRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
@@ -256,7 +262,8 @@ export function ThreadTimeline({
       {sections.map((section) => section.user
         ? <MessageItem item={(section.entries[0] as Extract<TimelineEntry, { type: 'message' }>).item} key={section.key} />
         : <ResponseSection section={section} timing={section.showTiming && section.turnId ? turnTimings[section.turnId] : undefined}
-            active={section.turnId === activeTurnId} onInteract={preserveActivityPosition} key={section.key} />
+            active={section.turnId === activeTurnId} onInteract={preserveActivityPosition} key={section.key}
+            onFork={onFork} onError={onActionError} />
       )}
       {!viewingHistory && activeTurnId && !sections.some((section) => !section.user && section.turnId === activeTurnId) && (
         <div className="turn-response"><div className="worked-divider">
@@ -293,11 +300,13 @@ export function ThreadTimeline({
   );
 }
 
-const ResponseSection = memo(function ResponseSection({ section, timing, active, onInteract }: {
+const ResponseSection = memo(function ResponseSection({ section, timing, active, onInteract, onFork, onError }: {
   section: TimelineSection;
   timing: TurnTiming | undefined;
   active: boolean;
   onInteract: () => void;
+  onFork: ((turnId: string) => Promise<void>) | undefined;
+  onError: ((error: unknown) => void) | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const bodyId = useId();
@@ -323,8 +332,58 @@ const ResponseSection = memo(function ResponseSection({ section, timing, active,
     </div>}
     {(!completed || open) && <div className="turn-activity" id={bodyId}>{trace.map(renderEntry)}</div>}
     {answer.map(renderEntry)}
+    {!active && finalIndex >= 0 && <ReplyActions text={section.entries.slice(finalIndex).flatMap(entry =>
+      entry.type === 'message' && entry.item.type === 'agentMessage' ? [entry.item.text] : []).join('\n\n')}
+      turnId={section.turnId} onFork={onFork} onError={onError} />}
   </section>;
 });
+
+function ReplyActions({ text, turnId, onFork, onError }: {
+  text: string; turnId: string | undefined;
+  onFork: ((turnId: string) => Promise<void>) | undefined; onError: ((error: unknown) => void) | undefined;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [menu, setMenu] = useState<{ left: number; top: number } | null>(null);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1800);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); close(); } };
+    window.addEventListener('keydown', keydown, true);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('keydown', keydown, true);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [menu]);
+  return <div className="reply-actions">
+    <button type="button" className="icon-button" aria-label={copied ? '已复制回复' : '复制回复'}
+      title={copied ? '已复制' : '复制回复'} onClick={() => {
+        void navigator.clipboard.writeText(text).then(() => setCopied(true)).catch(onError);
+      }}>{copied ? <Check size={15} /> : <Copy size={15} />}</button>
+    {onFork && turnId && <button type="button" className="icon-button" aria-label="回复操作" title="回复操作"
+      disabled={busy} aria-haspopup="menu" aria-expanded={Boolean(menu)} onClick={event => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        setMenu({ left: Math.max(8, Math.min(rect.left, innerWidth - 220)), top: Math.max(8, rect.top - 48) });
+      }}><MoreHorizontal size={17} /></button>}
+    {menu && createPortal(<>
+      <button type="button" className="queue-menu-backdrop" aria-label="关闭回复菜单" onClick={() => setMenu(null)} />
+      <div className="queue-menu" role="menu" style={menu}>
+        <button type="button" role="menuitem" onClick={() => {
+          setMenu(null); setBusy(true);
+          void onFork!(turnId!).catch(onError).finally(() => setBusy(false));
+        }}><GitFork size={15} />分支到新聊天</button>
+      </div>
+    </>, document.body)}
+  </div>;
+}
 
 function TurnDuration({ timing, active }: { timing: TurnTiming | undefined; active: boolean }) {
   const [now, setNow] = useState(Date.now);

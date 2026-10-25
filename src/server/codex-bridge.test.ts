@@ -21,7 +21,9 @@ describe('Codex bridge method allowlist', () => {
 
 describe('command RPC access', () => {
   it('allows the native command methods without permitting arbitrary config or execution methods', () => {
-    for (const method of ['skills/list', 'collaborationMode/list', 'thread/compact/start', 'thread/fork', 'review/start']) {
+    for (const method of ['skills/list', 'collaborationMode/list', 'thread/compact/start', 'thread/fork', 'review/start',
+      'thread/unsubscribe', 'thread/queue/list', 'thread/queue/add', 'thread/queue/update', 'thread/queue/delete',
+      'thread/queue/start', 'fs/readDirectory', 'fs/createDirectory', 'project/create']) {
       expect(isAllowedRpcMethod(method), method).toBe(true);
     }
     for (const method of ['config/write', 'command/exec', 'anything/else']) {

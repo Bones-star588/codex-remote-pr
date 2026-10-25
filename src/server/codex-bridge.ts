@@ -33,6 +33,7 @@ const READ_METHODS = new Set<ClientRpcMethod>([
   'thread/read',
   'thread/turns/list',
   'thread/items/list',
+  'thread/queue/list',
   'model/list',
   'permissionProfile/list',
   'skills/list',
@@ -52,7 +53,10 @@ const READ_METHODS = new Set<ClientRpcMethod>([
 ]);
 
 const WRITE_METHODS = new Set<ClientRpcMethod>([
+  'project/create',
+  'fs/createDirectory',
   'thread/start',
+  'thread/unsubscribe',
   'thread/resume',
   'thread/name/set',
   'thread/archive',
@@ -60,6 +64,10 @@ const WRITE_METHODS = new Set<ClientRpcMethod>([
   'thread/settings/update',
   'thread/compact/start',
   'thread/fork',
+  'thread/queue/add',
+  'thread/queue/update',
+  'thread/queue/delete',
+  'thread/queue/start',
   'review/start',
   'turn/start',
   'turn/steer',

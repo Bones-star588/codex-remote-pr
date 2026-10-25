@@ -1,11 +1,16 @@
 import {
   AlignJustify, ChevronDown, ChevronsDownUp, ChevronsUpDown, Columns2,
-  FileCode2, Folder, GitBranch, TerminalSquare, WrapText, X, Plus
+  FileCode2, Folder, GitBranch, TerminalSquare, WrapText, X, Plus, MessageCirclePlus, Maximize2, Minimize2
 } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { itemKey } from '../remote-state';
 import { buildReviewTurns, splitDiffLines, type DiffLine, type ReviewFile } from '../review-model';
 import type { Thread, ThreadItem } from '../types';
+import type { RemoteState } from '../useRemote';
+import type { ChatInput } from '../queued-messages';
+import { useSideChats } from '../useSideChats';
+import { resolveReasoningEffort } from '../workspace-model';
+import { SideChatView } from './SideChatView';
 
 interface InspectorProps {
   open: boolean;
@@ -14,12 +19,33 @@ interface InspectorProps {
   onClose: () => void;
   layout: 'desktop' | 'mobile';
   view: 'changes' | 'activity' | 'files';
+  remote: RemoteState;
+  sideChatRequest: { id: number; input?: ChatInput } | null;
+  cwd?: string | undefined;
 }
 
-export function Inspector({ open, thread, items, onClose, layout, view }: InspectorProps) {
-  const [tab, setTab] = useState<'launcher' | 'changes' | 'activity' | 'files'>('changes');
+export function Inspector({ open, thread, items, onClose, layout, view, remote, sideChatRequest, cwd }: InspectorProps) {
+  const [tab, setTab] = useState<string>('changes');
+  const [expanded, setExpanded] = useState(false);
+  const sideChats = useSideChats(remote.chatTransport, remote.connected);
   const inspectorRef = useRef<HTMLElement>(null);
   useEffect(() => { setTab(view); }, [view]);
+  useEffect(() => { if (sideChatRequest) addSideChat(sideChatRequest.input); }, [sideChatRequest]);
+  useEffect(() => {
+    inspectorRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [tab, open]);
+  function addSideChat(input?: ChatInput) {
+    const model = thread?.model || remote.models.find(entry => entry.isDefault)?.model || remote.models[0]?.model || '';
+    const id = sideChats.add({
+      model, effort: resolveReasoningEffort(remote.models.find(entry => entry.model === model), thread?.reasoningEffort ?? ''),
+      permissions: thread?.permissionProfile || '', ...((thread?.cwd || cwd) ? { cwd: (thread?.cwd || cwd)! } : {}),
+      ...(thread && items.length ? { sourceThreadId: thread.id } : {}),
+      ...(thread?.projectId ? { projectId: thread.projectId } : {}),
+      ...(input ? { initialInput: input } : {})
+    });
+    setTab(id);
+  }
   useEffect(() => {
     if (!open || layout !== 'mobile') return;
     const previous = document.activeElement as HTMLElement | null;
@@ -27,22 +53,24 @@ export function Inspector({ open, thread, items, onClose, layout, view }: Inspec
     return () => previous?.focus({ preventScroll: true });
   }, [open, layout]);
 
-  if (!open) return null;
   const commands = items.filter((item) => item.type === 'commandExecution');
   const changedPaths = [...new Set(items.flatMap((item) => item.type === 'fileChange' ? item.changes.map((change) => change.path) : []))];
-  const tabs: Array<{ id: typeof tab; label: string }> = [
-    { id: 'launcher', label: '新标签页' },
-    { id: 'changes', label: `审阅 ${changedPaths.length}` },
+  const tabs: Array<{ id: string; label: string }> = [
+    ...(tab === 'launcher' ? [{ id: 'launcher', label: '新标签页' }] : []),
+    ...(tab === 'changes' || changedPaths.length ? [{ id: 'changes', label: `审阅 ${changedPaths.length}` }] : []),
     ...(tab === 'activity' ? [{ id: 'activity' as const, label: '命令记录' }] : []),
-    ...(tab === 'files' ? [{ id: 'files' as const, label: '文件' }] : [])
+    ...(tab === 'files' ? [{ id: 'files' as const, label: '文件' }] : []),
+    ...sideChats.chats.map(chat => ({ id: chat.id, label: chat.title }))
   ];
   return (
     <>
-      <button type="button" className="inspector-backdrop" aria-label="关闭检查器" onClick={onClose} tabIndex={-1} />
-      <aside id="workspace-inspector" className="inspector" ref={inspectorRef} aria-label="任务检查器"
+      {open && <button type="button" className="inspector-backdrop" aria-label="关闭检查器" onClick={onClose} tabIndex={-1} />}
+      <aside id="workspace-inspector" hidden={!open} className={`inspector${expanded ? ' inspector--expanded' : ''}`}
+        ref={inspectorRef} aria-label="任务检查器"
         onKeyDown={(event) => {
           if (event.key !== 'Tab' || layout !== 'mobile') return;
-          const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), select, summary')];
+          const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), textarea, select, summary')]
+            .filter(control => control.getClientRects().length);
           if (event.shiftKey && document.activeElement === controls[0]) {
             event.preventDefault(); controls.at(-1)?.focus();
           } else if (!event.shiftKey && document.activeElement === controls.at(-1)) {
@@ -52,20 +80,34 @@ export function Inspector({ open, thread, items, onClose, layout, view }: Inspec
         <header className="inspector-head">
           <div className="inspector-tabs" role="tablist" aria-label="检查器视图">
             {tabs.map(({ id, label }) => (
-              <button type="button" role="tab" key={id} aria-selected={tab === id}
-                id={`inspector-tab-${id}`} aria-controls="inspector-content"
+              <div key={id} className={`inspector-tab${tab === id ? ' is-active' : ''}`}>
+              <button type="button" role="tab" aria-selected={tab === id}
+                id={`inspector-tab-${id}`} aria-controls={sideChats.chats.some(chat => chat.id === id) ? `side-chat-${id}` : 'inspector-content'}
                 className={tab === id ? 'is-active' : ''} onClick={() => setTab(id)}>
+                {sideChats.chats.some(chat => chat.id === id) && <MessageCirclePlus size={14} aria-hidden="true" />}
                 {label}
               </button>
+              {sideChats.chats.some(chat => chat.id === id) && <button type="button" className="inspector-tab-close"
+                aria-label={`关闭${label}`} title={`关闭${label}`}
+                disabled={sideChats.chats.find(chat => chat.id === id)?.closing} onClick={async () => {
+                  const closed = await sideChats.close(id);
+                  if (closed && tab === id) setTab('launcher');
+                }}><X size={12} /></button>}
+              </div>
             ))}
           </div>
           <div className="inspector-head-tools">
             <button type="button" className="icon-button" onClick={() => setTab('launcher')} aria-label="新标签页" title="新标签页"><Plus size={16} /></button>
+            {layout === 'desktop' && <button type="button" className="icon-button" onClick={() => setExpanded(value => !value)}
+              aria-label={expanded ? '还原面板' : '展开面板'} title={expanded ? '还原面板' : '展开面板'}>
+              {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>}
             <button type="button" className="icon-button" onClick={onClose} aria-label="关闭检查器" title="关闭检查器"><X size={16} /></button>
           </div>
         </header>
-        <div className="inspector-body" id="inspector-content" role="tabpanel" aria-labelledby={`inspector-tab-${tab}`}>
+        <div hidden={sideChats.chats.some(chat => chat.id === tab)} className="inspector-body"
+          id="inspector-content" role="tabpanel" aria-labelledby={`inspector-tab-${tab}`}>
           {tab === 'launcher' ? <div className="inspector-launcher">
+            <button type="button" onClick={() => addSideChat()}><MessageCirclePlus size={16} />侧边聊天</button>
             <button type="button" onClick={() => setTab('changes')}><FileCode2 size={16} />审阅</button>
             <button type="button" onClick={() => setTab('activity')}><TerminalSquare size={16} />命令记录</button>
             <button type="button" onClick={() => setTab('files')}><Folder size={16} />文件</button>
@@ -86,6 +128,13 @@ export function Inspector({ open, thread, items, onClose, layout, view }: Inspec
             </div>
           )}
         </div>
+        {sideChats.chats.map(chat => <div key={chat.id} hidden={tab !== chat.id} className="side-chat-tab"
+          role="tabpanel" id={`side-chat-${chat.id}`} aria-labelledby={`inspector-tab-${chat.id}`}>
+          <SideChatView chat={chat} remote={remote} layout={layout}
+            onPatch={changes => sideChats.patch(chat.id, changes)}
+            onSend={input => sideChats.send(chat.id, input)}
+            onNew={() => addSideChat()} />
+        </div>)}
       </aside>
     </>
   );

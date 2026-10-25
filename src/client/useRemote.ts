@@ -21,6 +21,7 @@ import type { CollaborationMode, ComposerAttachment, ContextUsage, McpStatus, Re
 import { turnInput } from './slash-commands';
 import { dedupeThreads } from './workspace-model';
 import { loadedOutline, mergeOutlineTurns } from './thread-navigation';
+import type { ChatEventListener, ChatTransport } from './chat-transport';
 
 interface PendingRpc {
   resolve: (value: unknown) => void;
@@ -113,6 +114,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
   const initialBootstrapRef = useRef(bootstrap);
   const historyCacheRef = useRef(new Map<string, ThreadHistoryPage>());
   const lastRecoveryRef = useRef(0);
+  const additionalThreadsRef = useRef<string[]>([]);
+  const eventListenersRef = useRef(new Set<ChatEventListener>());
 
   activeThreadRef.current = activeThreadId;
   threadsRef.current = threads;
@@ -140,9 +143,22 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
 
   const watchThread = useCallback((threadId: string | null) => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: 'thread.watch', threadId }));
+      socketRef.current.send(JSON.stringify({ type: 'thread.watch', threadId,
+        additionalThreadIds: additionalThreadsRef.current }));
     }
   }, []);
+
+  const chatTransport = useMemo<ChatTransport>(() => ({
+    rpc,
+    subscribe(listener) {
+      eventListenersRef.current.add(listener);
+      return () => { eventListenersRef.current.delete(listener); };
+    },
+    watch(threadIds) {
+      additionalThreadsRef.current = threadIds;
+      watchThread(activeThreadRef.current);
+    }
+  }), [rpc, watchThread]);
 
   const refreshThreads = useCallback((firstPage?: NonNullable<WorkspaceBootstrap['threads']>): Promise<Thread[]> => {
     if (listRefreshRef.current) return listRefreshRef.current;
@@ -163,7 +179,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
           archived,
           ...(cursor ? { cursor } : {})
         });
-        collected.push(...(result.data ?? []).map((thread) => ({ ...thread, archived })));
+        collected.push(...(result.data ?? []).filter(thread => !thread.ephemeral).map((thread) => ({ ...thread, archived })));
         if (archived === archivedRef.current) {
           setThreads((current) => {
             const partial = dedupeThreads([...collected, ...current]);
@@ -739,8 +755,10 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     }
   }, [rpc]);
 
-  const forkThread = useCallback(async (threadId: string) => {
-    const result = await rpc<{ thread: Thread }>('thread/fork', { threadId, excludeTurns: true });
+  const forkThread = useCallback(async (threadId: string, lastTurnId?: string) => {
+    const result = await rpc<{ thread: Thread }>('thread/fork', {
+      threadId, excludeTurns: true, deferGoalContinuation: true, ...(lastTurnId ? { lastTurnId } : {})
+    });
     setThreads((current) => dedupeThreads([...current, result.thread]));
     await openThread(result.thread.id);
     await refreshThreads();
@@ -874,7 +892,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
 
   useEffect(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: 'thread.watch', threadId: activeThreadId }));
+      watchThread(activeThreadId);
     }
   }, [activeThreadId, connected]);
 
@@ -977,6 +995,9 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
   }
 
   function handleCodexEvent(method: string, params: Record<string, unknown>): void {
+    for (const listener of eventListenersRef.current) listener(method, params);
+    const eventThread = params.thread as Thread | undefined;
+    if (eventThread?.ephemeral || additionalThreadsRef.current.includes(String(params.threadId ?? eventThread?.id ?? ''))) return;
     if (method === 'thread/tokenUsage/updated') {
       const threadId = String(params.threadId ?? '');
       const usage = params.tokenUsage as ContextUsage | undefined;
@@ -1146,6 +1167,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
 
   return {
     connected,
+    chatTransport,
     status,
     bridgeStatus,
     threads,

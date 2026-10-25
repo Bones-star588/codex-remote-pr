@@ -19,6 +19,7 @@ export interface Thread {
   status: ThreadStatus;
   source?: unknown;
   archived?: boolean;
+  ephemeral?: boolean;
   permissionProfile?: string | null;
   collaborationMode?: CollaborationMode | null;
   gitInfo?: { branch?: string | null; sha?: string | null; originUrl?: string | null } | null;

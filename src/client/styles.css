@@ -2288,11 +2288,11 @@ kbd {
   padding: 4px 8px;
 }
 
-.app-shell[data-layout="desktop"]:has(.inspector) {
+.app-shell[data-layout="desktop"]:has(.inspector:not([hidden])) {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--review-width);
 }
 
-.app-shell[data-layout="desktop"]:has(.sidebar--collapsed):has(.inspector) {
+.app-shell[data-layout="desktop"]:has(.sidebar--collapsed):has(.inspector:not([hidden])) {
   grid-template-columns: var(--sidebar-collapsed) minmax(0, 1fr) var(--review-width);
 }
 
@@ -2658,10 +2658,10 @@ kbd {
 }
 
 @media (max-width: 899px) {
-  .app-shell[data-layout="desktop"]:has(.inspector) {
+  .app-shell[data-layout="desktop"]:has(.inspector:not([hidden])) {
     grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   }
-  .app-shell[data-layout="desktop"]:has(.sidebar--collapsed):has(.inspector) {
+  .app-shell[data-layout="desktop"]:has(.sidebar--collapsed):has(.inspector:not([hidden])) {
     grid-template-columns: var(--sidebar-collapsed) minmax(0, 1fr);
   }
   .app-shell[data-layout="desktop"] .inspector {

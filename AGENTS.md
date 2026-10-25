@@ -68,6 +68,23 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   socket reconnection. Only closing a terminal tab or stopping Remote ends it.
   Keep the xterm renderer lazy, output outside React chat state, and replay from
   bounded headless terminal snapshots. Terminal keys must retain shell behavior.
+- Side chats use the shared transport and native ephemeral start/fork, created
+  only on first send. Ephemeral forks cannot use `deferGoalContinuation`.
+  Subscribe to all open side threads, batch their events separately from main
+  history, and keep temporary drafts and recovery snapshots in memory only.
+  Native ephemeral chats do not support persisted history or queues; steer active
+  side turns directly. Closing a side tab interrupts and unsubscribes; hiding
+  the inspector preserves tabs. Allow 30 seconds for socket reconnection.
+  Ingest embedded items in native turn notifications as well as item events:
+  live Desktop can send ephemeral replies only in turn/completed. Retain
+  successfully submitted user input in the temporary snapshot with its
+  clientUserMessageId; do not duplicate reply bodies inside timing state.
+- Main-chat queued submissions use native queue IDs and cursor pagination.
+  Dispatch through native queue/start; steering uses expectedTurnId then removes
+  the queued submission. Preserve image and skill inputs when editing text.
+- Reply branches pass the selected completed lastTurnId. Folder selection uses
+  native fs/readDirectory, fs/createDirectory and project/create. Keep these
+  controls compact and consistent with Desktop, with 44px touch targets.
 
 ## Publication and Privacy
 

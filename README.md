@@ -33,6 +33,8 @@ The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when 
 - **Projects and task navigation.** Browse all providers' tasks with paginated loading, search, archived browsing, rename, archive, and restore.
 - **Readable long histories.** Load older pages on demand, preserve the reading position, and use Desktop-style activity summaries and completed-turn disclosures.
 - **Conversation outline.** Desktop-style marks preview requests and replies and jump to earlier turns; phones use a touch list.
+- **Side chats and queued messages.** Open temporary chats in inspector tabs. Queue follow-ups in the main chat, edit or remove them, steer the current turn, or move a prompt into a side chat.
+- **Workspace and reply actions.** Create a host folder and add it as a project, archive chats from the sidebar, copy replies, and branch through a specific reply.
 - **Native model metadata.** Model choices and supported reasoning levels come from the runtime, including custom model catalogs exposed by it.
 - **Slash commands.** Search commands and native skills from the composer, with keyboard and touch selection, native plan mode, compaction, reviews, and chat forks.
 - **Per-chat permissions.** Choose native read-only, workspace, or full-access profiles and respond to supported approval requests.
@@ -88,6 +90,42 @@ The outline therefore does not claim to index every raw steering message before
 that history has been read.
 
 ![Conversation navigation and request preview](docs/images/navigation.png)
+
+## Side Chats and Chat Actions
+
+In the right inspector, choose **New tab (+) > Side chat**. Each tab has its own
+draft, model, supported reasoning levels, permissions, and send/stop controls.
+The native temporary chat is created on first send and inherits the main chat's
+context at that moment. Later messages remain independent. Hiding the inspector
+preserves its tabs; closing a side-chat tab interrupts its active turn and
+releases the temporary chat.
+
+Side-chat tabs and drafts live in memory, not browser storage. A short socket
+disconnect has a 30-second recovery grace; Remote keeps an in-memory event
+snapshot to recover missed streaming output. Reloading/closing the page or
+restarting Remote loses the temporary UI. These are Remote-managed tabs backed
+by native ephemeral chats, not Desktop's existing side-chat UI. Native ephemeral
+chats cannot use persisted-history commands or submission queues: follow-ups
+while running use direct steering.
+Some Desktop transports deliver ephemeral reply items only on turn completion.
+Remote shows the submitted request and native elapsed progress, then renders the
+completed reply; it uses incremental item events when the host supplies them.
+
+In the main chat, sending while a turn runs adds a native queued submission.
+The compact strip above the composer offers **Guide**, delete, and a menu with
+edit, open in side chat, and disable queue. Disabling queue uses direct steering
+for the rest of the active turn. Queued submissions are shared with Desktop;
+the native queue consumes them when dispatched, without duplicating prompts.
+Moving one to a side chat opens an editable draft and removes it from the queue.
+
+Use the folder-plus button beside **Projects**, or the project picker, to browse
+host directories, create a folder, and add it as a workspace. These are manual
+host filesystem actions, independent of a model's chat permission profile.
+Hover or focus a sidebar chat to archive it; the archived view offers restore.
+Completed replies expose copy and a menu with **Branch to new chat**. That branch
+includes the selected reply's turn and excludes later turns.
+
+![Temporary side chat beside the main conversation](docs/images/side-chat.png)
 
 ## Workspace Terminal
 
@@ -372,7 +410,7 @@ Codex CLI detection checks Windows app packages, local standalone installations,
 - Model and project metadata load in the authenticated bootstrap and refresh on reconnection. They are not continuously refreshed while the connection stays open. Currently, these two lists read their first requested page; task history, task lists, and permission profiles have separate pagination.
 - New chats currently initialize reasoning from the model catalog default. This can differ from a global Codex configuration override; select the desired level explicitly.
 - Permission profiles come from `permissionProfile/list` and update the current chat. Builtins include `:read-only`, `:workspace`, and `:danger-full-access`.
-- Unsent drafts live in browser `sessionStorage`. They survive switching chats and reconnecting, but do not synchronize with the Desktop composer or other devices.
+- Main-chat drafts live in browser `sessionStorage`. They survive switching chats and reconnecting, but do not synchronize with the Desktop composer or other devices. Temporary side-chat drafts remain in memory only.
 - Uploads are sent to the local Codex workflow. The remote UI does not implement a separate hosted model service.
 
 ## Loading and Mobile Networks
@@ -412,7 +450,7 @@ npm test
 npm run build
 ```
 
-The suite has **91 tests across 21 test files**, including native timing, activity folding, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
+The suite has **110 tests across 25 test files**, including native timing, activity folding, conversation navigation, side-chat event isolation and recovery, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
 
 ```text
 src/client/       React workspace, composer, history, approvals, reconnect

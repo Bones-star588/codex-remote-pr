@@ -2,6 +2,7 @@ export type ClientRpcMethod =
   | 'thread/list'
   | 'thread/read'
   | 'thread/start'
+  | 'thread/unsubscribe'
   | 'thread/resume'
   | 'thread/turns/list'
   | 'thread/items/list'
@@ -11,6 +12,11 @@ export type ClientRpcMethod =
   | 'thread/settings/update'
   | 'thread/compact/start'
   | 'thread/fork'
+  | 'thread/queue/list'
+  | 'thread/queue/add'
+  | 'thread/queue/update'
+  | 'thread/queue/delete'
+  | 'thread/queue/start'
   | 'review/start'
   | 'skills/list'
   | 'collaborationMode/list'
@@ -21,6 +27,7 @@ export type ClientRpcMethod =
   | 'permissionProfile/list'
   | 'project/list'
   | 'project/read'
+  | 'project/create'
   | 'getAuthStatus'
   | 'account/read'
   | 'account/rateLimits/read'
@@ -29,13 +36,14 @@ export type ClientRpcMethod =
   | 'fs/readFile'
   | 'fs/readDirectory'
   | 'fs/getMetadata'
+  | 'fs/createDirectory'
   | 'gitDiffToRemote'
   | 'getConversationSummary';
 
 export type ClientMessage =
   | { type: 'rpc'; id: string; method: ClientRpcMethod; params?: unknown }
   | { type: 'server.request.respond'; requestId: string | number; result?: unknown; error?: unknown }
-  | { type: 'thread.watch'; threadId: string | null }
+  | { type: 'thread.watch'; threadId: string | null; additionalThreadIds?: string[] }
   | { type: 'ping' };
 
 export type ServerMessage =
