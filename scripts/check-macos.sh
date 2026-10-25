@@ -49,6 +49,7 @@ NODE_BIN="$(command -v node)"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$PLIST")" == "$NODE_BIN" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:1' "$PLIST")" == "$ROOT_DIR/dist-server/server/index.js" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :StandardOutPath' "$PLIST")" == "$TEST_HOME/runtime/codex-remote.out.log" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:DOTENV_CONFIG_PATH' "$PLIST")" == "$DOTENV_CONFIG_PATH" ]]
 bash scripts/remote-control-macos.sh Start --no-browser
 bash scripts/remote-control-macos.sh Start --no-browser
 [[ "$(grep -c '^bootstrap ' "$LAUNCHCTL_TEST_LOG")" == "1" ]]

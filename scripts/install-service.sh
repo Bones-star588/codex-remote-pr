@@ -33,10 +33,16 @@ if [[ -f "$PLIST" ]]; then
 fi
 
 "$NODE_BIN" --input-type=module - "$ROOT_DIR" "$NODE_BIN" "$PLIST" <<'NODE'
-import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 
+// Preserve exported overrides without freezing values read from .env.
+const inheritedEnvironment = Object.fromEntries([
+  'HOST', 'PORT', 'DATA_DIR', 'PUBLIC_ORIGIN', 'ALLOWED_ORIGINS',
+  'CODEX_BINARY', 'CODEX_HOME', 'CODEX_WORKDIR', 'CODEX_DESKTOP_DEBUG_PORT',
+  'TRUST_PROXY', 'SESSION_DAYS', 'DOTENV_CONFIG_PATH'
+].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+await import('dotenv/config');
 const [root, node, plist] = process.argv.slice(2);
 const dataDir = path.resolve(process.env.DATA_DIR?.trim() || 'data');
 fs.mkdirSync(dataDir, { recursive: true });
@@ -56,6 +62,7 @@ const xml = `<?xml version="1.0" encoding="UTF-8"?>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>${string(`${path.dirname(node)}:${process.env.PATH || ''}`)}
+    ${Object.entries(inheritedEnvironment).map(([key, value]) => `<key>${escape(key)}</key>${string(value)}`).join('\n    ')}
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
