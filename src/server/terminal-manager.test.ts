@@ -65,7 +65,7 @@ describe('workspace terminals with a real PTY', () => {
     manager.attach(first, id, (message) => messages.push(message));
     manager.input(first, id, command(
       "Write-Output ('RUN_' + 'START'); Start-Sleep -Seconds 30; Write-Output ('BAD_' + 'END')",
-      "printf 'RUN_%s\\n' START; sleep 30; printf 'BAD_%s\\n' END"
+      "printf 'RUN_%s\\n' START; sleep 30 && printf 'BAD_%s\\n' END"
     ));
     await waitForOutput(messages, 'RUN_START');
     const beforeInterrupt = messages.length;
