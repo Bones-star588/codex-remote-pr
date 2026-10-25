@@ -1,0 +1,43 @@
+.terminal-panel {
+  display: flex;
+  min-height: 140px;
+  height: min(38dvh, 360px);
+  flex: 0 0 auto;
+  flex-direction: column;
+  overflow: hidden;
+  border-top: 1px solid var(--line-strong);
+  background: var(--bg);
+}
+.terminal-toolbar {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.terminal-heading { display: flex; flex: 0 0 auto; align-items: center; gap: 7px; }
+.terminal-directory { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.terminal-status { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
+.terminal-tabs { display: flex; min-height: 30px; flex: 0 0 auto; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.terminal-tab { display: flex; min-width: 100px; max-width: 200px; flex: 0 0 auto; align-items: center; border-bottom: 1px solid transparent; }
+.terminal-tab.is-active { background: var(--bg-subtle); border-bottom-color: var(--ink); }
+.terminal-tab > button { display: inline-flex; min-height: 30px; align-items: center; justify-content: center; border: 0; background: transparent; padding: 0 8px; color: var(--muted); font-size: 12px; }
+.terminal-tab > [role="tab"] { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminal-tab.is-active > [role="tab"] { color: var(--ink); }
+.terminal-tab > button:hover { color: var(--ink); background: var(--surface-hover); }
+.terminal-screen { min-height: 0; flex: 1; overflow: hidden; padding: 6px 8px 4px 14px; }
+.terminal-screen .xterm { height: 100%; }
+.terminal-screen .xterm-viewport { overscroll-behavior: contain; }
+.terminal-error { flex: 0 0 auto; overflow-wrap: anywhere; padding: 4px 14px; color: var(--danger); font-size: 12px; }
+.terminal-touch-keys { display: none; }
+@media (pointer: coarse) {
+  .terminal-toolbar { min-height: 44px; }
+  .terminal-toolbar .icon-button, .terminal-tab > button { min-width: 44px; min-height: 44px; }
+  .terminal-touch-keys { display: flex; min-height: 44px; flex: 0 0 auto; gap: 2px; border-top: 1px solid var(--line); padding: 0 6px; }
+  .terminal-touch-keys > button { display: grid; min-width: 36px; min-height: 44px; flex: 1; place-items: center; border: 0; background: transparent; padding: 0 5px; font-size: 12px; }
+  .terminal-touch-keys > button:active { background: var(--surface-hover); }
+}
+.app-shell[data-layout="mobile"] .terminal-panel { height: min(44dvh, 360px); }
+.app-shell[data-layout="mobile"] .terminal-status { display: none; }

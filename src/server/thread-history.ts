@@ -1,4 +1,5 @@
 import type { ClientRpcMethod } from '../shared/protocol.js';
+import type { TurnTiming } from '../shared/turn-timing.js';
 
 type Request = (method: ClientRpcMethod, params: unknown) => Promise<unknown>;
 interface Entry {
@@ -16,11 +17,14 @@ export async function readThreadHistoryPage(
 ) {
   const [history, turns] = await Promise.all([
     request('thread/items/list', { threadId, limit, sortDirection: 'desc', ...(cursor ? { cursor } : {}) }),
-    cursor ? null : request('thread/turns/list', { threadId, limit: 1, itemsView: 'notLoaded' })
-  ]) as [{ data: Entry[]; nextCursor: string | null }, { data: Array<{ id: string; status: string }> } | null];
+    cursor ? null : request('thread/turns/list', { threadId, limit: Math.min(limit, 100), itemsView: 'notLoaded' })
+  ]) as [{ data: Entry[]; nextCursor: string | null }, { data: TurnTiming[]; nextCursor?: string | null } | null];
   return {
     items: [...history.data].reverse(),
     nextCursor: history.nextCursor,
-    activeTurnId: turns?.data.find((turn) => turn.status === 'inProgress')?.id ?? null
+    activeTurnId: turns?.data.find((turn) => turn.status === 'inProgress')?.id ?? null,
+    turns: turns?.data.map(({ id, status, startedAt, completedAt, durationMs }) =>
+      ({ id, status, startedAt, completedAt, durationMs })) ?? [],
+    turnsCursor: turns?.nextCursor ?? null
   };
 }

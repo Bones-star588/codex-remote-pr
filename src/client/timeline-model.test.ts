@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildTimelineEntries, isActivityIssue } from './timeline-model';
+import { buildTimelineEntries, buildTimelineSections, isActivityIssue } from './timeline-model';
 import type { ThreadItem } from './types';
 
 function command(id: string, status: 'inProgress' | 'completed' | 'failed' | 'declined' = 'completed'): ThreadItem {
@@ -54,7 +54,7 @@ describe('timeline model', () => {
     expect(entries[2]).toMatchObject({ type: 'activity', running: false });
   });
 
-  it('preserves commentary between native operation rows and the final answer duration', () => {
+  it('preserves commentary between native operation summaries and the final answer', () => {
     const entries = buildTimelineEntries([
       { type: 'userMessage', id: 'user', content: [], turnId: 't', startedAtMs: 1000 },
       { ...agent('intro'), turnId: 't', phase: 'commentary' },
@@ -65,7 +65,7 @@ describe('timeline model', () => {
     ]);
     expect(entries.map((entry) => entry.type)).toEqual(['message', 'message', 'activity', 'message', 'activity', 'message']);
     expect(entries[3]).toMatchObject({ type: 'message', item: { id: 'progress' } });
-    expect(entries[5]).toMatchObject({ type: 'message', workedMs: 8000 });
+    expect(entries[5]).toMatchObject({ type: 'message', item: { id: 'final' } });
   });
 
   it('keeps an activity group mounted when more output arrives', () => {
@@ -88,14 +88,13 @@ describe('timeline model', () => {
     expect(buildTimelineEntries(items, 'new')[0]).toMatchObject({ running: false });
   });
 
-  it('shows only the trailing activity of the active turn as running, including reasoning', () => {
+  it('hides reasoning without retaining a stale spinner from another turn', () => {
     const entries = buildTimelineEntries([
       { ...command('stale', 'inProgress'), turnId: 'old' },
       { type: 'reasoning', id: 'thinking', summary: ['Thinking'], content: [], turnId: 'current' }
     ], 'current');
-    expect(entries).toHaveLength(2);
+    expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ running: false });
-    expect(entries[1]).toMatchObject({ running: true });
   });
 
   it('stops the activity indicator when the active turn starts its final reply', () => {
@@ -107,16 +106,18 @@ describe('timeline model', () => {
     expect(entries[1]).toMatchObject({ type: 'message' });
   });
 
-  it('separates native command, edit, reasoning, image, and compaction records', () => {
+  it('combines native commands, edits and search, hides reasoning, and keeps image/compaction boundaries', () => {
     const entries = buildTimelineEntries([
       command('one'),
       { type: 'fileChange', id: 'edit', status: 'completed', changes: [{ path: 'src/app.ts' }] },
       { type: 'reasoning', id: 'think', summary: ['Thinking'], content: [] },
+      { type: 'webSearch', id: 'search', query: 'Native app server' },
       { type: 'imageView', id: 'image', path: 'C:/Projects/example.png' },
       { type: 'contextCompaction', id: 'compact' }
     ]);
     expect(entries.map((entry) => entry.type === 'activity' ? entry.kind : entry.type))
-      .toEqual(['command', 'file', 'reasoning', 'image', 'event']);
+      .toEqual(['file', 'image', 'event']);
+    expect(entries[0]).toMatchObject({ kinds: ['command', 'file', 'search'], items: [{ id: 'one' }, { id: 'edit' }, { id: 'search' }] });
   });
 
   it('does not show empty native reasoning records or let them split consecutive commands', () => {
@@ -126,8 +127,29 @@ describe('timeline model', () => {
       command('two'),
       { type: 'reasoning', id: 'visible', summary: ['Inspecting files'], content: [] }
     ]);
-    expect(entries).toHaveLength(2);
+    expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ type: 'activity', kind: 'command', items: [{ id: 'one' }, { id: 'two' }] });
-    expect(entries[1]).toMatchObject({ type: 'activity', kind: 'reasoning', items: [{ id: 'visible' }] });
+  });
+
+  it('does not combine activity from different turns or across commentary', () => {
+    const entries = buildTimelineEntries([
+      { ...command('a'), turnId: 'old' },
+      { ...command('b'), turnId: 'new' },
+      { ...agent('commentary'), phase: 'commentary', turnId: 'new' },
+      { type: 'fileChange', id: 'edit', status: 'completed', changes: [], turnId: 'new' }
+    ]);
+    expect(entries.map(entry => entry.type)).toEqual(['activity', 'activity', 'message', 'activity']);
+  });
+
+  it('keeps user steering visible and assigns a single duration to the last response slice', () => {
+    const sections = buildTimelineSections(buildTimelineEntries([
+      { type: 'userMessage', id: 'u', content: [], turnId: 't' },
+      { ...agent('progress'), phase: 'commentary', turnId: 't' },
+      { type: 'userMessage', id: 'steer', content: [], turnId: 't' },
+      { ...command('c'), turnId: 't' },
+      { ...agent('answer'), phase: 'final_answer', turnId: 't' }
+    ]));
+    expect(sections.map(section => [section.user, section.showTiming, section.entries.length]))
+      .toEqual([[true, false, 1], [false, false, 1], [true, false, 1], [false, true, 2]]);
   });
 });

@@ -37,10 +37,15 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0",
+    "@xterm/xterm": "^6.0.0",
     "compression": "^1.8.2",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "lucide-react": "^0.468.0",
+    "node-pty": "^1.1.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",

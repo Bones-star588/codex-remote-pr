@@ -26,6 +26,8 @@ import { desktopBridge } from './desktop-bridge.js';
 import { readThreadHistoryPage } from './thread-history.js';
 import { readWorkspaceBootstrap } from './bootstrap.js';
 import { readOpenThread } from './thread-open.js';
+import { TerminalManager } from './terminal-manager.js';
+import { handleTerminalSocket } from './terminal-socket.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -41,6 +43,9 @@ const wss = new WebSocketServer({
 });
 const clients = new Set<WebSocket>();
 const watchedThreads = new Map<WebSocket, string | null>();
+const terminalWss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024 });
+const terminals = new TerminalManager(config.codexWorkdir);
+terminalWss.on('connection', (socket) => handleTerminalSocket(socket, terminals));
 
 app.set('trust proxy', config.trustProxy);
 app.disable('x-powered-by');
@@ -311,7 +316,7 @@ app.get(
 server.on('upgrade', (req, socket, head) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-    if (url.pathname !== '/ws') {
+    if (url.pathname !== '/ws' && url.pathname !== '/ws/terminal') {
       socket.destroy();
       return;
     }
@@ -329,8 +334,9 @@ server.on('upgrade', (req, socket, head) => {
       return;
     }
 
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit('connection', ws, req);
+    const target = url.pathname === '/ws/terminal' ? terminalWss : wss;
+    target.handleUpgrade(req, socket, head, (ws) => {
+      target.emit('connection', ws, req);
     });
   } catch {
     socket.destroy();
@@ -478,6 +484,8 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 function shutdown(): void {
+  for (const client of terminalWss.clients) client.close();
+  terminals.dispose();
   for (const client of clients) client.close();
   codexBridge.shutdown();
   server.close(() => process.exit(0));

@@ -21,10 +21,16 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 ## Product Constraints
 
 - Preserve the default light appearance, system typography, compact header, and
-  separate mobile layout. Fold consecutive operations by type into native-style
-  command/edit rows; keep commentary in the conversation and user messages simple.
+  separate mobile layout. Merge consecutive commands, edits, tools and searches
+  into native-style summaries across types. Ordinary reasoning is hidden; viewed
+  images and commentary keep their positions. Completed turns fold their process
+  under the duration disclosure, leaving the final reply visible.
   Conversation text follows native 14px/22.75px, weight 430; activity headers use
   14px/21px, weight 430. Keep the system font stack and lazy detail bodies.
+- Use native turn timing, including metadata cursors for older history. Never
+  derive turn duration from item timestamps or the browser connection time.
+  Refresh only the active time label once per second. Keep user/assistant gaps
+  larger than prose spacing without loosening command rows.
 - Consecutive desktop activity headers use a compact 30px pitch; touch targets
   remain at least 44px. Command/output text uses the native ui-monospace stack,
   12px/18px, weight 400.
@@ -51,6 +57,11 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   conversation at least 320px wide, and retain separate mobile drawers. Desktop
   inspectors dock from 900px; below that they overlay. Resize state belongs in
   the panel container so dragging does not rerender the conversation.
+- The header terminal opens a real, Remote-owned PTY in the chat/project cwd.
+  Sessions belong to their starting directory and survive panel hiding and
+  socket reconnection. Only closing a terminal tab or stopping Remote ends it.
+  Keep the xterm renderer lazy, output outside React chat state, and replay from
+  bounded headless terminal snapshots. Terminal keys must retain shell behavior.
 
 ## Publication and Privacy
 
@@ -61,8 +72,9 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 - README.md and README.zh-CN.md must describe the same behavior and limitations.
 - Model/project metadata currently reads its first requested page; model defaults
   can differ from global configuration overrides. Do not imply otherwise.
-- Command records are not an interactive terminal. Some approval forms and
-  actual dictation still need dedicated live acceptance.
+- Remote terminals are separate from Desktop shells and bypass model permission
+  profiles; document this in both READMEs. Some approval forms and actual
+  dictation still need dedicated live acceptance.
 - Windows has live desktop acceptance. macOS has CI coverage for builds, unit
   tests, shell syntax, and generated LaunchAgents; signed-in desktop integration,
   login persistence, and the legacy tunnel still need live macOS acceptance.

@@ -1,14 +1,14 @@
 import type { ServerMessage } from '../shared/protocol';
 
-interface ConnectionOptions {
+interface ConnectionOptions<Message> {
   url: string;
   onSocket: (socket: WebSocket | null) => void;
   onOpen: () => void;
-  onMessage: (message: ServerMessage) => void;
+  onMessage: (message: Message) => void;
   onDisconnect: (error: Error) => void;
 }
 
-export class RemoteConnection {
+export class RemoteConnection<Message extends { type: string } = ServerMessage> {
   private socket: WebSocket | null = null;
   private stopped = true;
   private failures = 0;
@@ -17,7 +17,7 @@ export class RemoteConnection {
   private heartbeatTimer: number | undefined;
   private pongTimer: number | undefined;
 
-  constructor(private readonly options: ConnectionOptions) {}
+  constructor(private readonly options: ConnectionOptions<Message>) {}
 
   start(): void {
     if (!this.stopped) return;
@@ -62,9 +62,9 @@ export class RemoteConnection {
     });
     socket.addEventListener('message', (event) => {
       if (this.socket !== socket || this.stopped) return;
-      let message: ServerMessage;
+      let message: Message;
       try {
-        message = JSON.parse(String(event.data)) as ServerMessage;
+        message = JSON.parse(String(event.data)) as Message;
       } catch {
         return;
       }

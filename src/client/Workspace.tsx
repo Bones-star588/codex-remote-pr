@@ -12,7 +12,7 @@ import {
   Check,
   X
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 
 import { api } from './api';
 import { ApprovalDock } from './components/ApprovalDock';
@@ -21,7 +21,6 @@ import { Inspector } from './components/Inspector';
 import { WorkspacePanels } from './components/WorkspacePanels';
 import { Sidebar } from './components/Sidebar';
 import { ThreadTimeline } from './components/ThreadTimeline';
-import { CommandPanel } from './components/CommandPanel';
 import { CommandDialog, type CommandDialogState } from './components/CommandDialog';
 import { displayThreadTitle } from './remote-state';
 import { useRemote } from './useRemote';
@@ -37,6 +36,8 @@ interface WorkspaceProps {
 
 type LayoutMode = 'desktop' | 'mobile';
 
+const TerminalPanel = lazy(() => import('./components/TerminalPanel'));
+
 export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
   const remote = useRemote({ authenticated: true, onAuthExpired, bootstrap });
   const layout = useResponsiveLayout();
@@ -45,7 +46,7 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [inspectorView, setInspectorView] = useState<'changes' | 'activity' | 'files'>('changes');
-  const [commandsOpen, setCommandsOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [newTaskModel, setNewTaskModel] = useState('');
   const [newTaskEffort, setNewTaskEffort] = useState('');
@@ -102,6 +103,8 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
+      const inTerminal = event.target instanceof Element && event.target.closest('.terminal-screen');
+      if (inTerminal && event.key.toLowerCase() !== 'j') return;
       if ((event.ctrlKey || event.metaKey) && ['n', 'k'].includes(event.key.toLowerCase())) {
         event.preventDefault();
         beginNewTask();
@@ -112,7 +115,7 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
         else setSidebarCollapsed((value) => !value);
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j') {
-        event.preventDefault(); setCommandsOpen((value) => !value);
+        event.preventDefault(); setTerminalOpen((value) => !value);
       }
       if (event.key === 'Escape') {
         setInspectorOpen(false);
@@ -335,8 +338,8 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
             {layout === 'desktop' && <button type="button" className="icon-button" aria-label={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
               title="切换侧边栏" aria-pressed={!sidebarCollapsed}
               onClick={() => setSidebarCollapsed((value) => !value)}><PanelLeft size={16} /></button>}
-            <button type="button" className="icon-button" aria-label="命令记录" title="命令记录"
-              aria-pressed={commandsOpen} onClick={() => setCommandsOpen((value) => !value)}><PanelBottom size={16} /></button>
+            <button type="button" className="icon-button" aria-label="终端" title="终端"
+              aria-pressed={terminalOpen} onClick={() => setTerminalOpen((value) => !value)}><PanelBottom size={16} /></button>
             <button type="button" className="icon-button" aria-label="任务信息" title="任务信息"
               aria-pressed={inspectorOpen && inspectorView === 'files'} onClick={() => {
                 setInspectorView('files'); setInspectorOpen((value) => inspectorView === 'files' ? !value : true);
@@ -403,7 +406,9 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
             commandProps={commandProps}
           />
         )}
-        {commandsOpen && <CommandPanel items={remote.items} onClose={() => setCommandsOpen(false)} />}
+        {terminalOpen && <Suspense fallback={<div className="terminal-loading" role="status">加载终端…</div>}>
+          <TerminalPanel cwd={permissionCwd} onClose={() => setTerminalOpen(false)} />
+        </Suspense>}
       </main>
 
       <Inspector
@@ -540,6 +545,7 @@ function ThreadScreen({
         items={remote.items}
         loading={remote.loadingThread}
         activeTurnId={remote.activeTurnId}
+        turnTimings={remote.turnTimings}
         hasMoreHistory={remote.hasMoreHistory}
         loadingHistory={remote.loadingHistory}
         onLoadEarlier={remote.loadEarlierHistory}

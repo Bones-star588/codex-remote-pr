@@ -53,5 +53,10 @@ licenses; their exact versions and package sources are recorded in
 `package-lock.json`. No upstream motion assets or proprietary Codex application
 binaries are bundled.
 
+Interactive terminals use the MIT-licensed `node-pty` and xterm.js packages
+(`@xterm/xterm`, `@xterm/headless`, `@xterm/addon-fit`, and
+`@xterm/addon-serialize`). Their package distributions retain the authors'
+copyright and license notices, including platform-native terminal components.
+
 Documentation screenshots show this project's UI with synthetic data, not real
 user conversations or an official OpenAI product screenshot.

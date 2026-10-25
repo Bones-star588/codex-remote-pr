@@ -3,6 +3,7 @@ import {
   ArrowDown,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   CircleAlert,
   FoldVertical,
   FileCode2,
@@ -20,7 +21,8 @@ import remarkGfm from 'remark-gfm';
 import { localImageSource } from '../markdown-media';
 import { itemKey } from '../remote-state';
 import type { ThreadItem } from '../types';
-import { buildTimelineEntries, isActivityIssue, type TimelineEntry } from '../timeline-model';
+import { buildTimelineEntries, buildTimelineSections, isActivityIssue, type TimelineEntry, type TimelineSection } from '../timeline-model';
+import { elapsedTurnMs, formatWorkDuration, type TurnTiming } from '../../shared/turn-timing';
 import { userMessageText } from '../user-message';
 import { ImagePreview } from './ImagePreview';
 
@@ -29,6 +31,7 @@ interface ThreadTimelineProps {
   items: ThreadItem[];
   loading: boolean;
   activeTurnId: string | null;
+  turnTimings: Record<string, TurnTiming>;
   hasMoreHistory: boolean;
   loadingHistory: boolean;
   onLoadEarlier: () => Promise<void>;
@@ -42,6 +45,7 @@ export function ThreadTimeline({
   items,
   loading,
   activeTurnId,
+  turnTimings,
   hasMoreHistory,
   loadingHistory,
   onLoadEarlier
@@ -54,6 +58,7 @@ export function ThreadTimeline({
   const prependAdjustmentRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const entries = useMemo(() => buildTimelineEntries(items, activeTurnId), [items, activeTurnId]);
+  const sections = useMemo(() => buildTimelineSections(entries), [entries]);
   const preserveActivityPosition = useCallback(() => {
     stickToBottomRef.current = false;
     window.requestAnimationFrame(() => {
@@ -173,20 +178,15 @@ export function ThreadTimeline({
           {loadingHistory ? '正在加载' : '显示更早记录'}
         </button>
       )}
-      {entries.map((entry) =>
-        entry.type === 'activity' ? (
-          <ActivityGroup entry={entry} onInteract={preserveActivityPosition} key={entry.key} />
-        ) : entry.type === 'event' ? (
-          <ActivityItem item={entry.item} running={false} key={entry.key} />
-        ) : (
-          <MessageItem item={entry.item} workedMs={entry.workedMs} key={entry.key} />
-        )
+      {sections.map((section) => section.user
+        ? <MessageItem item={(section.entries[0] as Extract<TimelineEntry, { type: 'message' }>).item} key={section.key} />
+        : <ResponseSection section={section} timing={section.showTiming && section.turnId ? turnTimings[section.turnId] : undefined}
+            active={section.turnId === activeTurnId} onInteract={preserveActivityPosition} key={section.key} />
       )}
-      {activeTurnId && !entries.some((entry) => entry.type === 'activity' && entry.running) && (
-        <div className="working-indicator">
-          <LoaderCircle size={14} className="spin" aria-hidden="true" />
-          <span>Codex 正在处理</span>
-        </div>
+      {activeTurnId && !sections.some((section) => !section.user && section.turnId === activeTurnId) && (
+        <div className="turn-response"><div className="worked-divider">
+          <TurnDuration timing={turnTimings[activeTurnId]} active />
+        </div></div>
       )}
       </div>
     </div>
@@ -210,7 +210,55 @@ export function ThreadTimeline({
   );
 }
 
-const MessageItem = memo(function MessageItem({ item, workedMs }: { item: ThreadItem; workedMs?: number | null | undefined }) {
+const ResponseSection = memo(function ResponseSection({ section, timing, active, onInteract }: {
+  section: TimelineSection;
+  timing: TurnTiming | undefined;
+  active: boolean;
+  onInteract: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
+  const completed = timing && !active && timing.status !== 'inProgress';
+  let finalIndex = -1;
+  section.entries.forEach((entry, index) => {
+    if (entry.type === 'message' && entry.item.type === 'agentMessage' &&
+      entry.item.phase !== 'commentary' && entry.item.phase !== 'partial_answer') finalIndex = index;
+  });
+  const trace = completed ? section.entries.slice(0, finalIndex < 0 ? undefined : finalIndex) : section.entries;
+  const answer = completed && finalIndex >= 0 ? section.entries.slice(finalIndex) : [];
+  const renderEntry = (entry: TimelineEntry) => entry.type === 'activity'
+    ? <ActivityGroup entry={entry} onInteract={onInteract} key={entry.key} />
+    : entry.type === 'event' ? <ActivityItem item={entry.item} running={false} key={entry.key} />
+    : <MessageItem item={entry.item} key={entry.key} />;
+  return <section className="turn-response">
+    {(timing || active && section.showTiming) && <div className="worked-divider">
+      {completed && trace.length > 0 ? <button type="button" className="turn-disclosure" aria-expanded={open} aria-controls={bodyId}
+        onClick={() => { onInteract(); setOpen(value => !value); }}>
+        <TurnDuration timing={timing} active={false} />
+        <ChevronRight size={13} className={open ? 'is-open' : ''} aria-hidden="true" />
+      </button> : <TurnDuration timing={timing} active={active} />}
+    </div>}
+    {(!completed || open) && <div className="turn-activity" id={bodyId}>{trace.map(renderEntry)}</div>}
+    {answer.map(renderEntry)}
+  </section>;
+});
+
+function TurnDuration({ timing, active }: { timing: TurnTiming | undefined; active: boolean }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!active || timing?.startedAt == null) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [active, timing?.startedAt]);
+  const duration = timing ? elapsedTurnMs(active ? { ...timing, status: 'inProgress' } : timing, now) : null;
+  const label = active ? '已处理' : timing?.status === 'interrupted' ? '已停止，用时'
+    : timing?.status === 'failed' ? '失败，用时' : '用时';
+  return <span className="turn-duration">{duration === null ? (active ? '正在处理' : '处理记录')
+    : `${label} ${formatWorkDuration(duration)}`}</span>;
+}
+
+const MessageItem = memo(function MessageItem({ item }: { item: ThreadItem }) {
   const [expanded, setExpanded] = useState(false);
   if (item.type === 'userMessage') {
     const text = (item.content ?? []).filter((entry) => entry.type === 'text')
@@ -236,9 +284,6 @@ const MessageItem = memo(function MessageItem({ item, workedMs }: { item: Thread
   if (item.type === 'agentMessage') {
     return (
       <article className={`message message--agent${item.phase === 'commentary' ? ' message--commentary' : ''}`}>
-        {workedMs !== undefined && (
-          <div className="worked-divider"><span>{workedMs === null ? '已完成' : `用时 ${formatDuration(workedMs)}`}</span></div>
-        )}
         <div className="agent-message-body markdown">
           <MarkdownText text={item.text} />
         </div>
@@ -293,7 +338,7 @@ const ActivityGroup = memo(function ActivityGroup({
           <span className="activity-group-label">{label}</span>
           <ChevronDown size={13} className="summary-chevron" aria-hidden="true" />
         </button>
-        {issueCount > 0 && (
+        {open && issueCount > 0 && (
           <button
             type="button"
             className="activity-group-issues"
@@ -345,23 +390,21 @@ const ActivityGroup = memo(function ActivityGroup({
 );
 
 function activityPresentation(entry: Extract<TimelineEntry, { type: 'activity' }>) {
-  const count = entry.items.length;
-  switch (entry.kind) {
-    case 'command':
-      return { Icon: TerminalSquare, label: entry.running ? '正在运行命令' :
-        entry.declinedCount === count ? '命令执行' : count > 1 ? `运行了 ${count} 条命令` : '运行了命令' };
-    case 'file': {
-      const paths = new Set(entry.items.flatMap((item) =>
-        item.type === 'fileChange' && item.status === 'completed' ? item.changes.map((change) => change.path) : []));
-      return { Icon: FileCode2, label: entry.running ? '正在编辑文件' :
-        paths.size === 0 ? '文件编辑' : paths.size > 1 ? `编辑了 ${paths.size} 个文件` : '编辑了文件' };
-    }
-    case 'reasoning': return { Icon: BrainCircuit, label: entry.running ? '正在思考' : '思考过程' };
-    case 'search': return { Icon: Globe2, label: entry.running ? '正在搜索网页' : '搜索了网页' };
-    case 'image': return { Icon: Image, label: entry.running ? '正在查看图片' : '查看了图片' };
-    case 'tool': return { Icon: TerminalSquare, label: entry.running ? '正在调用工具' :
-      count > 1 ? `进行了 ${count} 次工具调用` : '调用了工具' };
-  }
+  const presentations = {
+    tool: { Icon: TerminalSquare, label: '调用了工具', running: '正在调用工具' },
+    file: { Icon: FileCode2, label: '编辑了文件', running: '正在编辑文件' },
+    command: { Icon: TerminalSquare, label: '运行了命令', running: '正在运行命令' },
+    search: { Icon: Globe2, label: '已搜索网页', running: '正在搜索网页' },
+    image: { Icon: Image, label: `已查看 ${entry.items.length} 张图像`, running: '正在查看图片' },
+    reasoning: { Icon: BrainCircuit, label: '思考过程', running: '正在思考' }
+  };
+  const presentation = presentations[entry.kind];
+  const latest = [...entry.items].reverse().find(item => 'status' in item && item.status === 'inProgress');
+  const activeKind = latest?.type === 'fileChange' ? 'file' : latest?.type === 'webSearch' ? 'search'
+    : latest?.type === 'commandExecution' ? 'command' : latest ? entry.kind : 'reasoning';
+  return { Icon: presentation.Icon, label: entry.running ? presentations[activeKind].running
+    : (['tool', 'file', 'command', 'search', 'image'] as const).filter(kind => entry.kinds.includes(kind))
+      .map(kind => presentations[kind].label).join('、') };
 }
 
 const ActivityItem = memo(function ActivityItem({ item, running }: { item: ThreadItem; running: boolean }) {

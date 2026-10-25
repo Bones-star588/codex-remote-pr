@@ -1,0 +1,175 @@
+import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import headless from '@xterm/headless';
+import serializer from '@xterm/addon-serialize';
+import nodePty, { type IPty, type IDisposable } from 'node-pty';
+
+import type { TerminalInfo, TerminalServerMessage } from '../shared/terminal.js';
+
+interface Session {
+  info: TerminalInfo;
+  pty: IPty;
+  screen: InstanceType<typeof headless.Terminal>;
+  serialize: InstanceType<typeof serializer.SerializeAddon>;
+  listeners: Set<(message: TerminalServerMessage) => void>;
+  disposables: IDisposable[];
+  pendingBytes: number;
+  paused: boolean;
+  closed: boolean;
+}
+
+export interface TerminalWorkspace {
+  cwd: string;
+  sessions: Map<string, Session>;
+  activeSessionId: string | null;
+  listeners: Set<() => void>;
+}
+
+export function terminalShell(platform = process.platform, env = process.env): { file: string; args: string[] } {
+  if (platform !== 'win32') return { file: env.SHELL || (platform === 'darwin' ? '/bin/zsh' : '/bin/bash'), args: ['-l'] };
+  // Scheduled tasks may have a smaller PATH than an interactive desktop.
+  const pwsh = path.join(env.ProgramFiles || 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe');
+  return fs.existsSync(pwsh)
+    ? { file: pwsh, args: ['-NoLogo'] }
+    : { file: 'powershell.exe', args: ['-NoLogo'] };
+}
+
+export class TerminalManager {
+  private readonly workspaces = new Map<string, TerminalWorkspace>();
+  private nextTitle = 1;
+
+  constructor(private readonly defaultCwd = os.homedir()) {}
+
+  open(cwd = this.defaultCwd): TerminalWorkspace {
+    const resolved = fs.realpathSync(path.resolve(cwd));
+    if (!fs.statSync(resolved).isDirectory()) throw new Error('Terminal working directory is not a directory.');
+    const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    let workspace = this.workspaces.get(key);
+    if (!workspace) {
+      workspace = { cwd: resolved, sessions: new Map(), activeSessionId: null, listeners: new Set() };
+      this.workspaces.set(key, workspace);
+    }
+    return workspace;
+  }
+
+  list(workspace: TerminalWorkspace): TerminalInfo[] {
+    return [...workspace.sessions.values()].map((session) => ({ ...session.info }));
+  }
+
+  create(workspace: TerminalWorkspace): string {
+    const shell = terminalShell();
+    const screen = new headless.Terminal({ cols: 80, rows: 24, scrollback: 1000, allowProposedApi: true });
+    const serialize = new serializer.SerializeAddon();
+    screen.loadAddon(serialize);
+    let pty: IPty;
+    try {
+      pty = nodePty.spawn(shell.file, shell.args, {
+        name: 'xterm-256color', cols: 80, rows: 24, cwd: workspace.cwd,
+        useConptyDll: process.platform === 'win32',
+        env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' }
+      });
+    } catch (error) {
+      screen.dispose();
+      throw error;
+    }
+    const id = randomUUID();
+    const title = `${path.basename(shell.file).replace(/\.exe$/i, '')} ${this.nextTitle++}`;
+    const session: Session = {
+      info: { id, title, cwd: workspace.cwd, shell: shell.file, exitCode: null },
+      pty, screen, serialize, listeners: new Set(), disposables: [],
+      pendingBytes: 0, paused: false, closed: false
+    };
+    workspace.sessions.set(id, session);
+    workspace.activeSessionId = id;
+    session.disposables.push(pty.onData((data) => {
+      if (session.closed) return;
+      session.pendingBytes += data.length;
+      if (!session.paused && session.pendingBytes > 128 * 1024) {
+        session.paused = true;
+        pty.pause();
+      }
+      // Snapshot state and live output advance together, including across reconnects.
+      screen.write(data, () => {
+        if (session.closed) return;
+        this.emit(session, { type: 'terminal.output', sessionId: id, data });
+        session.pendingBytes -= data.length;
+        if (session.paused && session.pendingBytes < 32 * 1024) {
+          session.paused = false;
+          if (session.info.exitCode === null) pty.resume();
+        }
+      });
+    }));
+    session.disposables.push(pty.onExit(({ exitCode }) => {
+      if (session.closed) return;
+      session.info.exitCode = exitCode;
+      this.changed(workspace);
+    }));
+    this.changed(workspace);
+    return id;
+  }
+
+  attach(workspace: TerminalWorkspace, id: string, listener: (message: TerminalServerMessage) => void): () => void {
+    const session = this.session(workspace, id);
+    workspace.activeSessionId = id;
+    session.listeners.add(listener);
+    listener({
+      type: 'terminal.snapshot', sessionId: id, data: session.serialize.serialize(),
+      cols: session.screen.cols, rows: session.screen.rows
+    });
+    return () => session.listeners.delete(listener);
+  }
+
+  input(workspace: TerminalWorkspace, id: string, data: string): void {
+    const session = this.session(workspace, id);
+    if (session.info.exitCode !== null) throw new Error('Terminal has exited.');
+    session.pty.write(data);
+  }
+
+  resize(workspace: TerminalWorkspace, id: string, cols: number, rows: number): void {
+    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || cols > 500 || rows < 1 || rows > 300) {
+      throw new Error('Invalid terminal dimensions.');
+    }
+    const session = this.session(workspace, id);
+    if (cols === session.screen.cols && rows === session.screen.rows) return;
+    session.screen.resize(cols, rows);
+    if (session.info.exitCode === null) session.pty.resize(cols, rows);
+    this.emit(session, { type: 'terminal.resized', sessionId: id, cols, rows });
+  }
+
+  close(workspace: TerminalWorkspace, id: string): void {
+    const session = this.session(workspace, id);
+    session.closed = true;
+    workspace.sessions.delete(id);
+    for (const disposable of session.disposables) disposable.dispose();
+    if (session.info.exitCode === null) session.pty.kill();
+    session.screen.dispose();
+    session.listeners.clear();
+    if (workspace.activeSessionId === id) workspace.activeSessionId = [...workspace.sessions.keys()].at(-1) ?? null;
+    this.changed(workspace);
+  }
+
+  dispose(): void {
+    for (const workspace of this.workspaces.values()) {
+      workspace.listeners.clear();
+      for (const id of workspace.sessions.keys()) this.close(workspace, id);
+    }
+    this.workspaces.clear();
+  }
+
+  private session(workspace: TerminalWorkspace, id: string): Session {
+    const session = workspace.sessions.get(id);
+    if (!session) throw new Error('Terminal does not belong to this workspace.');
+    return session;
+  }
+
+  private changed(workspace: TerminalWorkspace): void {
+    for (const listener of workspace.listeners) listener();
+  }
+
+  private emit(session: Session, message: TerminalServerMessage): void {
+    for (const listener of session.listeners) listener(message);
+  }
+}

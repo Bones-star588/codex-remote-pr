@@ -99,6 +99,11 @@ svg { stroke-width: 1.8; }
 .message-stream { padding: 28px 24px 20px; scrollbar-gutter: auto; }
 .message-stream-inner { width: min(760px, 100%); }
 .message { margin-bottom: 20px; }
+.message--user { margin-block: 48px 40px; }
+.message-stream-inner > .message--user:first-child { margin-top: 0; }
+.turn-response { margin-bottom: 28px; }
+.turn-response .message:last-child { margin-bottom: 0; }
+.turn-response + .message--user { margin-top: 48px; }
 .user-message-body { max-width: 77%; padding: 8px 12px; font-size: 14px; line-height: 22.75px; font-weight: 430; background: #f3f3f3; }
 .agent-message-body { font-size: 14px; line-height: 22.75px; font-weight: 430; }
 .markdown > * + * { margin-top: 11px; }
@@ -107,7 +112,16 @@ svg { stroke-width: 1.8; }
 .markdown li + li { margin-top: 8px; }
 .markdown :not(pre) > code { border: 0; border-radius: 6px; padding: 1px 6px; font-size: .92em; }
 .markdown pre { margin-block: 14px; padding: 12px 14px; font-size: 12px; line-height: 20px; }
-.worked-divider { gap: 8px; margin: 20px 0; font-size: 14px; line-height: 20px; }
+.worked-divider { gap: 8px; margin: 0 0 20px; font-size: 14px; line-height: 21px; }
+.turn-disclosure { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: 5px; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.turn-disclosure:hover { color: var(--ink); }
+.turn-disclosure > svg { flex-shrink: 0; }
+.turn-disclosure > .is-open { transform: rotate(90deg); }
+.turn-duration { font-variant-numeric: tabular-nums; }
+.turn-activity > .activity-group + .message { margin-top: 20px; }
+.turn-activity + .message { margin-top: 20px; }
+.turn-activity > .activity-group:has(+ .activity-group) { margin-bottom: 0; }
+@media (pointer: coarse) { .turn-disclosure { min-height: 44px; } }
 .composer { padding: 0; border-color: #e5e5e5; }
 .composer textarea { min-height: 70px; max-height: 190px; padding: 15px 14px 9px; font-size: 14px; line-height: 20px; }
 .composer-toolbar { min-height: 43px; gap: 4px; padding: 3px 7px 7px; }
@@ -251,14 +265,7 @@ svg { stroke-width: 1.8; }
 .diff-file-heading { min-height: 36px; }
 .diff-file-heading > code, .diff-stat { font-size: 10px; }
 .diff-hunk-header { font-size: 10px; line-height: 18px; }
-.command-panel { display: flex; min-height: 100px; height: min(34vh, 300px); flex: 0 0 auto; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line); }
-.command-panel > header { display: flex; min-height: 36px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 0 8px 0 14px; }
-.command-panel > header > span { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.command-panel-body { min-height: 0; flex: 1; overflow: auto; padding: 8px 14px; font-size: 12px; }
-.command-panel-body details { margin-bottom: 6px; }
-.command-panel-body summary { cursor: pointer; overflow-wrap: anywhere; }
-.command-panel-body pre { max-height: 160px; overflow: auto; white-space: pre-wrap; }
-.command-panel-empty { color: var(--muted); }
+.terminal-loading { display: grid; min-height: 140px; height: min(38dvh, 360px); flex: 0 0 auto; place-items: center; border-top: 1px solid var(--line-strong); color: var(--muted); font-size: 12px; }
 
 @media (pointer: coarse) {
   .sidebar-product, .sidebar-row, .sidebar-project-row, .project-group .thread-row, .account-button { min-height: 44px; }
@@ -285,6 +292,8 @@ svg { stroke-width: 1.8; }
 .app-shell[data-layout="mobile"] .composer-send, .app-shell[data-layout="mobile"] .composer-stop { width: 36px; height: 36px; }
 .app-shell[data-layout="mobile"] .message-stream { padding: 18px 16px 16px; }
 .app-shell[data-layout="mobile"] .message { margin-bottom: 18px; }
+.app-shell[data-layout="mobile"] .message--user { margin-block: 40px; }
+.app-shell[data-layout="mobile"] .message-stream-inner > .message--user:first-child { margin-top: 0; }
 .app-shell[data-layout="mobile"] .agent-message-body, .app-shell[data-layout="mobile"] .user-message-body { font-size: 14px; line-height: 22.75px; }
 .app-shell[data-layout="mobile"] .user-message-body { max-width: 90%; }
 .app-shell[data-layout="mobile"] .inspector { top: calc(46px + env(safe-area-inset-top)); }

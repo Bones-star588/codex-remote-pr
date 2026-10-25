@@ -1,4 +1,14 @@
 import type { Thread, ThreadItem } from './types';
+import type { TurnTiming } from '../shared/turn-timing';
+
+export function mergeTurnTimings(current: Record<string, TurnTiming>, latest: TurnTiming[], baseline: Record<string, TurnTiming>): Record<string, TurnTiming> {
+  const next = { ...current };
+  for (const turn of latest) {
+    const existing = current[turn.id];
+    next[turn.id] = existing && existing !== baseline[turn.id] ? existing : turn;
+  }
+  return next;
+}
 
 export function findActiveTurnId(turns: Thread['turns'] | undefined): string | null {
   return [...(turns ?? [])].reverse().find((turn) => turn.status === 'inProgress')?.id ?? null;

@@ -31,11 +31,12 @@ The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when 
 
 - **Shared desktop chats.** Open and continue chats through the same desktop backend, including activity originating in Desktop.
 - **Projects and task navigation.** Browse all providers' tasks with paginated loading, search, archived browsing, rename, archive, and restore.
-- **Readable long histories.** Load older pages on demand, preserve the reading position, and fold consecutive commands and file edits by operation type while keeping commentary visible.
+- **Readable long histories.** Load older pages on demand, preserve the reading position, and use Desktop-style activity summaries and completed-turn disclosures.
 - **Native model metadata.** Model choices and supported reasoning levels come from the runtime, including custom model catalogs exposed by it.
 - **Slash commands.** Search commands and native skills from the composer, with keyboard and touch selection, native plan mode, compaction, reviews, and chat forks.
 - **Per-chat permissions.** Choose native read-only, workspace, or full-access profiles and respond to supported approval requests.
 - **Images and review.** Upload or paste images, open originals, inspect changed files, and use unified or split diffs.
+- **Workspace terminals.** Open an interactive shell in the current chat/project directory, with terminal tabs, Ctrl+C, preserved sessions, and reconnectable output.
 - **Responsive light UI.** Drag the desktop sidebar and review dividers to resize all three columns; widths are remembered in the current browser, and double-clicking restores defaults. Phones use navigation drawers, with a compact composer and system typography.
 - **Connection recovery.** Heartbeat deadlines, handshake timeouts, network/foreground recovery, and drafts stored per chat in the browser.
 - **Self-hosted access.** Password login, signed HTTP-only sessions, local-only initial setup, and optional Cloudflare Tunnel.
@@ -43,13 +44,20 @@ The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when 
 
 ## Execution Records
 
-Commands and file edits appear as compact, collapsed rows in their original
-conversation order. Expand a row to inspect commands, output, changed paths, and
-available file diffs. Consecutive operations of the same type share one row;
-progress messages stay visible. Empty native reasoning records do not produce
-blank fold rows; the stored history is preserved.
+Consecutive commands, edits, tool calls, and searches share one compact summary,
+even when their types alternate. Viewed images and progress messages retain their
+places in the conversation. Raw reasoning does not produce separate timeline rows,
+matching Desktop; stored history is preserved. Expand a summary to inspect
+commands, output, paths, and available file diffs.
 
-The issue shortcut filters failed and declined records, with separate status
+Active replies show elapsed work time. Completed turns fold their earlier activity
+and progress under a duration disclosure, leaving the final reply visible.
+Timing uses native turn timestamps and durations, including after reloading and
+loading older history. Missing timing is never estimated from page-load time.
+User requests and assistant responses have more space between them, while body
+text and operation rows retain their compact line heights.
+
+Inside expanded groups, issue controls filter failed and declined records, with separate status
 labels. A tool failure does not mark the whole turn as failed. Running indicators
 follow the active native turn, including when it ends with stale item statuses.
 Long groups show the latest 60 records initially and load 120 earlier records at
@@ -61,6 +69,30 @@ height, and 21px activity-header line height. Font rendering still depends on th
 operating system, browser, scaling, and available system fonts.
 
 ![Collapsed command and file-edit records](docs/images/activity.png)
+
+## Workspace Terminal
+
+Use the header's terminal button or Ctrl/Cmd+J. The panel starts PowerShell 7
+when installed on Windows, otherwise Windows PowerShell. macOS uses the host
+user's login shell. Enter commands directly; they do not go through the model.
+
+Terminals belong to their starting working directory. Chats using the same
+directory share its terminal tabs; switching directories restores the matching
+tabs. A shell's own `cd` does not change that binding. Hide closes only the
+panel, while a tab's trash button ends that terminal. Refreshing the page or
+reconnecting preserves the process and restores its latest 1,000 scrollback
+lines. Stopping/restarting Remote ends its terminal processes and clears them.
+
+The terminal uses a separate authenticated WebSocket and loads its browser
+renderer only when opened. Output bypasses conversation rendering; terminal
+screen state is kept in bounded server memory. Phones have Ctrl+C, Tab, Esc,
+history, and Enter controls.
+
+These are **Remote-owned shells**, separate from Desktop's existing terminal
+sessions and the model's execution records. They run as the host user and are
+**not restricted by the chat's model permission profile**. Only give the Remote
+login to the trusted machine operator. No terminal history is persisted by
+Remote; the selected shell may keep its own normal command history.
 
 ## Slash Commands
 
@@ -335,7 +367,7 @@ Codex CLI detection checks Windows app packages, local standalone installations,
 
 ## Security and Privacy
 
-This is a control surface for **one trusted operator's own machine**, not a multi-user hosting platform. A logged-in operator can access chats, images, and the capabilities allowed by the selected native permission profile.
+This is a control surface for **one trusted operator's own machine**, not a multi-user hosting platform. A logged-in operator can access chats, images, model actions allowed by the selected native permission profile, and a host-user interactive terminal. The manual terminal is outside the model permission sandbox.
 
 - Set a strong access password and use HTTPS for remote access.
 - Passwords use salted `scrypt` hashes. Sessions use signed, HTTP-only cookies, with `Secure` enabled over HTTPS and `SameSite=Strict`.
@@ -361,7 +393,7 @@ npm test
 npm run build
 ```
 
-The suite has **72 tests across 17 test files**. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
+The suite has **91 tests across 21 test files**, including native timing, activity folding, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
 
 ```text
 src/client/       React workspace, composer, history, approvals, reconnect
@@ -377,7 +409,7 @@ docs/images/      Sanitized documentation screenshots
 - Interface labels are currently Simplified Chinese; both English and Chinese documentation are provided.
 - This is an independent adaptation, not a pixel-exact copy of every Codex Desktop screen.
 - Internal Desktop protocol changes can break synchronization; standalone fallback cannot reproduce Desktop live events.
-- Command records are not an interactive terminal. The inspector derives review and file information from loaded chat history, not an unrestricted project explorer.
+- Remote terminals do not attach to Desktop-owned shells. The inspector derives review and file information from loaded chat history, not an unrestricted project explorer.
 - Live command approval is verified. File-change, user-input, and persistent command/network-policy approvals have helpers and tests but still need dedicated live acceptance.
 - Browser dictation requires browser support and microphone permission; actual spoken input has not been accepted in the release verification.
 - Heartbeats recover stale connections, but cannot guarantee network uptime. Interrupted requests are not replayed automatically.

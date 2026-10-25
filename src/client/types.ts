@@ -1,3 +1,5 @@
+import type { TurnTiming } from '../shared/turn-timing';
+
 export interface ThreadStatus {
   type: 'notLoaded' | 'idle' | 'systemError' | 'active';
   activeFlags?: Array<{ type: string }>;
@@ -23,13 +25,8 @@ export interface Thread {
   turns?: Turn[];
 }
 
-export interface Turn {
-  id: string;
-  status: 'completed' | 'interrupted' | 'failed' | 'inProgress';
+export interface Turn extends TurnTiming {
   items: ThreadItem[];
-  startedAt: number | null;
-  completedAt: number | null;
-  durationMs: number | null;
   error?: { message?: string } | null;
 }
 
@@ -118,6 +115,8 @@ export interface ThreadHistoryPage {
   items: ThreadHistoryItemEntry[];
   nextCursor: string | null;
   activeTurnId: string | null;
+  turns: TurnTiming[];
+  turnsCursor: string | null;
 }
 
 export interface ModelInfo {

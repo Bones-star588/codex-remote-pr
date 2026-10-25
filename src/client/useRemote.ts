@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ClientRpcMethod, ServerMessage } from '../shared/protocol';
+import type { TurnTiming } from '../shared/turn-timing';
 import { permissionProfileId, permissionProfileUpdate, type PermissionProfile, type PermissionSettings } from '../shared/permissions';
 import { api } from './api';
 import { RemoteConnection } from './remote-connection';
-import { itemKey, mergeLatestHistoryItems, mergeOlderHistoryItems, upsertItem } from './remote-state';
+import { itemKey, mergeLatestHistoryItems, mergeOlderHistoryItems, mergeTurnTimings, upsertItem } from './remote-state';
 import type {
   BridgeStatus,
   ModelInfo,
@@ -66,6 +67,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [activeThread, setActiveThread] = useState<Thread | null>(null);
   const [items, setItems] = useState<ThreadItem[]>([]);
+  const [turnTimings, setTurnTimings] = useState<Record<string, TurnTiming>>({});
   const [tokenUsage, setTokenUsage] = useState<Record<string, ContextUsage>>({});
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -83,6 +85,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
   const turnRevisionRef = useRef(0);
   const itemsRef = useRef(items);
   const olderHistoryCursorRef = useRef<string | null>(null);
+  const turnsCursorRef = useRef<string | null>(null);
+  const turnTimingsRef = useRef(turnTimings);
   const selectionVersionRef = useRef(0);
   const historyRefreshRef = useRef<Promise<void> | null>(null);
   const listRefreshRef = useRef<Promise<Thread[]> | null>(null);
@@ -102,6 +106,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
   activeThreadRef.current = activeThreadId;
   threadsRef.current = threads;
   itemsRef.current = items;
+  turnTimingsRef.current = turnTimings;
   activeTurnIdRef.current = activeTurnId;
   authExpiredRef.current = onAuthExpired;
 
@@ -272,6 +277,10 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
         setActiveThreadId(threadId);
         setActiveThread(threadsRef.current.find((thread) => thread.id === threadId) ?? null);
         setItems(cachedItems);
+        const timings = Object.fromEntries((cached?.turns ?? []).map((turn) => [turn.id, turn]));
+        turnTimingsRef.current = timings;
+        setTurnTimings(timings);
+        turnsCursorRef.current = cached?.turnsCursor ?? null;
         olderHistoryCursorRef.current = null;
         setHasMoreHistory(false);
         setActiveTurnId(null);
@@ -279,6 +288,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       }
       const version = selectionVersionRef.current;
       const baseline = options.silent ? itemsRef.current : cachedItems;
+      const timingBaseline = turnTimingsRef.current;
       const turnRevision = turnRevisionRef.current;
       if (options.silent) flushStreamingDeltas();
       else clearStreamingDeltas();
@@ -319,6 +329,12 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
           activeTurnIdRef.current = page.activeTurnId;
           setActiveTurnId(page.activeTurnId);
         }
+        setTurnTimings((current) => {
+          const timings = mergeTurnTimings(current, page.turns, timingBaseline);
+          turnTimingsRef.current = timings;
+          return timings;
+        });
+        if (!options.preserveHistory) turnsCursorRef.current = page.turnsCursor;
         setItems((current) => {
           if (preserveHistory) return mergeLatestHistoryItems(current, historyItems, baseline);
           const baselineById = new Map(baseline.map((item) => [itemKey(item), item]));
@@ -356,6 +372,25 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
         ...entry.item, turnId: entry.turnId,
         startedAtMs: entry.startedAtMs, completedAtMs: entry.completedAtMs
       }));
+      const missingTurns = new Set(olderItems.map((item) => item.turnId!).filter((id) => !turnTimingsRef.current[id]));
+      const timings: TurnTiming[] = [];
+      let turnsCursor = turnsCursorRef.current;
+      while (missingTurns.size > 0 && turnsCursor !== null) {
+        const result = await rpc<{ data: TurnTiming[]; nextCursor: string | null }>('thread/turns/list', {
+          threadId, limit: 100, itemsView: 'notLoaded', cursor: turnsCursor
+        });
+        if (threadId !== activeThreadRef.current || version !== selectionVersionRef.current) return;
+        timings.push(...result.data);
+        result.data.forEach((turn) => missingTurns.delete(turn.id));
+        if (result.nextCursor === turnsCursor) break;
+        turnsCursor = result.nextCursor;
+      }
+      turnsCursorRef.current = turnsCursor;
+      if (timings.length > 0) setTurnTimings((current) => {
+        const next = { ...Object.fromEntries(timings.map((turn) => [turn.id, turn])), ...current };
+        turnTimingsRef.current = next;
+        return next;
+      });
       setItems((current) => mergeOlderHistoryItems(olderItems, current));
       olderHistoryCursorRef.current = page.nextCursor;
       setHasMoreHistory(page.nextCursor !== null);
@@ -367,7 +402,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
         setLoadingHistory(false);
       }
     }
-  }, [fetchHistoryPage]);
+  }, [fetchHistoryPage, rpc]);
 
   const closeThread = useCallback(() => {
     selectionVersionRef.current += 1;
@@ -380,6 +415,9 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     setActiveThread(null);
     setActiveTurnId(null);
     setItems([]);
+    setTurnTimings({});
+    turnTimingsRef.current = {};
+    turnsCursorRef.current = null;
     setHasMoreHistory(false);
     setLoadingHistory(false);
     setLoadingThread(false);
@@ -418,6 +456,9 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       loadingHistoryRef.current = false;
       setActiveTurnId(null);
       setItems([]);
+      setTurnTimings({});
+      turnTimingsRef.current = {};
+      turnsCursorRef.current = null;
       setHasMoreHistory(false);
       setLoadingHistory(false);
       return thread;
@@ -431,7 +472,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       if (!clean && attachments.length === 0 && skills.length === 0) return;
 
       if (!newThreadsRef.current.has(threadId)) await rpc('thread/resume', { threadId, excludeTurns: true });
-      const result = await rpc<{ turn: { id: string } }>('turn/start', {
+      const result = await rpc<{ turn: TurnTiming }>('turn/start', {
         threadId,
         input: turnInput(clean, attachments, skills),
         ...(settings.model ? { model: settings.model } : {}),
@@ -444,6 +485,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
         turnRevisionRef.current += 1;
         activeTurnIdRef.current = result.turn.id;
         setActiveTurnId(result.turn.id);
+        setTurnTimings((current) => ({ ...current, [result.turn.id]: result.turn }));
       }
       return result.turn?.id;
     },
@@ -893,11 +935,12 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     }
 
     if (method === 'turn/started' && params.threadId === activeThreadRef.current) {
-      const turn = params.turn as { id?: string } | undefined;
+      const turn = params.turn as TurnTiming | undefined;
       if (turn?.id) {
         turnRevisionRef.current += 1;
         activeTurnIdRef.current = turn.id;
         setActiveTurnId(turn.id);
+        setTurnTimings((current) => ({ ...current, [turn.id]: turn }));
       }
     }
 
@@ -925,6 +968,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       const threadId = String(params.threadId ?? '');
       if (threadId === activeThreadRef.current) {
         flushStreamingDeltas();
+        const turn = params.turn as TurnTiming | undefined;
+        if (turn?.id) setTurnTimings((current) => ({ ...current, [turn.id]: turn }));
         turnRevisionRef.current += 1;
         activeTurnIdRef.current = null;
         setActiveTurnId(null);
@@ -956,6 +1001,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     activeTurnId,
     activeThread,
     items,
+    turnTimings,
     contextUsage: activeThreadId ? tokenUsage[activeThreadId] : undefined,
     hasMoreHistory,
     loadingHistory,
