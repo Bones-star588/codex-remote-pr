@@ -36,7 +36,7 @@ The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when 
 - **Slash commands.** Search commands and native skills from the composer, with keyboard and touch selection, native plan mode, compaction, reviews, and chat forks.
 - **Per-chat permissions.** Choose native read-only, workspace, or full-access profiles and respond to supported approval requests.
 - **Images and review.** Upload or paste images, open originals, inspect changed files, and use unified or split diffs.
-- **Responsive light UI.** Desktop sidebar, mobile navigation drawer, compact composer, and system typography.
+- **Responsive light UI.** Drag the desktop sidebar and review dividers to resize all three columns; widths are remembered in the current browser, and double-clicking restores defaults. Phones use navigation drawers, with a compact composer and system typography.
 - **Connection recovery.** Heartbeat deadlines, handshake timeouts, network/foreground recovery, and drafts stored per chat in the browser.
 - **Self-hosted access.** Password login, signed HTTP-only sessions, local-only initial setup, and optional Cloudflare Tunnel.
 - **Windows and macOS controls.** Double-click `.cmd` files on Windows or `.command` files on macOS to start and stop Remote.

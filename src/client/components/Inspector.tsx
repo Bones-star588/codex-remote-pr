@@ -39,7 +39,7 @@ export function Inspector({ open, thread, items, onClose, layout, view }: Inspec
   return (
     <>
       <button type="button" className="inspector-backdrop" aria-label="关闭检查器" onClick={onClose} tabIndex={-1} />
-      <aside className="inspector" ref={inspectorRef} aria-label="任务检查器"
+      <aside id="workspace-inspector" className="inspector" ref={inspectorRef} aria-label="任务检查器"
         onKeyDown={(event) => {
           if (event.key !== 'Tab' || layout !== 'mobile') return;
           const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), select, summary')];

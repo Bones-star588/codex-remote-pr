@@ -46,6 +46,11 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 - Permissions apply per chat. Do not rewrite global Codex config to change them.
 - Do not start a second backend that replaces an active Desktop relay.
 - Starting or stopping Remote must not terminate Codex Desktop.
+- Desktop panel widths resize through captured pointer events and keyboard
+  separators. Persist preferred widths only when interaction finishes, keep the
+  conversation at least 320px wide, and retain separate mobile drawers. Desktop
+  inspectors dock from 900px; below that they overlay. Resize state belongs in
+  the panel container so dragging does not rerender the conversation.
 
 ## Publication and Privacy
 

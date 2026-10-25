@@ -162,6 +162,7 @@ kbd {
 }
 
 .app-shell {
+  position: relative;
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   width: 100%;
@@ -2652,11 +2653,11 @@ kbd {
   :root { --review-width: 560px; }
 }
 
-@media (min-width: 1200px) {
+@media (min-width: 900px) {
   .app-shell[data-layout="desktop"] > .inspector-backdrop { display: none; }
 }
 
-@media (max-width: 1199px) {
+@media (max-width: 899px) {
   .app-shell[data-layout="desktop"]:has(.inspector) {
     grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   }
@@ -2667,7 +2668,7 @@ kbd {
     position: fixed;
     inset: var(--header-height) 0 0 auto;
     z-index: var(--z-inspector);
-    width: min(560px, 100vw);
+    width: var(--review-width);
     height: auto;
   }
 }

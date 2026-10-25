@@ -74,7 +74,7 @@ export function Sidebar({
   }, [accountOpen]);
 
   return (
-    <aside ref={sidebarRef} className={`sidebar${open ? ' sidebar--open' : ''}${isCollapsed ? ' sidebar--collapsed' : ''}`}
+    <aside id="workspace-sidebar" ref={sidebarRef} className={`sidebar${open ? ' sidebar--open' : ''}${isCollapsed ? ' sidebar--collapsed' : ''}`}
       aria-label="项目与任务" aria-hidden={(layout === 'mobile' && !open) || isCollapsed}
       inert={(layout === 'mobile' && !open) || isCollapsed}
       onKeyDown={(event) => {

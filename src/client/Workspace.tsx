@@ -18,6 +18,7 @@ import { api } from './api';
 import { ApprovalDock } from './components/ApprovalDock';
 import { Composer } from './components/Composer';
 import { Inspector } from './components/Inspector';
+import { WorkspacePanels } from './components/WorkspacePanels';
 import { Sidebar } from './components/Sidebar';
 import { ThreadTimeline } from './components/ThreadTimeline';
 import { CommandPanel } from './components/CommandPanel';
@@ -247,7 +248,7 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
   const title = activeThread ? displayThreadTitle(activeThread) : '新任务';
 
   return (
-    <div className="app-shell" data-layout={layout}>
+    <WorkspacePanels layout={layout} sidebarCollapsed={sidebarCollapsed} inspectorOpen={inspectorOpen}>
       <Sidebar
         remote={remote}
         activeThreadId={remote.activeThreadId}
@@ -435,7 +436,7 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
         }}
         onClose={() => { setCommandDialog(null); setComposerFocusRequest((value) => value + 1); }}
       />}
-    </div>
+    </WorkspacePanels>
   );
 }
 

@@ -211,7 +211,39 @@ svg { stroke-width: 1.8; }
 .inspector-launcher button { display: flex; width: 100%; min-height: 36px; align-items: center; gap: 9px; border: 0; border-radius: 6px; background: transparent; padding: 0 10px; font-size: 13px; text-align: left; }
 .inspector-launcher button:hover { background: var(--surface-hover); }
 .app-shell[data-layout="desktop"] .inspector { height: calc(100dvh - var(--header-height)); }
-.app-shell[data-layout="desktop"]:has(.review--split) { --review-width: min(40vw, 560px); }
+.panel-resizer {
+  position: absolute;
+  z-index: calc(var(--z-sidebar) + 1);
+  top: var(--header-height);
+  bottom: 0;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.panel-resizer--sidebar { left: calc(var(--sidebar-width) - 5px); }
+.panel-resizer--inspector { right: calc(var(--review-width) - 5px); }
+.panel-resizer::after {
+  position: absolute;
+  inset: 0 4px;
+  background: transparent;
+  content: "";
+}
+.panel-resizer:hover::after,
+.panel-resizer:focus-visible::after,
+.is-resizing-panels .panel-resizer:focus::after { background: var(--line-strong); }
+.panel-resizer:focus-visible::after { background: var(--ink); }
+.is-resizing-panels,
+.is-resizing-panels * { cursor: col-resize !important; user-select: none !important; }
+@media (max-width: 899px) {
+  .panel-resizer--inspector { z-index: var(--z-inspector); }
+}
+@media (pointer: coarse) {
+  .panel-resizer { width: 44px; }
+  .panel-resizer--sidebar { left: calc(var(--sidebar-width) - 22px); }
+  .panel-resizer--inspector { right: calc(var(--review-width) - 22px); }
+  .panel-resizer::after { right: 21px; left: 21px; }
+}
 .review-toolbar { min-height: 40px; }
 .diff-content { font-size: 11px; line-height: 18px; }
 .diff-line { min-height: 18px; grid-template-columns: 24px 24px 16px minmax(0, 1fr); }
