@@ -21,7 +21,10 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 ## Product Constraints
 
 - Preserve the default light appearance, system typography, compact header, and
-  separate mobile layout. Keep tool activity folded and user messages simple.
+  separate mobile layout. Fold consecutive operations by type into native-style
+  command/edit rows; keep commentary in the conversation and user messages simple.
+  Conversation text follows native 14px/22.75px, weight 430; activity headers use
+  14px/21px, weight 430. Keep the system font stack and lazy detail bodies.
 - Use the desktop's owning App Server for immediate synchronization.
 - Task list requests include all providers with `modelProviders: []` and
   `useStateDbOnly: true`. Follow native cursors; never assume one page is complete.

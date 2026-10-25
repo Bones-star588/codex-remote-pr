@@ -3,44 +3,51 @@ import { itemKey } from './remote-state';
 
 export type TimelineEntry =
   | { type: 'message'; key: string; item: ThreadItem; workedMs?: number | null }
+  | { type: 'event'; key: string; item: ThreadItem }
   | {
       type: 'activity';
       key: string;
+      kind: ActivityKind;
       items: ThreadItem[];
       failedCount: number;
+      declinedCount: number;
       running: boolean;
     };
 
-export function buildTimelineEntries(items: ThreadItem[]): TimelineEntry[] {
+export type ActivityKind = 'command' | 'file' | 'reasoning' | 'tool' | 'search' | 'image';
+
+export function buildTimelineEntries(items: ThreadItem[], activeTurnId: string | null = null): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
   let activityItems: ThreadItem[] = [];
   const turnStarts = new Map<string, number>();
+  const activityTurns = new Set<string>();
 
-  const flushActivity = () => {
+  const flushActivity = (isLast = false) => {
     if (activityItems.length === 0) return;
-    const failedCount = activityItems.filter(isFailedItem).length;
-    const running = activityItems.some(isRunningItem);
+    const failedCount = activityItems.filter((item) => 'status' in item && item.status === 'failed').length;
+    const declinedCount = activityItems.filter((item) => 'status' in item && item.status === 'declined').length;
+    const running = isLast && activeTurnId !== null && activityItems[0]!.turnId === activeTurnId;
     entries.push({
       type: 'activity',
       key: `activity-${itemKey(activityItems[0]!)}`,
+      kind: activityKind(activityItems[0]!)!,
       items: activityItems,
       failedCount,
+      declinedCount,
       running
     });
     activityItems = [];
   };
 
   items.forEach((item) => {
+    if (item.type === 'reasoning' && ![...item.summary, ...item.content].some((part) => part.trim())) return;
     if (item.type === 'userMessage' && item.turnId && item.startedAtMs != null && !turnStarts.has(item.turnId)) {
       turnStarts.set(item.turnId, item.startedAtMs);
     }
-    if (activityItems.length > 0 && item.turnId !== activityItems[0]!.turnId) flushActivity();
-    if (item.type === 'agentMessage' && item.phase === 'commentary' && activityItems.length > 0) {
-      activityItems.push(item);
-      return;
-    }
+    if (activityItems.length > 0 && (item.turnId !== activityItems[0]!.turnId ||
+      activityKind(item) !== activityKind(activityItems[0]!))) flushActivity();
     if (isConversationItem(item)) {
-      const hasActivity = activityItems.length > 0;
+      const hasActivity = activityItems.length > 0 || Boolean(item.turnId && activityTurns.has(item.turnId));
       flushActivity();
       const turnStart = item.turnId ? turnStarts.get(item.turnId) : undefined;
       const workedMs = turnStart !== undefined && item.completedAtMs != null
@@ -53,20 +60,31 @@ export function buildTimelineEntries(items: ThreadItem[]): TimelineEntry[] {
       });
       return;
     }
-    activityItems.push(item);
+    if (item.turnId) activityTurns.add(item.turnId);
+    if (activityKind(item)) activityItems.push(item);
+    else entries.push({ type: 'event', key: `event-${itemKey(item)}`, item });
   });
-  flushActivity();
+  flushActivity(true);
   return entries;
+}
+
+function activityKind(item: ThreadItem): ActivityKind | null {
+  switch (item.type) {
+    case 'commandExecution': return 'command';
+    case 'fileChange': return 'file';
+    case 'reasoning': return 'reasoning';
+    case 'mcpToolCall':
+    case 'dynamicToolCall': return 'tool';
+    case 'webSearch': return 'search';
+    case 'imageView': return 'image';
+    default: return null;
+  }
 }
 
 export function isConversationItem(item: ThreadItem): boolean {
   return item.type === 'userMessage' || item.type === 'agentMessage';
 }
 
-function isFailedItem(item: ThreadItem): boolean {
+export function isActivityIssue(item: ThreadItem): boolean {
   return 'status' in item && (item.status === 'failed' || item.status === 'declined');
-}
-
-function isRunningItem(item: ThreadItem): boolean {
-  return 'status' in item && item.status === 'inProgress';
 }

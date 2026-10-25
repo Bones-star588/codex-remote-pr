@@ -537,7 +537,7 @@ function ThreadScreen({
         threadId={thread.id}
         items={remote.items}
         loading={remote.loadingThread}
-        running={Boolean(remote.activeTurnId)}
+        activeTurnId={remote.activeTurnId}
         hasMoreHistory={remote.hasMoreHistory}
         loadingHistory={remote.loadingHistory}
         onLoadEarlier={remote.loadEarlierHistory}

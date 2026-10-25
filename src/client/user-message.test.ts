@@ -63,7 +63,7 @@ describe('user message display', () => {
         ]
       }],
       loading: false,
-      running: false,
+      activeTurnId: null,
       hasMoreHistory: false,
       loadingHistory: false,
       onLoadEarlier: async () => {}

@@ -31,7 +31,7 @@ The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when 
 
 - **Shared desktop chats.** Open and continue chats through the same desktop backend, including activity originating in Desktop.
 - **Projects and task navigation.** Browse all providers' tasks with paginated loading, search, archived browsing, rename, archive, and restore.
-- **Readable long histories.** Load older pages on demand, preserve the reading position, and fold consecutive tool activity into one group.
+- **Readable long histories.** Load older pages on demand, preserve the reading position, and fold consecutive commands and file edits by operation type while keeping commentary visible.
 - **Native model metadata.** Model choices and supported reasoning levels come from the runtime, including custom model catalogs exposed by it.
 - **Slash commands.** Search commands and native skills from the composer, with keyboard and touch selection, native plan mode, compaction, reviews, and chat forks.
 - **Per-chat permissions.** Choose native read-only, workspace, or full-access profiles and respond to supported approval requests.
@@ -40,6 +40,27 @@ The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when 
 - **Connection recovery.** Heartbeat deadlines, handshake timeouts, network/foreground recovery, and drafts stored per chat in the browser.
 - **Self-hosted access.** Password login, signed HTTP-only sessions, local-only initial setup, and optional Cloudflare Tunnel.
 - **Windows and macOS controls.** Double-click `.cmd` files on Windows or `.command` files on macOS to start and stop Remote.
+
+## Execution Records
+
+Commands and file edits appear as compact, collapsed rows in their original
+conversation order. Expand a row to inspect commands, output, changed paths, and
+available file diffs. Consecutive operations of the same type share one row;
+progress messages stay visible. Empty native reasoning records do not produce
+blank fold rows; the stored history is preserved.
+
+The issue shortcut filters failed and declined records, with separate status
+labels. A tool failure does not mark the whole turn as failed. Running indicators
+follow the active native turn, including when it ends with stale item statuses.
+Long groups show the latest 60 records initially and load 120 earlier records at
+a time. Log bodies mount only when opened; expanding preserves reading position.
+
+Conversation and activity typography follows measurements from Windows Codex
+Desktop: the system font stack, 14px text at weight 430, 22.75px paragraph line
+height, and 21px activity-header line height. Font rendering still depends on the
+operating system, browser, scaling, and available system fonts.
+
+![Collapsed command and file-edit records](docs/images/activity.png)
 
 ## Slash Commands
 
@@ -331,7 +352,7 @@ npm test
 npm run build
 ```
 
-The suite has **60 tests across 15 test files**. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
+The suite has **66 tests across 15 test files**. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
 
 ```text
 src/client/       React workspace, composer, history, approvals, reconnect
