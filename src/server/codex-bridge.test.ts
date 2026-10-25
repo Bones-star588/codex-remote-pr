@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-
 import { isAllowedRpcMethod } from './codex-bridge.js';
 
 describe('Codex bridge method allowlist', () => {
@@ -17,5 +16,16 @@ describe('Codex bridge method allowlist', () => {
     expect(isAllowedRpcMethod('process/spawn')).toBe(false);
     expect(isAllowedRpcMethod('command/exec')).toBe(false);
     expect(isAllowedRpcMethod('fs/writeFile')).toBe(false);
+  });
+});
+
+describe('command RPC access', () => {
+  it('allows the native command methods without permitting arbitrary config or execution methods', () => {
+    for (const method of ['skills/list', 'collaborationMode/list', 'thread/compact/start', 'thread/fork', 'review/start']) {
+      expect(isAllowedRpcMethod(method), method).toBe(true);
+    }
+    for (const method of ['config/write', 'command/exec', 'anything/else']) {
+      expect(isAllowedRpcMethod(method), method).toBe(false);
+    }
   });
 });

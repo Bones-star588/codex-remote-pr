@@ -28,6 +28,9 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 - Keep history bounded and preserve reading position when prepending older pages.
 - Do not resume a new unsent chat before its first persisted turn.
 - Native `turn/steer` uses `expectedTurnId`.
+- Composer slash commands use native RPC actions, not text prompts. Skills come
+  from `skills/list` for the current directory and submit as native skill input.
+  Keep collaboration mode synchronized through resume/settings notifications.
 - Native approvals arrive through `mcp-request`; responses use `mcp-response`.
   Respect the request's available decisions.
 - Permissions apply per chat. Do not rewrite global Codex config to change them.

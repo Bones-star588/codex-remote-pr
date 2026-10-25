@@ -14,7 +14,8 @@ import type {
   ThreadHistoryPage,
   ThreadItem
 } from './types';
-import type { ComposerAttachment, ContextUsage } from './types';
+import type { CollaborationMode, ComposerAttachment, ContextUsage, McpStatus, ReviewTarget, SkillInfo, SkillsResult } from './types';
+import { turnInput } from './slash-commands';
 import { dedupeThreads } from './workspace-model';
 
 interface PendingRpc {
@@ -38,6 +39,7 @@ export interface ThreadSettingsPatch {
   model?: string;
   effort?: string;
   permissions?: string;
+  collaborationMode?: CollaborationMode;
 }
 
 export interface CreateThreadOptions {
@@ -46,6 +48,7 @@ export interface CreateThreadOptions {
   model?: string;
   effort?: string;
   permissions?: string;
+  collaborationMode?: CollaborationMode;
 }
 
 export function useRemote({ authenticated, onAuthExpired }: UseRemoteOptions) {
@@ -275,11 +278,14 @@ export function useRemote({ authenticated, onAuthExpired }: UseRemoteOptions) {
         const archived = threadsRef.current.find((thread) => thread.id === threadId)?.archived;
         const [result, page] = await Promise.all([
           isNew || archived
-            ? rpc<{ thread: Thread } & PermissionSettings>('thread/read', { threadId, includeTurns: false })
-            : rpc<{ thread: Thread } & PermissionSettings>('thread/resume', { threadId, excludeTurns: true }),
+            ? rpc<{ thread: Thread; collaborationMode?: CollaborationMode } & PermissionSettings>('thread/read', { threadId, includeTurns: false })
+            : rpc<{ thread: Thread; collaborationMode?: CollaborationMode } & PermissionSettings>('thread/resume', { threadId, excludeTurns: true }),
           isNew ? Promise.resolve({ items: [], nextCursor: null, activeTurnId: null } as ThreadHistoryPage) : fetchHistoryPage(threadId)
         ]);
-        const thread = { ...result.thread, permissionProfile: permissionProfileId(result), archived: Boolean(archived) };
+        const thread = {
+          ...result.thread, permissionProfile: permissionProfileId(result), archived: Boolean(archived),
+          ...(result.collaborationMode ? { collaborationMode: result.collaborationMode } : {})
+        };
         const historyItems = page.items.map((entry) => ({
           ...entry.item, turnId: entry.turnId,
           startedAtMs: entry.startedAtMs, completedAtMs: entry.completedAtMs
@@ -372,9 +378,17 @@ export function useRemote({ authenticated, onAuthExpired }: UseRemoteOptions) {
       });
       newThreadsRef.current.add(result.thread.id);
       let thread = { ...result.thread, permissionProfile: permissionProfileId(result) };
-      if (options.effort) {
-        await rpc('thread/settings/update', { threadId: thread.id, effort: options.effort });
-        thread = { ...thread, reasoningEffort: options.effort };
+      if (options.effort || options.collaborationMode) {
+        await rpc('thread/settings/update', {
+          threadId: thread.id,
+          ...(options.effort ? { effort: options.effort } : {}),
+          ...(options.collaborationMode ? { collaborationMode: options.collaborationMode } : {})
+        });
+        thread = {
+          ...thread,
+          ...(options.effort ? { reasoningEffort: options.effort } : {}),
+          ...(options.collaborationMode ? { collaborationMode: options.collaborationMode } : {})
+        };
       }
       setThreads((current) => dedupeThreads([...current, thread]));
       selectionVersionRef.current += 1;
@@ -394,20 +408,18 @@ export function useRemote({ authenticated, onAuthExpired }: UseRemoteOptions) {
   );
 
   const sendTurn = useCallback(
-    async (threadId: string, text: string, settings: ThreadSettingsPatch = {}, attachments: ComposerAttachment[] = []) => {
+    async (threadId: string, text: string, settings: ThreadSettingsPatch = {}, attachments: ComposerAttachment[] = [], skills: SkillInfo[] = []) => {
       const clean = text.trim();
-      if (!clean && attachments.length === 0) return;
+      if (!clean && attachments.length === 0 && skills.length === 0) return;
 
       if (!newThreadsRef.current.has(threadId)) await rpc('thread/resume', { threadId, excludeTurns: true });
       const result = await rpc<{ turn: { id: string } }>('turn/start', {
         threadId,
-        input: [
-          ...(clean ? [{ type: 'text', text: clean, text_elements: [] }] : []),
-          ...attachments.map((attachment) => ({ type: 'image', url: attachment.url }))
-        ],
+        input: turnInput(clean, attachments, skills),
         ...(settings.model ? { model: settings.model } : {}),
         ...(settings.effort ? { effort: settings.effort } : {}),
-        ...(settings.permissions ? permissionProfileUpdate(settings.permissions) : {})
+        ...(settings.permissions ? permissionProfileUpdate(settings.permissions) : {}),
+        ...(settings.collaborationMode ? { collaborationMode: settings.collaborationMode } : {})
       });
       newThreadsRef.current.delete(threadId);
       if (result.turn?.id && activeThreadRef.current === threadId) {
@@ -433,7 +445,8 @@ export function useRemote({ authenticated, onAuthExpired }: UseRemoteOptions) {
                 ...thread,
                 ...(settings.model ? { model: settings.model } : {}),
                 ...(settings.effort ? { reasoningEffort: settings.effort } : {}),
-                ...(settings.permissions ? { permissionProfile: settings.permissions } : {})
+                ...(settings.permissions ? { permissionProfile: settings.permissions } : {}),
+                ...(settings.collaborationMode ? { collaborationMode: settings.collaborationMode } : {})
               }
             : thread
         )
@@ -444,7 +457,8 @@ export function useRemote({ authenticated, onAuthExpired }: UseRemoteOptions) {
               ...current,
               ...(settings.model ? { model: settings.model } : {}),
               ...(settings.effort ? { reasoningEffort: settings.effort } : {}),
-              ...(settings.permissions ? { permissionProfile: settings.permissions } : {})
+              ...(settings.permissions ? { permissionProfile: settings.permissions } : {}),
+              ...(settings.collaborationMode ? { collaborationMode: settings.collaborationMode } : {})
             }
           : current
       );
@@ -473,6 +487,51 @@ export function useRemote({ authenticated, onAuthExpired }: UseRemoteOptions) {
     await refreshThreads();
   }, [closeThread, refreshThreads]);
 
+  const listSkills = useCallback(async (cwd?: string): Promise<SkillsResult> => {
+    const result = await rpc<{ data: Array<{ skills: SkillInfo[]; errors: SkillsResult['errors'] }> }>(
+      'skills/list', { ...(cwd ? { cwds: [cwd] } : {}) }
+    );
+    return {
+      skills: [...new Map(result.data.flatMap((entry) => entry.skills).map((skill) => [skill.path, skill])).values()],
+      errors: result.data.flatMap((entry) => entry.errors)
+    };
+  }, [rpc]);
+
+  const listModes = useCallback(() => rpc<{ data: Array<{ mode: string | null }> }>('collaborationMode/list'), [rpc]);
+
+  const listMcp = useCallback(async (threadId?: string) => {
+    const data: McpStatus[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { data: McpStatus[]; nextCursor?: string | null } = await rpc('mcpServerStatus/list', {
+        limit: 100, detail: 'toolsAndAuthOnly', ...(cursor ? { cursor } : {}), ...(threadId ? { threadId } : {})
+      });
+      data.push(...page.data);
+      cursor = page.nextCursor ?? null;
+    } while (cursor);
+    return data;
+  }, [rpc]);
+
+  const compactThread = useCallback(async (threadId: string) => {
+    await rpc('thread/compact/start', { threadId });
+  }, [rpc]);
+
+  const reviewThread = useCallback(async (threadId: string, target: ReviewTarget) => {
+    const result = await rpc<{ turn: { id: string } }>('review/start', { threadId, target, delivery: 'inline' });
+    if (activeThreadRef.current === threadId && result.turn?.id) {
+      turnRevisionRef.current += 1;
+      activeTurnIdRef.current = result.turn.id;
+      setActiveTurnId(result.turn.id);
+    }
+  }, [rpc]);
+
+  const forkThread = useCallback(async (threadId: string) => {
+    const result = await rpc<{ thread: Thread }>('thread/fork', { threadId, excludeTurns: true });
+    setThreads((current) => dedupeThreads([...current, result.thread]));
+    await openThread(result.thread.id);
+    await refreshThreads();
+  }, [rpc, openThread, refreshThreads]);
+
   const refreshActiveHistory = useCallback(() => {
     const threadId = activeThreadRef.current;
     if (!threadId || historyRefreshRef.current) return;
@@ -482,11 +541,8 @@ export function useRemote({ authenticated, onAuthExpired }: UseRemoteOptions) {
   }, [openThread]);
 
   const steerTurn = useCallback(
-    async (threadId: string, turnId: string, text: string, attachments: ComposerAttachment[] = []) => {
-      await rpc('turn/steer', { threadId, expectedTurnId: turnId, input: [
-        ...(text.trim() ? [{ type: 'text', text, text_elements: [] }] : []),
-        ...attachments.map((attachment) => ({ type: 'image', url: attachment.url }))
-      ] });
+    async (threadId: string, turnId: string, text: string, attachments: ComposerAttachment[] = [], skills: SkillInfo[] = []) => {
+      await rpc('turn/steer', { threadId, expectedTurnId: turnId, input: turnInput(text, attachments, skills) });
     },
     [rpc]
   );
@@ -713,6 +769,7 @@ export function useRemote({ authenticated, onAuthExpired }: UseRemoteOptions) {
       scheduleThreadRefresh();
       refreshActiveHistory();
     }
+    if (method === 'thread/compacted' && params.threadId === activeThreadRef.current) refreshActiveHistory();
     if (method === 'thread/started') {
       const thread = params.thread as Thread | undefined;
       if (thread && !archivedRef.current) setThreads((current) => dedupeThreads([...current, thread]));
@@ -749,7 +806,7 @@ export function useRemote({ authenticated, onAuthExpired }: UseRemoteOptions) {
     if (method === 'thread/settings/updated') {
       const threadId = String(params.threadId ?? '');
       const settings = params.threadSettings as
-        | ({ model?: string; effort?: string | null } & PermissionSettings)
+        | ({ model?: string; effort?: string | null; collaborationMode?: CollaborationMode } & PermissionSettings)
         | undefined;
       if (threadId && settings) {
         setThreads((current) =>
@@ -759,6 +816,7 @@ export function useRemote({ authenticated, onAuthExpired }: UseRemoteOptions) {
                   ...thread,
                   ...(settings.model ? { model: settings.model } : {}),
                   ...(settings.effort ? { reasoningEffort: settings.effort } : {}),
+                  ...(settings.collaborationMode ? { collaborationMode: settings.collaborationMode } : {}),
                   permissionProfile: permissionProfileId(settings)
                 }
               : thread
@@ -770,6 +828,7 @@ export function useRemote({ authenticated, onAuthExpired }: UseRemoteOptions) {
                 ...current,
                 ...(settings.model ? { model: settings.model } : {}),
                 ...(settings.effort ? { reasoningEffort: settings.effort } : {}),
+                ...(settings.collaborationMode ? { collaborationMode: settings.collaborationMode } : {}),
                 permissionProfile: permissionProfileId(settings)
               }
             : current
@@ -887,6 +946,13 @@ export function useRemote({ authenticated, onAuthExpired }: UseRemoteOptions) {
     loadEarlierHistory,
     closeThread,
     createThread,
+    isNewThread: activeThreadId ? newThreadsRef.current.has(activeThreadId) : false,
+    listSkills,
+    listModes,
+    listMcp,
+    compactThread,
+    reviewThread,
+    forkThread,
     sendTurn,
     setThreadSettings,
     renameThread,

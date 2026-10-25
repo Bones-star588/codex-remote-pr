@@ -35,6 +35,8 @@ const READ_METHODS = new Set<ClientRpcMethod>([
   'thread/items/list',
   'model/list',
   'permissionProfile/list',
+  'skills/list',
+  'collaborationMode/list',
   'project/list',
   'project/read',
   'getAuthStatus',
@@ -56,6 +58,9 @@ const WRITE_METHODS = new Set<ClientRpcMethod>([
   'thread/archive',
   'thread/unarchive',
   'thread/settings/update',
+  'thread/compact/start',
+  'thread/fork',
+  'review/start',
   'turn/start',
   'turn/steer',
   'turn/interrupt'

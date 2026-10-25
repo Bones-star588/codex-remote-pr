@@ -21,10 +21,13 @@ import { Inspector } from './components/Inspector';
 import { Sidebar } from './components/Sidebar';
 import { ThreadTimeline } from './components/ThreadTimeline';
 import { CommandPanel } from './components/CommandPanel';
+import { CommandDialog, type CommandDialogState } from './components/CommandDialog';
 import { displayThreadTitle } from './remote-state';
 import { useRemote } from './useRemote';
-import type { ComposerAttachment, Thread } from './types';
-import { resolveReasoningEffort } from './workspace-model';
+import type { ComposerAttachment, SkillInfo, Thread } from './types';
+import { modelDisplayName, reasoningLabel, resolveReasoningEffort } from './workspace-model';
+import { collaborationMode, slashCommands, type SlashCommandId } from './slash-commands';
+import { permissionLabel } from '../shared/permissions';
 
 interface WorkspaceProps {
   onAuthExpired: () => void;
@@ -48,6 +51,9 @@ export function Workspace({ onAuthExpired }: WorkspaceProps) {
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const [taskMenuOpen, setTaskMenuOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
+  const [newTaskMode, setNewTaskMode] = useState<'default' | 'plan'>('default');
+  const [commandDialog, setCommandDialog] = useState<CommandDialogState | null>(null);
+  const [commandNotice, setCommandNotice] = useState<string | null>(null);
 
   const activeThread = remote.activeThread;
   const defaultModel = remote.models.find((model) => model.isDefault) ?? remote.models[0];
@@ -60,6 +66,21 @@ export function Workspace({ onAuthExpired }: WorkspaceProps) {
   const effectiveModel = activeThread?.model || newTaskModel || defaultModel?.model || '';
   const effectivePermissions = activeThread?.permissionProfile || newTaskPermissions || remote.defaultPermissionProfile || '';
   const permissionCwd = activeThread?.cwd || remote.projects.find((project) => project.id === selectedProjectId)?.roots[0]?.path;
+  const effectiveMode = activeThread ? activeThread.collaborationMode?.mode ?? 'default' : newTaskMode;
+  const hasSavedThread = Boolean(activeThread) && !remote.isNewThread && !remote.showArchived && !remote.loadingThread;
+  const commandProps = {
+    onCommand: runCommand,
+    loadSkills: () => remote.listSkills(permissionCwd),
+    skillScope: permissionCwd ?? '',
+    hasSavedThread,
+    mode: effectiveMode
+  };
+
+  useEffect(() => {
+    if (!commandNotice) return;
+    const timer = window.setTimeout(() => setCommandNotice(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [commandNotice]);
 
   useEffect(() => {
     if (remote.connected) {
@@ -110,6 +131,8 @@ export function Workspace({ onAuthExpired }: WorkspaceProps) {
     remote.setLastError(null);
     if (projectId !== undefined) setSelectedProjectId(projectId);
     setSidebarOpen(false);
+    setNewTaskMode('default');
+    setCommandDialog(null);
     setComposerFocusRequest((value) => value + 1);
   }
 
@@ -128,14 +151,11 @@ export function Workspace({ onAuthExpired }: WorkspaceProps) {
       setNewTaskEffort(resolveReasoningEffort(info, newTaskEffort));
       return;
     }
-    try {
-      await remote.setThreadSettings(activeThread.id, {
-        model,
-        effort: resolveReasoningEffort(info, activeThread.reasoningEffort)
-      });
-    } catch (error) {
-      showError(error);
-    }
+    const effort = resolveReasoningEffort(info, activeThread.reasoningEffort);
+    await remote.setThreadSettings(activeThread.id, {
+      model, effort,
+      ...(activeThread.collaborationMode ? { collaborationMode: collaborationMode(effectiveMode, model, effort) } : {})
+    });
   }
 
   async function changeEffort(effort: string) {
@@ -143,11 +163,10 @@ export function Workspace({ onAuthExpired }: WorkspaceProps) {
       setNewTaskEffort(effort);
       return;
     }
-    try {
-      await remote.setThreadSettings(activeThread.id, { effort });
-    } catch (error) {
-      showError(error);
-    }
+    await remote.setThreadSettings(activeThread.id, {
+      effort,
+      ...(activeThread.collaborationMode ? { collaborationMode: collaborationMode(effectiveMode, effectiveModel, effort) } : {})
+    });
   }
 
   async function changePermissions(permissions: string) {
@@ -158,31 +177,62 @@ export function Workspace({ onAuthExpired }: WorkspaceProps) {
     await remote.setThreadSettings(activeThread.id, { permissions });
   }
 
-  async function submitHome(text: string, attachments: ComposerAttachment[]) {
+  async function runCommand(command: SlashCommandId, argument: string) {
+    const definition = slashCommands.find((entry) => entry.id === command)!;
+    if (definition.needsThread && !hasSavedThread) throw new Error('先打开一个已保存的聊天。');
+    if (definition.idleOnly && remote.activeTurnId) throw new Error('请等待当前任务结束。');
+    if (argument && !['rename', 'review', 'plan'].includes(command)) throw new Error(`/${command} 不接受参数。`);
+    remote.setLastError(null);
+    if (command === 'new') beginNewTask(activeThread?.projectId ?? selectedProjectId);
+    else if (command === 'plan') {
+      const mode = argument === 'off' ? 'default' : argument === 'on' || argument ? 'plan' : effectiveMode === 'plan' ? 'default' : 'plan';
+      const available = await remote.listModes();
+      if (!available.data.some((entry) => entry.mode === mode)) throw new Error('当前 Codex 没有提供该协作模式。');
+      if (!effectiveModel) throw new Error('请先选择可用模型。');
+      if (activeThread) await remote.setThreadSettings(activeThread.id, {
+        collaborationMode: collaborationMode(mode, effectiveModel, activeEffort)
+      });
+      else setNewTaskMode(mode);
+    } else if (command === 'compact') {
+      await remote.compactThread(activeThread!.id);
+      setCommandNotice('已请求压缩上下文');
+    } else if (command === 'review') setCommandDialog({ type: 'review', instructions: argument });
+    else if (command === 'fork') await remote.forkThread(activeThread!.id);
+    else if (command === 'rename') {
+      if (argument) await remote.renameThread(activeThread!.id, argument);
+      else { setTaskMenuOpen(true); setRenameDraft(displayThreadTitle(activeThread!)); }
+    } else if (command === 'diff') { setInspectorView('changes'); setInspectorOpen(true); }
+    else if (command === 'status' || command === 'mcp') setCommandDialog({ type: command });
+  }
+
+  async function submitHome(text: string, attachments: ComposerAttachment[], skills: SkillInfo[]) {
     const project = remote.projects.find((entry) => entry.id === selectedProjectId);
     const thread = await remote.createThread({
       ...(project?.roots?.[0]?.path ? { cwd: project.roots[0].path } : {}),
       ...(project?.id ? { projectId: project.id } : {}),
       ...(newTaskModel ? { model: newTaskModel } : {}),
       ...(newTaskEffort ? { effort: newTaskEffort } : {}),
+      ...(newTaskMode === 'plan' ? { collaborationMode: collaborationMode('plan', effectiveModel, activeEffort) } : {}),
       ...(effectivePermissions ? { permissions: effectivePermissions } : {})
     });
     await remote.sendTurn(thread.id, text, {
       ...(newTaskModel ? { model: newTaskModel } : {}),
-      ...(newTaskEffort ? { effort: newTaskEffort } : {})
-    }, attachments);
+      ...(newTaskEffort ? { effort: newTaskEffort } : {}),
+      ...(newTaskMode === 'plan' ? { collaborationMode: collaborationMode('plan', effectiveModel, activeEffort) } : {})
+    }, attachments, skills);
   }
 
-  async function submitThread(text: string, attachments: ComposerAttachment[]) {
+  async function submitThread(text: string, attachments: ComposerAttachment[], skills: SkillInfo[]) {
     if (!activeThread) return;
     if (remote.activeTurnId) {
-      await remote.steerTurn(activeThread.id, remote.activeTurnId, text, attachments);
+      await remote.steerTurn(activeThread.id, remote.activeTurnId, text, attachments, skills);
       return;
     }
     await remote.sendTurn(activeThread.id, text, {
       ...(effectiveModel ? { model: effectiveModel } : {}),
-      ...(activeEffort ? { effort: activeEffort } : {})
-    }, attachments);
+      ...(activeEffort ? { effort: activeEffort } : {}),
+      ...(activeThread.collaborationMode ? { collaborationMode: collaborationMode(effectiveMode, effectiveModel, activeEffort) } : {})
+    }, attachments, skills);
   }
 
   async function logout() {
@@ -311,6 +361,7 @@ export function Workspace({ onAuthExpired }: WorkspaceProps) {
             </button>
           </div>
         )}
+        {commandNotice && <div className="command-notice" role="status">{commandNotice}</div>}
 
         {activeThread ? (
           <ThreadScreen
@@ -326,6 +377,7 @@ export function Workspace({ onAuthExpired }: WorkspaceProps) {
             onEffortChange={changeEffort}
             onSubmit={submitThread}
             onError={showError}
+            commandProps={commandProps}
           />
         ) : (
           <HomeView
@@ -346,6 +398,7 @@ export function Workspace({ onAuthExpired }: WorkspaceProps) {
             onEffortChange={changeEffort}
             onSubmit={submitHome}
             onError={showError}
+            commandProps={commandProps}
           />
         )}
         {commandsOpen && <CommandPanel items={remote.items} onClose={() => setCommandsOpen(false)} />}
@@ -360,6 +413,27 @@ export function Workspace({ onAuthExpired }: WorkspaceProps) {
         items={remote.items}
         onClose={() => setInspectorOpen(false)}
       />
+      {commandDialog && <CommandDialog key={`${activeThread?.id ?? 'home'}:${commandDialog.type}`}
+        state={commandDialog}
+        status={[
+          { label: '连接', value: remote.connected ? remote.bridgeStatus.status : 'disconnected' },
+          { label: '聊天', value: activeThread ? displayThreadTitle(activeThread) : '新聊天' },
+          { label: '模型', value: modelDisplayName(remote.models, effectiveModel) },
+          { label: '推理强度', value: reasoningLabel(activeModelInfo, activeEffort) },
+          { label: '模式', value: effectiveMode === 'plan' ? '计划' : '默认' },
+          { label: '权限', value: permissionLabel(effectivePermissions) },
+          { label: '工作目录', value: permissionCwd ?? '' },
+          { label: '上下文', value: remote.contextUsage
+            ? `${remote.contextUsage.last.totalTokens.toLocaleString()} / ${remote.contextUsage.modelContextWindow?.toLocaleString() ?? '—'} tokens` : '暂无用量' }
+        ]}
+        loadMcp={() => remote.listMcp(activeThread?.id)}
+        onReview={async (target) => {
+          if (!hasSavedThread || !activeThread) throw new Error('请先打开一个已保存的聊天。');
+          if (remote.activeTurnId) throw new Error('请等待当前任务结束。');
+          await remote.reviewThread(activeThread.id, target);
+        }}
+        onClose={() => { setCommandDialog(null); setComposerFocusRequest((value) => value + 1); }}
+      />}
     </div>
   );
 }
@@ -377,7 +451,8 @@ function HomeView({
   onModelChange,
   onEffortChange,
   onSubmit,
-  onError
+  onError,
+  commandProps
 }: {
   remote: ReturnType<typeof useRemote>;
   layout: LayoutMode;
@@ -390,8 +465,9 @@ function HomeView({
   onProjectChange: (projectId: string) => void;
   onModelChange: (model: string) => void;
   onEffortChange: (effort: string) => void;
-  onSubmit: (text: string, attachments: ComposerAttachment[]) => Promise<void>;
+  onSubmit: (text: string, attachments: ComposerAttachment[], skills: SkillInfo[]) => Promise<void>;
   onError: (error: unknown) => void;
+  commandProps: Pick<Parameters<typeof Composer>[0], 'onCommand' | 'loadSkills' | 'skillScope' | 'hasSavedThread' | 'mode'>;
 }) {
   return (
     <div className={`home-view home-view--${layout}`}>
@@ -403,6 +479,7 @@ function HomeView({
       </div>
       <div className="home-composer-dock">
         <Composer
+          {...commandProps}
           variant="home"
           disabled={!remote.connected}
           layout={layout}
@@ -437,7 +514,8 @@ function ThreadScreen({
   onModelChange,
   onEffortChange,
   onSubmit,
-  onError
+  onError,
+  commandProps
 }: {
   remote: ReturnType<typeof useRemote>;
   thread: Thread;
@@ -448,8 +526,9 @@ function ThreadScreen({
   onPermissionsChange: (permissions: string) => Promise<void>;
   onModelChange: (model: string) => void;
   onEffortChange: (effort: string) => void;
-  onSubmit: (text: string, attachments: ComposerAttachment[]) => Promise<void>;
+  onSubmit: (text: string, attachments: ComposerAttachment[], skills: SkillInfo[]) => Promise<void>;
   onError: (error: unknown) => void;
+  commandProps: Pick<Parameters<typeof Composer>[0], 'onCommand' | 'loadSkills' | 'skillScope' | 'hasSavedThread' | 'mode'>;
 }) {
   return (
     <div className="thread-screen">
@@ -471,6 +550,7 @@ function ThreadScreen({
           onError={onError}
         />
         <Composer
+          {...commandProps}
           variant="thread"
           draftKey={thread.id}
           disabled={!remote.connected || remote.loadingThread || remote.showArchived}

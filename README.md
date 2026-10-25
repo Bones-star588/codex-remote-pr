@@ -33,12 +33,41 @@ The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when 
 - **Projects and task navigation.** Browse all providers' tasks with paginated loading, search, archived browsing, rename, archive, and restore.
 - **Readable long histories.** Load older pages on demand, preserve the reading position, and fold consecutive tool activity into one group.
 - **Native model metadata.** Model choices and supported reasoning levels come from the runtime, including custom model catalogs exposed by it.
+- **Slash commands.** Search commands and native skills from the composer, with keyboard and touch selection, native plan mode, compaction, reviews, and chat forks.
 - **Per-chat permissions.** Choose native read-only, workspace, or full-access profiles and respond to supported approval requests.
 - **Images and review.** Upload or paste images, open originals, inspect changed files, and use unified or split diffs.
 - **Responsive light UI.** Desktop sidebar, mobile navigation drawer, compact composer, and system typography.
 - **Connection recovery.** Heartbeat deadlines, handshake timeouts, network/foreground recovery, and drafts stored per chat in the browser.
 - **Self-hosted access.** Password login, signed HTTP-only sessions, local-only initial setup, and optional Cloudflare Tunnel.
 - **Windows and macOS controls.** Double-click `.cmd` files on Windows or `.command` files on macOS to start and stop Remote.
+
+## Slash Commands
+
+Type `/` at the start of the composer to browse commands and enabled skills. Filter by typing, use Up/Down and Enter/Tab to select, or tap an entry. Escape closes the menu without losing the draft. Chinese IME confirmation does not submit a command.
+
+| Command | Action |
+| --- | --- |
+| `/new` | Start a new chat; `/clear` is an alias |
+| `/model` | Open the native model picker; `/model <model-id>` selects a catalog entry |
+| `/reasoning` | Open the current model's reasoning levels; accepts a supported level as an argument |
+| `/permissions` | Open per-chat permissions; `/approvals` is an alias |
+| `/plan` | Toggle native plan mode; `/plan on` and `/plan off` select it explicitly |
+| `/skills` | Browse enabled skills in the current working directory |
+| `/<skill-name>` | Attach an enabled skill to the next message using native skill input |
+| `/compact` | Request native context compaction for the current saved chat |
+| `/review` | Choose uncommitted changes, a base branch, a commit, or custom review instructions |
+| `/fork` | Fork the saved chat and open the new chat with bounded history |
+| `/rename` | Open rename; `/rename <name>` renames directly |
+| `/diff` | Open the changed-file inspector for the loaded history |
+| `/status` | Show connection, model, reasoning, mode, permissions, directory, and context usage |
+| `/mcp` | Read native MCP server status, following all returned pages |
+| `/help` | Return to the command menu |
+
+Selecting a skill adds a removable attachment; enter the request and send it normally. Skill input also works when adding instructions to an active turn. Disabled skills are excluded, and `/skills` still exposes skills whose names overlap built-in commands.
+
+`/plan <request>` enables plan mode and leaves the request in the composer for review before sending. Plan settings use the selected provider model and reasoning level, and Desktop-origin mode updates are reflected in Remote. Compaction, review, and fork require a saved chat; they and mode changes are unavailable while a turn is active. Existing images remain attached when using settings commands.
+
+Commands call the owning App Server or open the corresponding UI. A failed command keeps its draft and reports the native error. Unknown slash words are not silently sent to the model. Paths containing further slashes and multiline messages remain ordinary text. The available list is the adaptation above, not every CLI-only or Desktop-only command; unsupported runtime methods report an error. Native compaction/review/fork mutations have synthetic browser acceptance; this release's live native check covers skill/mode/MCP reads, not model-billed reviews or compaction on real chats.
 
 ## How It Works
 
@@ -302,7 +331,7 @@ npm test
 npm run build
 ```
 
-The suite has **53 tests across 14 test files**. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
+The suite has **60 tests across 15 test files**. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
 
 ```text
 src/client/       React workspace, composer, history, approvals, reconnect

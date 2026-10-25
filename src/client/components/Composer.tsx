@@ -1,12 +1,14 @@
 import {
   ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, Eye, Folder,
-  LoaderCircle, ShieldAlert, ShieldCheck, Square, X, Plus, Mic, FileImage, MessageSquare
+  LoaderCircle, ShieldAlert, ShieldCheck, Square, X, Plus, Mic, FileImage, MessageSquare, Sparkles, ListTodo
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { permissionLabel, type PermissionProfile } from '../../shared/permissions';
-import type { ComposerAttachment, ContextUsage, ModelInfo, ProjectInfo } from '../types';
+import type { ComposerAttachment, ContextUsage, ModelInfo, ProjectInfo, SkillInfo, SkillsResult } from '../types';
 import { modelDisplayName, reasoningLabel, reasoningOptionsForModel } from '../workspace-model';
+import { findSlashCommand, parseSlashQuery, slashOptions, type SlashCommandId, type SlashOption } from '../slash-commands';
+import { SlashMenu } from './SlashMenu';
 
 interface ComposerProps {
   variant: 'home' | 'thread';
@@ -27,7 +29,12 @@ interface ComposerProps {
   onProjectChange?: (projectId: string) => void;
   onModelChange: (model: string) => void | Promise<void>;
   onEffortChange: (effort: string) => void | Promise<void>;
-  onSubmit: (text: string, attachments: ComposerAttachment[]) => Promise<void>;
+  onSubmit: (text: string, attachments: ComposerAttachment[], skills: SkillInfo[]) => Promise<void>;
+  onCommand: (command: SlashCommandId, argument: string) => Promise<void>;
+  loadSkills: () => Promise<SkillsResult>;
+  skillScope: string;
+  hasSavedThread: boolean;
+  mode: 'default' | 'plan';
   contextUsage?: ContextUsage;
   onStop?: () => Promise<void>;
   onError: (error: unknown) => void;
@@ -37,13 +44,21 @@ export function Composer({
   variant, layout, model, effort, models, permissions, permissionProfiles, onPermissionsChange,
   projects = [], selectedProjectId = '', activeTurnId, focusRequest = 0,
   draftKey = variant, disabled = false, placeholder, onProjectChange,
-  onModelChange, onEffortChange, onSubmit, onStop, onError, contextUsage
+  onModelChange, onEffortChange, onSubmit, onStop, onError, contextUsage,
+  onCommand, loadSkills, skillScope, hasSavedThread, mode
 }: ComposerProps) {
   const [draft, setDraft] = useState(() => sessionStorage.getItem(`draft:${draftKey}`) ?? '');
   const [sending, setSending] = useState(false);
   const [changing, setChanging] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [selectedSkills, setSelectedSkills] = useState<SkillInfo[]>([]);
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [slashIndex, setSlashIndex] = useState(0);
   const [listening, setListening] = useState(false);
   const [menu, setMenu] = useState<'settings' | 'models' | 'permissions' | 'projects' | null>(null);
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({});
@@ -56,6 +71,9 @@ export function Composer({
   const projectButtonRef = useRef<HTMLButtonElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<Dictation | null>(null);
+  const commandRunningRef = useRef(false);
+  const skillsLoaderRef = useRef(loadSkills);
+  skillsLoaderRef.current = loadSkills;
   const speechConstructor = (window as SpeechWindow).SpeechRecognition ?? (window as SpeechWindow).webkitSpeechRecognition;
   const contextWindow = contextUsage?.modelContextWindow;
   const usedTokens = contextUsage?.last.totalTokens;
@@ -65,6 +83,42 @@ export function Composer({
   const effortOptions = useMemo(() => reasoningOptionsForModel(modelInfo), [modelInfo]);
   const menuLabel = menu === 'permissions' ? '访问权限' : menu === 'models' ? '模型' : menu === 'projects' ? '项目' : '推理强度';
   draftRef.current = draft;
+  const slashQuery = parseSlashQuery(draft);
+  const slashOpen = focused && Boolean(slashQuery) && !slashDismissed && !menu && !sending && !disabled;
+  const skillsOnly = /^\/skills[ \t]/i.test(draft);
+  const options = useMemo(() => slashOptions(slashQuery ?? { name: '', argument: '' }, skills, {
+    hasThread: hasSavedThread, running: Boolean(activeTurnId), skillsOnly
+  }), [slashQuery?.name, slashQuery?.argument, skills, hasSavedThread, activeTurnId, skillsOnly]);
+  const slashId = `slash-${variant}`;
+
+  const updateDraft = (text: string) => {
+    draftRef.current = text;
+    setDraft(text);
+    if (text) sessionStorage.setItem(`draft:${draftKey}`, text);
+    else sessionStorage.removeItem(`draft:${draftKey}`);
+    setSlashDismissed(false);
+  };
+  useEffect(() => {
+    setSlashIndex(Math.max(0, options.findIndex((option) => !option.disabledReason)));
+  }, [draft, skills, hasSavedThread, activeTurnId]);
+  useEffect(() => {
+    setSkills([]);
+    setSelectedSkills([]);
+    setSkillsError(null);
+  }, [skillScope]);
+  useEffect(() => {
+    if (!slashOpen) return;
+    let cancelled = false;
+    setSkillsLoading(true);
+    void skillsLoaderRef.current().then((result) => {
+      if (cancelled) return;
+      setSkills(result.skills);
+      setSkillsError(result.errors.length ? `部分技能读取失败：${result.errors[0]?.message}` : null);
+    }).catch((error: Error) => {
+      if (!cancelled) setSkillsError(`无法读取技能：${error.message}`);
+    }).finally(() => { if (!cancelled) setSkillsLoading(false); });
+    return () => { cancelled = true; };
+  }, [slashOpen, skillScope]);
 
   useEffect(() => () => { recognitionRef.current?.abort(); }, []);
 
@@ -197,13 +251,80 @@ export function Composer({
     }
   };
 
-  const submit = async () => {
-    const text = draft.trim();
-    if ((!text && attachments.length === 0) || sending || disabled) return;
+  const chooseSlash = async (option: SlashOption) => {
+    if (commandRunningRef.current || option.disabledReason || disabled) return;
+    const source = draftRef.current;
+    const query = parseSlashQuery(source);
+    if (!query) return;
+    if (option.skill) {
+      setSelectedSkills((current) => current.some((entry) => entry.path === option.skill!.path) ? current : [...current, option.skill!]);
+      updateDraft(skillsOnly ? '' : query.argument);
+      textareaRef.current?.focus();
+      return;
+    }
+    const command = option.command;
+    if (!command) return;
+    if (command === 'skills' || command === 'help') {
+      updateDraft(command === 'skills' ? '/skills ' : '/');
+      textareaRef.current?.focus();
+      return;
+    }
+    commandRunningRef.current = true;
     setSending(true);
     try {
-      await onSubmit(text, attachments);
+      if (command === 'model' || command === 'reasoning' || command === 'permissions') {
+        if (query.argument.trim()) {
+          const value = query.argument.trim();
+          if (command === 'model') {
+            const entry = models.find((entry) => entry.model === value || entry.displayName.toLocaleLowerCase() === value.toLocaleLowerCase());
+            if (!entry) throw new Error('没有匹配的模型，请使用 /model 选择。');
+            await onModelChange(entry.model);
+          } else if (command === 'reasoning') {
+            const entry = effortOptions.find((entry) => entry.value === value || entry.label === value);
+            if (!entry) throw new Error('当前模型不支持该推理强度，请使用 /reasoning 选择。');
+            await onEffortChange(entry.value);
+          } else {
+            const entry = permissionProfiles.find((entry) => entry.id === value || entry.id === `:${value}` || permissionLabel(entry.id) === value);
+            if (!entry || entry.allowed === false) throw new Error('没有可用的匹配权限，请使用 /permissions 选择。');
+            await onPermissionsChange(entry.id);
+          }
+        } else setMenu(command === 'model' ? 'models' : command === 'reasoning' ? 'settings' : 'permissions');
+      } else {
+        await onCommand(command, query.argument.trim());
+      }
+      if (command === 'new') { setAttachments([]); setSelectedSkills([]); }
+      if (draftRef.current === source) updateDraft(
+        command === 'plan' && !['on', 'off', ''].includes(query.argument.trim()) ? query.argument : ''
+      );
+    } catch (error) { onError(error); }
+    finally {
+      commandRunningRef.current = false;
+      setSending(false);
+    }
+  };
+
+  const submit = async () => {
+    const text = draft.trim();
+    if (sending || disabled) return;
+    const query = parseSlashQuery(draft);
+    if (query) {
+      const exact = findSlashCommand(query.name);
+      const option = options.find((entry) => entry.command === exact?.id && Boolean(exact)) ??
+        options.find((entry) => entry.skill?.name.toLocaleLowerCase() === query.name.toLocaleLowerCase());
+      if (option) {
+        if (option.disabledReason) onError(new Error(option.disabledReason));
+        else await chooseSlash(option);
+      } else if (slashOpen && options[slashIndex] && !options[slashIndex].disabledReason) {
+        await chooseSlash(options[slashIndex]);
+      } else onError(new Error('未知命令，请输入 / 选择可用命令。'));
+      return;
+    }
+    if (!text && attachments.length === 0 && selectedSkills.length === 0) return;
+    setSending(true);
+    try {
+      await onSubmit(text, attachments, selectedSkills);
       setAttachments([]);
+      setSelectedSkills([]);
       if (draftRef.current.trim() === text) {
         setDraft('');
         sessionStorage.removeItem(`draft:${draftKey}`);
@@ -225,6 +346,9 @@ export function Composer({
 
   return (
     <div className={`composer-wrap composer-wrap--${variant}`} ref={composerRef}>
+      {slashOpen && <SlashMenu id={slashId} options={options} index={slashIndex} skillsOnly={skillsOnly}
+        loading={skillsLoading} error={skillsError} anchor={composerRef}
+        onSelect={(option) => void chooseSlash(option)} onIndex={setSlashIndex} onClose={() => setSlashDismissed(true)} />}
       {menu && createPortal(
         <>
           <button type="button" className={`composer-menu-dismiss${layout === 'mobile' ? ' composer-popover-backdrop' : ''}`}
@@ -310,7 +434,12 @@ export function Composer({
         document.body
       )}
       <div className="composer">
-        {attachments.length > 0 && <div className="composer-context-tray">
+        {(attachments.length > 0 || selectedSkills.length > 0) && <div className="composer-context-tray">
+          {selectedSkills.map((skill) => <div className="composer-context-chip" key={skill.path}>
+            <Sparkles size={14} /><span>{skill.interface?.displayName || skill.name}</span>
+            <button type="button" aria-label={`移除技能 ${skill.name}`}
+              onClick={() => setSelectedSkills((current) => current.filter((entry) => entry.path !== skill.path))}><X size={12} /></button>
+          </div>)}
           {attachments.map((attachment) => <div className="composer-context-chip" key={attachment.id}>
             <FileImage size={14} /><span>{attachment.name}</span>
             <button type="button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((image) => image.id !== attachment.id))}><X size={12} /></button>
@@ -320,6 +449,10 @@ export function Composer({
           onChange={(event) => void addFiles(event.target.files)} />
         <label className="sr-only" htmlFor={`composer-${variant}`}>{variant === 'home' ? '输入任务内容' : '继续当前任务'}</label>
         <textarea id={`composer-${variant}`} ref={textareaRef} value={draft}
+          role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded={slashOpen}
+          aria-controls={slashOpen ? slashId : undefined}
+          aria-activedescendant={slashOpen && options[slashIndex] ? `${slashId}-${slashIndex}` : undefined}
+          onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
           onPaste={(event) => {
             if (sending || disabled) return;
             const files = event.clipboardData.files;
@@ -328,11 +461,31 @@ export function Composer({
             }
           }}
           onChange={(event) => {
-            setDraft(event.target.value);
-            sessionStorage.setItem(`draft:${draftKey}`, event.target.value);
+            updateDraft(event.target.value);
+            setMenu(null);
           }}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+            if (slashOpen) {
+              if (event.key === 'Escape') {
+                event.preventDefault(); event.stopPropagation(); setSlashDismissed(true); return;
+              }
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const enabled = options.map((option, index) => option.disabledReason ? -1 : index).filter((index) => index >= 0);
+                const at = enabled.indexOf(slashIndex);
+                setSlashIndex(enabled[(at + (event.key === 'ArrowDown' ? 1 : -1) + enabled.length) % enabled.length] ?? 0);
+                return;
+              }
+              if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+                const option = options[slashIndex];
+                if (option && !option.disabledReason) {
+                  event.preventDefault(); void chooseSlash(option); return;
+                }
+                if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); return; }
+              }
+            }
+            if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault(); void submit();
             }
           }}
@@ -343,6 +496,9 @@ export function Composer({
           <div className="composer-toolbar-left">
             <button type="button" className="composer-circle-button composer-add" aria-label="添加图片" title="添加图片"
               disabled={sending || disabled} onClick={() => fileRef.current?.click()}><Plus size={15} /></button>
+            {mode === 'plan' && <button type="button" className="composer-plan" title="退出计划模式"
+              aria-label="退出计划模式" disabled={sending || disabled || Boolean(activeTurnId)}
+              onClick={() => void onCommand('plan', 'off').catch(onError)}><ListTodo size={14} /><span>计划</span><X size={12} /></button>}
             {variant === 'home' && projects.length > 0 && (
               <button type="button" ref={projectButtonRef} className="project-picker"
                 aria-label="选择项目" aria-haspopup="menu" aria-expanded={menu === 'projects'}
@@ -386,13 +542,13 @@ export function Composer({
             {speechConstructor && <button type="button" className={`composer-circle-button${listening ? ' is-listening' : ''}`}
               aria-label={listening ? '停止听写' : '开始听写'} title={listening ? '停止听写' : '开始听写'}
               aria-pressed={listening} onClick={dictate}><Mic size={15} /></button>}
-            {activeTurnId && !draft.trim() && attachments.length === 0 ? (
+            {activeTurnId && !draft.trim() && attachments.length === 0 && selectedSkills.length === 0 ? (
               <button type="button" className="composer-stop" disabled={stopping} onClick={() => void stop()}
                 aria-label="停止任务" title="停止任务">
                 {stopping ? <LoaderCircle size={16} className="spin" /> : <Square size={13} fill="currentColor" />}
               </button>
             ) : (
-              <button type="button" className="composer-send" disabled={(!draft.trim() && attachments.length === 0) || sending || disabled}
+              <button type="button" className="composer-send" disabled={(!draft.trim() && attachments.length === 0 && selectedSkills.length === 0) || sending || disabled}
                 onClick={() => void submit()} aria-label={activeTurnId ? '发送补充要求' : '发送任务'}
                 title={activeTurnId ? '发送补充要求' : '发送任务'}>
                 {sending ? <LoaderCircle size={17} className="spin" /> : <ArrowUp size={18} />}

@@ -18,6 +18,7 @@ export interface Thread {
   source?: unknown;
   archived?: boolean;
   permissionProfile?: string | null;
+  collaborationMode?: CollaborationMode | null;
   gitInfo?: { branch?: string | null; sha?: string | null; originUrl?: string | null } | null;
   turns?: Turn[];
 }
@@ -66,6 +67,39 @@ export interface ComposerAttachment {
   id: string;
   name: string;
   url: string;
+}
+
+export interface CollaborationMode {
+  mode: 'default' | 'plan';
+  settings: { model: string; reasoning_effort: string | null; developer_instructions: string | null };
+}
+
+export interface SkillInfo {
+  name: string;
+  path: string;
+  description: string;
+  shortDescription?: string;
+  enabled: boolean;
+  interface?: { displayName?: string; shortDescription?: string };
+}
+
+export interface SkillsResult {
+  skills: SkillInfo[];
+  errors: Array<{ path: string; message: string }>;
+}
+
+export type ReviewTarget =
+  | { type: 'uncommittedChanges' }
+  | { type: 'baseBranch'; branch: string }
+  | { type: 'commit'; sha: string; title: string | null }
+  | { type: 'custom'; instructions: string };
+
+export interface McpStatus {
+  name: string;
+  authStatus: string;
+  runtimeStatus?: string | null;
+  tools: Record<string, unknown>;
+  toolsError?: string | null;
 }
 
 export interface ContextUsage {
