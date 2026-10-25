@@ -24,19 +24,20 @@ import { CommandPanel } from './components/CommandPanel';
 import { CommandDialog, type CommandDialogState } from './components/CommandDialog';
 import { displayThreadTitle } from './remote-state';
 import { useRemote } from './useRemote';
-import type { ComposerAttachment, SkillInfo, Thread } from './types';
+import type { ComposerAttachment, SkillInfo, Thread, WorkspaceBootstrap } from './types';
 import { modelDisplayName, reasoningLabel, resolveReasoningEffort } from './workspace-model';
 import { collaborationMode, slashCommands, type SlashCommandId } from './slash-commands';
 import { permissionLabel } from '../shared/permissions';
 
 interface WorkspaceProps {
   onAuthExpired: () => void;
+  bootstrap: WorkspaceBootstrap | null;
 }
 
 type LayoutMode = 'desktop' | 'mobile';
 
-export function Workspace({ onAuthExpired }: WorkspaceProps) {
-  const remote = useRemote({ authenticated: true, onAuthExpired });
+export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
+  const remote = useRemote({ authenticated: true, onAuthExpired, bootstrap });
   const layout = useResponsiveLayout();
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);

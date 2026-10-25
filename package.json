@@ -37,6 +37,7 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
+    "compression": "^1.8.2",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "lucide-react": "^0.468.0",
@@ -47,6 +48,7 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
+    "@types/compression": "^1.8.1",
     "@types/express": "^5.0.5",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",

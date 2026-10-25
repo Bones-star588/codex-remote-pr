@@ -1,14 +1,17 @@
 import { CheckCircle2, LoaderCircle, ShieldCheck } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from './api';
-import { Workspace } from './Workspace';
+import type { WorkspaceBootstrap } from './types';
+
+const Workspace = lazy(() => import('./Workspace').then((module) => ({ default: module.Workspace })));
 
 interface AuthState {
   configured: boolean;
   authenticated: boolean;
   setupAllowed: boolean;
   authFile?: string;
+  workspace: WorkspaceBootstrap | null;
 }
 
 export function App() {
@@ -17,7 +20,7 @@ export function App() {
 
   const refreshAuth = async () => {
     try {
-      setAuth(await api<AuthState>('/api/auth/status'));
+      setAuth(await api<AuthState>('/api/bootstrap', { cache: 'no-store' }));
       setError(null);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -38,7 +41,9 @@ export function App() {
     return <LoginPage onDone={refreshAuth} />;
   }
 
-  return <Workspace onAuthExpired={refreshAuth} />;
+  return <Suspense fallback={<FullScreenLoader label="正在打开工作区" />}>
+    <Workspace onAuthExpired={refreshAuth} bootstrap={auth.workspace} />
+  </Suspense>;
 }
 
 function SetupPage({ setupAllowed, onDone }: { setupAllowed: boolean; onDone: () => void }) {

@@ -318,11 +318,20 @@ Codex CLI detection checks Windows app packages, local standalone installations,
 
 - Models are read from native `model/list`; reasoning levels use each model's `supportedReasoningEfforts`. There is no fixed universal set of available levels.
 - Custom providers are configured in Codex, not in a separate Remote provider editor. Their exposed catalog determines the available choices.
-- Model and project metadata refresh on connection. They are not continuously refreshed while the connection stays open. Currently, these two lists read their first requested page; task history, task lists, and permission profiles have separate pagination.
+- Model and project metadata load in the authenticated bootstrap and refresh on reconnection. They are not continuously refreshed while the connection stays open. Currently, these two lists read their first requested page; task history, task lists, and permission profiles have separate pagination.
 - New chats currently initialize reasoning from the model catalog default. This can differ from a global Codex configuration override; select the desired level explicitly.
 - Permission profiles come from `permissionProfile/list` and update the current chat. Builtins include `:read-only`, `:workspace`, and `:danger-full-access`.
 - Unsent drafts live in browser `sessionStorage`. They survive switching chats and reconnecting, but do not synchronize with the Desktop composer or other devices.
 - Uploads are sent to the local Codex workflow. The remote UI does not implement a separate hosted model service.
+
+## Loading and Mobile Networks
+
+- The login shell loads separately from the workspace. One authenticated bootstrap supplies the first task page, models, and projects; subsequent task pages appear progressively until the full list is loaded.
+- Opening a chat combines its native metadata and latest 40 history items in one request. Older history remains available in pages of up to 100 items. Switching back to one of the five recently opened chats shows its in-memory snapshot while refreshing from the desktop; snapshots disappear on logout or page reload.
+- HTTP responses and supported WebSocket messages use compression. Fingerprinted assets have immutable caching; authenticated bootstrap and history responses use `no-store`.
+- Initial metadata waits at most 1.5 seconds per native request before the workspace falls back to its normal connection refresh. Returning to the foreground avoids redundant refreshes within 15 seconds; native live events continue immediately.
+- A slow tunnel can still dominate loading time. Compare localhost with the public origin and inspect `data/cloudflared.log`. For repeated QUIC stalls, test the tunnel's `--protocol http2` setting on that host. This is a deployment choice, not the default for every installation.
+- Phone browser sizes are CSS pixels. Tests include 390x844 and 320x568, plus a DPR 3 touch context; they do not replace measurements on your actual phone and network.
 
 ## Security and Privacy
 
@@ -352,7 +361,7 @@ npm test
 npm run build
 ```
 
-The suite has **66 tests across 15 test files**. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
+The suite has **72 tests across 17 test files**. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
 
 ```text
 src/client/       React workspace, composer, history, approvals, reconnect

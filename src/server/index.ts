@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import express, { type NextFunction, type Request, type Response } from 'express';
+import compression from 'compression';
 import { WebSocket, WebSocketServer } from 'ws';
 
 import type { ClientMessage, ServerMessage } from '../shared/protocol.js';
@@ -23,16 +24,27 @@ import { codexBridge } from './codex-bridge.js';
 import { config } from './config.js';
 import { desktopBridge } from './desktop-bridge.js';
 import { readThreadHistoryPage } from './thread-history.js';
+import { readWorkspaceBootstrap } from './bootstrap.js';
+import { readOpenThread } from './thread-open.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({
+  noServer: true,
+  perMessageDeflate: {
+    serverNoContextTakeover: true,
+    clientNoContextTakeover: true,
+    threshold: 1024,
+    concurrencyLimit: 4
+  }
+});
 const clients = new Set<WebSocket>();
 const watchedThreads = new Map<WebSocket, string | null>();
 
 app.set('trust proxy', config.trustProxy);
 app.disable('x-powered-by');
+app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 
 function isAuthenticated(req: Request): boolean {
@@ -192,22 +204,17 @@ app.post(
 
 app.get(
   '/api/bootstrap',
-  requireAuth,
-  asyncRoute(async (_req, res) => {
-    const [auth, models, projects] = await Promise.allSettled([
-      codexBridge.request('getAuthStatus', {}),
-      codexBridge.request('model/list', { limit: 100, includeHidden: false }),
-      codexBridge.request('project/list', { limit: 100 })
-    ]);
-
+  asyncRoute(async (req, res) => {
+    const configured = isPasswordConfigured();
+    const authenticated = isAuthenticated(req);
+    res.setHeader('Cache-Control', 'no-store');
     res.json({
-      codex: {
-        status: codexBridge.getStatus(),
-        binary: codexBridge.getBinary()
-      },
-      auth: auth.status === 'fulfilled' ? auth.value : null,
-      models: models.status === 'fulfilled' ? models.value : null,
-      projects: projects.status === 'fulfilled' ? projects.value : null
+      configured,
+      authenticated,
+      setupAllowed: !configured && isLocalRequest(req),
+      workspace: authenticated
+        ? await readWorkspaceBootstrap((method, params) => codexBridge.request(method, params))
+        : null
     });
   })
 );
@@ -217,6 +224,21 @@ app.get(
   requireAuth,
   asyncRoute(async (_req, res) => {
     res.json(await desktopBridge.getStatus());
+  })
+);
+
+app.get(
+  '/api/thread/open',
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    const threadId = typeof req.query.threadId === 'string' ? req.query.threadId.trim() : '';
+    if (!threadId) {
+      res.status(400).json({ error: 'threadId is required.' });
+      return;
+    }
+    const mode = req.query.mode === 'new' || req.query.mode === 'read' ? req.query.mode : 'resume';
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await readOpenThread((method, params) => codexBridge.request(method, params), threadId, mode));
   })
 );
 

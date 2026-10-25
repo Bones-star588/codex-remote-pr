@@ -75,7 +75,7 @@ export function ThreadTimeline({
   }, [hasMoreHistory, onLoadEarlier]);
 
   useLayoutEffect(() => {
-    if (loading) return;
+    if (loading && items.length === 0) return;
     stickToBottomRef.current = true;
     const stream = streamRef.current;
     if (stream) stream.scrollTop = stream.scrollHeight;
@@ -127,7 +127,7 @@ export function ThreadTimeline({
     return () => window.cancelAnimationFrame(frame);
   }, [items.length, loadEarlier, loading, loadingHistory]);
 
-  if (loading) {
+  if (loading && items.length === 0) {
     return (
       <div className="message-stream message-stream--loading" aria-label="正在加载任务">
         <div className="message-skeleton message-skeleton--short" />

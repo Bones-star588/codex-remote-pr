@@ -140,6 +140,12 @@ export interface ProjectInfo {
   updatedAt?: number;
 }
 
+export interface WorkspaceBootstrap {
+  threads: { data: Thread[]; nextCursor: string | null } | null;
+  models: { data: ModelInfo[] } | null;
+  projects: { data: ProjectInfo[] } | null;
+}
+
 export interface ServerRequest {
   requestId: string | number;
   method: string;
