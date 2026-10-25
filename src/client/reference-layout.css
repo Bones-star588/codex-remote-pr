@@ -306,3 +306,74 @@ svg { stroke-width: 1.8; }
 .auth-form { gap: 10px; }
 .auth-form .field input { height: 44px; border-radius: 10px; padding: 0 14px; }
 .auth-form .primary-button { height: 44px; border-radius: 8px; font-size: 14px; font-weight: 500; }
+.timeline-shell { container: conversation / inline-size; }
+.thread-navigation {
+  position: absolute; z-index: 3; left: 6px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; width: 40px; max-height: calc(100% - 64px);
+}
+.thread-navigation-rail {
+  position: relative; width: 40px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+  padding-block: 8px; overscroll-behavior: contain;
+}
+.thread-navigation-rail::-webkit-scrollbar { display: none; }
+.thread-navigation-mark {
+  display: flex; align-items: center; width: 40px; height: 13px; min-height: 13px;
+  padding: 0 12px; border: 0; border-radius: 0; background: transparent; cursor: pointer;
+}
+.thread-navigation-mark span {
+  display: block; flex: none; width: var(--mark-width, 8px); height: 2px;
+  background: #d4d4d4; transition: width 120ms ease, background-color 120ms ease;
+}
+.thread-navigation-mark.is-current span { width: max(var(--mark-width, 8px), 20px); background: #646464; }
+.thread-navigation-mark:hover span, .thread-navigation-mark:focus-visible span { width: 32px; background: var(--ink); }
+.thread-navigation-mark:focus-visible { outline: 1px solid var(--ink); outline-offset: -1px; border-radius: 3px; }
+.navigation-loading { flex: none; margin-top: 6px; color: var(--muted); }
+.thread-navigation-preview {
+  position: fixed; z-index: 100; width: min(400px, calc(100vw - 80px)); padding: 12px 14px;
+  border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface);
+  color: var(--ink); box-shadow: 0 5px 16px rgb(0 0 0 / .09); pointer-events: none;
+  font-size: 14px; line-height: 22px; font-weight: 430;
+}
+.navigation-prompt, .navigation-reply {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere;
+}
+.navigation-reply { margin-top: 5px; color: var(--muted); -webkit-line-clamp: 3; }
+.thread-navigation-mobile { display: none; }
+.thread-navigation-dialog {
+  width: min(480px, calc(100vw - 24px)); max-height: min(70dvh, 600px); margin: auto auto 12px;
+  padding: 0; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink);
+}
+.thread-navigation-dialog[open] { display: flex; flex-direction: column; }
+.thread-navigation-dialog::backdrop { background: rgb(0 0 0 / .18); }
+.navigation-dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 6px 16px; flex: none; }
+.navigation-dialog-header .icon-button { width: 44px; height: 44px; }
+.navigation-dialog-list { overflow-y: auto; overscroll-behavior: contain; padding: 0 6px 6px; }
+.navigation-dialog-list > button {
+  display: flex; gap: 12px; align-items: baseline; width: 100%; min-height: 44px; border: 0;
+  border-radius: 5px; padding: 10px; background: transparent; text-align: left; font: inherit; color: inherit;
+}
+.navigation-dialog-list > button > span:last-child { min-width: 0; }
+.navigation-dialog-list > button:hover, .navigation-dialog-list > button[aria-current] { background: var(--surface-hover); }
+.navigation-index { flex: none; width: 20px; color: var(--muted); font-size: 12px; }
+.navigation-error { margin: 0; padding: 8px 16px; color: var(--muted); font-size: 12px; }
+.history-later { margin-block: 20px; }
+@container conversation (min-width: 681px) {
+  .timeline-shell:has(.thread-navigation) .message-stream { padding-left: 52px; }
+}
+@container conversation (max-width: 680px) {
+  .thread-navigation { display: none; }
+  .thread-navigation-mobile {
+    position: absolute; z-index: 3; left: 8px; bottom: 8px; display: inline-flex; width: 44px; height: 44px;
+    border: 1px solid var(--line); background: var(--surface); border-radius: 8px; box-shadow: 0 2px 6px rgb(0 0 0 / .04);
+  }
+}
+@media (hover: none) {
+  .thread-navigation { display: none; }
+  .thread-navigation-mobile {
+    position: absolute; z-index: 3; left: 8px; bottom: 8px; display: inline-flex; width: 44px; height: 44px;
+    border: 1px solid var(--line); background: var(--surface); border-radius: 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thread-navigation-mark span { transition: none; }
+}

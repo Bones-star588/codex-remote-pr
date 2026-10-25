@@ -549,6 +549,16 @@ function ThreadScreen({
         hasMoreHistory={remote.hasMoreHistory}
         loadingHistory={remote.loadingHistory}
         onLoadEarlier={remote.loadEarlierHistory}
+        outlineTurns={remote.outlineTurns}
+        outlineError={remote.outlineError}
+        viewingHistory={remote.viewingHistory}
+        hasNewerHistory={remote.hasNewerHistory}
+        loadingLaterHistory={remote.loadingLaterHistory}
+        revealingHistory={remote.revealingHistory}
+        onLoadLater={remote.loadLaterHistory}
+        onRevealHistory={remote.revealHistory}
+        onCancelHistoryReveal={remote.cancelHistoryReveal}
+        onReturnToLatest={remote.returnToLatest}
       />
 
       <div className="thread-bottom">

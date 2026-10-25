@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readThreadHistoryPage } from './thread-history.js';
+import { readThreadHistoryAround, readThreadHistoryPage, readThreadOutline } from './thread-history.js';
 
 describe('native history paging', () => {
   it('uses the owning server for fresh history and only reports an active turn', async () => {
@@ -31,5 +31,80 @@ describe('native history paging', () => {
     const page = await readThreadHistoryPage(request, 'thread', null, 40);
     expect(page).toMatchObject({ turns: [turn], turnsCursor: 'turns:older', activeTurnId: 'active' });
     expect(Object.keys(page.turns[0]!)).toEqual(['id', 'status', 'startedAt', 'completedAt', 'durationMs']);
+  });
+});
+
+describe('turn navigation', () => {
+  const entry = (id: string, turnId = 'target') => ({ turnId, item: { id }, startedAtMs: null, completedAtMs: null });
+
+  it('reads both sides of a native opaque cursor without filtering out adjacent turns', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce({ data: [entry('user')], nextCursor: 'native:at-user' })
+      .mockResolvedValueOnce({ data: [entry('before', 'previous')], nextCursor: 'native:older' })
+      .mockResolvedValueOnce({ data: [entry('after'), entry('next', 'next-turn')], nextCursor: 'native:newer' });
+    const page = await readThreadHistoryAround(request, 'thread', 'target', 'user');
+    expect(page.items.map(e => e.item)).toEqual([{ id: 'before' }, { id: 'user' }, { id: 'after' }, { id: 'next' }]);
+    expect(page).toMatchObject({ nextCursor: 'native:older', newerCursor: 'native:newer' });
+    expect(request.mock.calls.slice(1).map(call => call[1])).toEqual([
+      { threadId: 'thread', cursor: 'native:at-user', sortDirection: 'desc', limit: 40 },
+      { threadId: 'thread', cursor: 'native:at-user', sortDirection: 'asc', limit: 40 }
+    ]);
+  });
+
+  it('does not read unrelated endpoints when a single-item turn has no cursor', async () => {
+    const request = vi.fn().mockResolvedValue({ data: [entry('only')], nextCursor: null });
+    expect(await readThreadHistoryAround(request, 'thread', 'target', 'only')).toEqual({
+      items: [entry('only')], nextCursor: null, newerCursor: null
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the native backwards cursor for single-item turns and removes its inclusive boundary', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce({ data: [entry('only')], nextCursor: null, backwardsCursor: 'native:boundary' })
+      .mockResolvedValueOnce({ data: [entry('only'), entry('old', 'before')], nextCursor: null })
+      .mockResolvedValueOnce({ data: [entry('only'), entry('new', 'after')], nextCursor: null });
+    const page = await readThreadHistoryAround(request, 'thread', 'target', 'only');
+    expect(page.items.map(e => e.item)).toEqual([{ id: 'old' }, { id: 'only' }, { id: 'new' }]);
+    expect(request.mock.calls[1]![1]).toMatchObject({ cursor: 'native:boundary' });
+  });
+
+  it('locates a steering message using its predecessor, including a second message in the turn', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce({ data: [entry('first')], nextCursor: 'native:first' })
+      .mockResolvedValueOnce({ data: [entry('first')], nextCursor: null })
+      .mockResolvedValueOnce({ data: [], nextCursor: null })
+      .mockResolvedValueOnce({ data: [entry('steering')], nextCursor: 'native:after' });
+    const page = await readThreadHistoryAround(request, 'thread', 'target', 'steering');
+    expect(page.items.map(e => e.item)).toEqual([{ id: 'first' }, { id: 'steering' }]);
+    expect(request.mock.calls[1]![1]).toMatchObject({ turnId: 'target', cursor: { type: 'item', itemId: 'steering' } });
+    expect(request.mock.calls[2]![1]).toMatchObject({ cursor: 'native:first' });
+  });
+
+  it('keeps ascending pages chronological for forward navigation', async () => {
+    const request = vi.fn().mockResolvedValue({ data: [entry('a'), entry('b')], nextCursor: 'forward' });
+    const page = await readThreadHistoryPage(request, 'thread', 'anchor', 40, 'asc');
+    expect(page.items.map(e => e.item)).toEqual([{ id: 'a' }, { id: 'b' }]);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns compact chronological outline entries with cleaned prompts and final replies only', async () => {
+    const request = vi.fn().mockResolvedValue({ data: [{
+      id: 'turn', status: 'completed', startedAt: 100, completedAt: 101, durationMs: 1000,
+      items: [
+        { type: 'userMessage', id: 'user', content: [{ type: 'text', text: '# Files mentioned by the user:\nsecret/path\n## My request:\nVisible prompt' }] },
+        { type: 'commandExecution', id: 'tool', command: 'PRIVATE_TOOL_OUTPUT' },
+        { type: 'agentMessage', id: 'progress', phase: 'commentary', text: 'PRIVATE_PROGRESS' },
+        { type: 'agentMessage', id: 'final', phase: 'final_answer', text: 'Visible reply '.repeat(100) }
+      ]
+    }], nextCursor: 'outline:older' });
+    const page = await readThreadOutline(request, 'thread', 'outline:cursor');
+    expect(page.turns[0]!.messages[0]).toMatchObject({ itemId: 'user', prompt: 'Visible prompt' });
+    expect(page.turns[0]!.messages[0]!.reply.length).toBe(360);
+    expect(JSON.stringify(page)).not.toMatch(/secret|PRIVATE/);
+    expect(page.nextCursor).toBe('outline:older');
+    expect(request).toHaveBeenCalledWith('thread/turns/list', {
+      threadId: 'thread', cursor: 'outline:cursor', itemsView: 'summary', limit: 100
+    });
   });
 });

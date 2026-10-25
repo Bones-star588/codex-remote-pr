@@ -32,6 +32,7 @@ The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when 
 - **Shared desktop chats.** Open and continue chats through the same desktop backend, including activity originating in Desktop.
 - **Projects and task navigation.** Browse all providers' tasks with paginated loading, search, archived browsing, rename, archive, and restore.
 - **Readable long histories.** Load older pages on demand, preserve the reading position, and use Desktop-style activity summaries and completed-turn disclosures.
+- **Conversation outline.** Desktop-style marks preview requests and replies and jump to earlier turns; phones use a touch list.
 - **Native model metadata.** Model choices and supported reasoning levels come from the runtime, including custom model catalogs exposed by it.
 - **Slash commands.** Search commands and native skills from the composer, with keyboard and touch selection, native plan mode, compaction, reviews, and chat forks.
 - **Per-chat permissions.** Choose native read-only, workspace, or full-access profiles and respond to supported approval requests.
@@ -69,6 +70,24 @@ height, and 21px activity-header line height. Font rendering still depends on th
 operating system, browser, scaling, and available system fonts.
 
 ![Collapsed command and file-edit records](docs/images/activity.png)
+
+## Conversation Navigation
+
+The marks at the left of the conversation follow native turn summaries. Hover
+or focus a mark to preview the request and final reply; click or press Enter to
+jump. Up/Down and Home/End move keyboard focus, and Escape closes the preview.
+The current reading position is highlighted. Narrow conversation panels and
+touch devices use a 44px list button and a selectable sheet.
+
+The outline follows all native summary cursors independently of the latest
+40-record history page. A jump reads a bounded window around the target, with
+older/newer paging and a return-to-latest button. New activity does not interrupt
+an older window. Native summaries can omit follow-up user messages within the
+same turn; these additional marks appear when their history pages are loaded.
+The outline therefore does not claim to index every raw steering message before
+that history has been read.
+
+![Conversation navigation and request preview](docs/images/navigation.png)
 
 ## Workspace Terminal
 

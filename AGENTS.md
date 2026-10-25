@@ -38,6 +38,12 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 - Task list requests include all providers with `modelProviders: []` and
   `useStateDbOnly: true`. Follow native cursors; never assume one page is complete.
 - Keep history bounded and preserve reading position when prepending older pages.
+- Conversation marks use native summary cursors independently of history pages.
+  Jump through native item cursors into a bounded window, with paging in both
+  directions and return to latest. Preserve known turn ordering when a loaded
+  item has no timing yet. Ignore window-external live items while reading older
+  history. Follow-up user marks missing from native summaries are added as their
+  history is loaded; do not claim a complete unread steering-message index.
 - Bootstrap the first task page and metadata over authenticated HTTP. Continue all
   native task cursors progressively. Open chats with one native-backed HTTP
   request: 40 latest records, then older pages of up to 100. Keep the five-chat

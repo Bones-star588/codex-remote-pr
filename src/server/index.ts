@@ -23,7 +23,7 @@ import {
 import { codexBridge } from './codex-bridge.js';
 import { config } from './config.js';
 import { desktopBridge } from './desktop-bridge.js';
-import { readThreadHistoryPage } from './thread-history.js';
+import { readThreadHistoryAround, readThreadHistoryPage, readThreadOutline } from './thread-history.js';
 import { readWorkspaceBootstrap } from './bootstrap.js';
 import { readOpenThread } from './thread-open.js';
 import { TerminalManager } from './terminal-manager.js';
@@ -256,14 +256,41 @@ app.get(
       res.status(400).json({ error: 'threadId is required.' });
       return;
     }
-    const cursor = typeof req.query.before === 'string' ? req.query.before : null;
+    const direction = typeof req.query.after === 'string' ? 'asc' : 'desc';
+    const cursor = typeof req.query.after === 'string' ? req.query.after : typeof req.query.before === 'string' ? req.query.before : null;
     const limitValue =
       typeof req.query.limit === 'string' ? Number.parseInt(req.query.limit, 10) : 200;
     const limit = Number.isFinite(limitValue) ? Math.min(400, Math.max(1, limitValue)) : 200;
     res.setHeader('Cache-Control', 'no-store');
     res.json(await readThreadHistoryPage(
-      (method, params) => codexBridge.request(method, params), threadId, cursor, limit
+      (method, params) => codexBridge.request(method, params), threadId, cursor, limit, direction
     ));
+  })
+);
+
+app.get(
+  '/api/thread/outline',
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    const threadId = typeof req.query.threadId === 'string' ? req.query.threadId.trim() : '';
+    if (!threadId) { res.status(400).json({ error: 'threadId is required.' }); return; }
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : null;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await readThreadOutline((method, params) => codexBridge.request(method, params), threadId, cursor));
+  })
+);
+
+app.get(
+  '/api/thread/around',
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    const { threadId, turnId, itemId } = req.query;
+    if (typeof threadId !== 'string' || !threadId || typeof turnId !== 'string' || !turnId ||
+        typeof itemId !== 'string' || !itemId) {
+      res.status(400).json({ error: 'threadId, turnId and itemId are required.' }); return;
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await readThreadHistoryAround((method, params) => codexBridge.request(method, params), threadId, turnId, itemId));
   })
 );
 

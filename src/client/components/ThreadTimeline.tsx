@@ -23,7 +23,9 @@ import { itemKey } from '../remote-state';
 import type { ThreadItem } from '../types';
 import { buildTimelineEntries, buildTimelineSections, isActivityIssue, type TimelineEntry, type TimelineSection } from '../timeline-model';
 import { elapsedTurnMs, formatWorkDuration, type TurnTiming } from '../../shared/turn-timing';
-import { userMessageText } from '../user-message';
+import { userMessageText } from '../../shared/user-message';
+import type { OutlineTurn } from '../../shared/thread-outline';
+import { ThreadNavigation, type NavigationTarget } from './ThreadNavigation';
 import { ImagePreview } from './ImagePreview';
 
 interface ThreadTimelineProps {
@@ -35,6 +37,16 @@ interface ThreadTimelineProps {
   hasMoreHistory: boolean;
   loadingHistory: boolean;
   onLoadEarlier: () => Promise<void>;
+  outlineTurns?: OutlineTurn[];
+  outlineError?: string | null;
+  viewingHistory?: boolean;
+  hasNewerHistory?: boolean;
+  loadingLaterHistory?: boolean;
+  revealingHistory?: boolean;
+  onLoadLater?: () => Promise<void>;
+  onRevealHistory?: (turnId: string, itemId: string) => Promise<boolean>;
+  onCancelHistoryReveal?: () => void;
+  onReturnToLatest?: () => Promise<void>;
 }
 
 const INITIAL_ACTIVITY_ITEMS = 60;
@@ -48,17 +60,52 @@ export function ThreadTimeline({
   turnTimings,
   hasMoreHistory,
   loadingHistory,
-  onLoadEarlier
+  onLoadEarlier,
+  outlineTurns = [],
+  outlineError = null,
+  viewingHistory = false,
+  hasNewerHistory = false,
+  loadingLaterHistory = false,
+  revealingHistory = false,
+  onLoadLater,
+  onRevealHistory,
+  onCancelHistoryReveal,
+  onReturnToLatest
 }: ThreadTimelineProps) {
   const streamRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
   const initialScrollReadyRef = useRef(false);
   const loadingEarlierRef = useRef(false);
+  const navigationVersionRef = useRef(0);
+  const navigatingRef = useRef(false);
   const prependAdjustmentRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const entries = useMemo(() => buildTimelineEntries(items, activeTurnId), [items, activeTurnId]);
   const sections = useMemo(() => buildTimelineSections(entries), [entries]);
+  const navigate = useCallback(async (target: NavigationTarget) => {
+    onCancelHistoryReveal?.();
+    const version = ++navigationVersionRef.current;
+    navigatingRef.current = true;
+    stickToBottomRef.current = false;
+    prependAdjustmentRef.current = null;
+    const key = itemKey({ turnId: target.turnId, id: target.itemId });
+    const find = () => [...(innerRef.current?.querySelectorAll<HTMLElement>('[data-user-key]') ?? [])]
+      .find(node => node.dataset.userKey === key);
+    if (!find() && onRevealHistory) await onRevealHistory(target.turnId, target.itemId);
+    if (version !== navigationVersionRef.current) return;
+    requestAnimationFrame(() => {
+      if (version !== navigationVersionRef.current) return;
+      const node = find();
+      const stream = streamRef.current;
+      if (node && stream) {
+        stream.scrollTop += node.getBoundingClientRect().top - stream.getBoundingClientRect().top - 24;
+        setAwayFromBottom(true);
+      }
+      requestAnimationFrame(() => { if (version === navigationVersionRef.current) navigatingRef.current = false; });
+    });
+  }, [onRevealHistory, onCancelHistoryReveal]);
+  const handleNavigate = useCallback((target: NavigationTarget) => { void navigate(target); }, [navigate]);
   const preserveActivityPosition = useCallback(() => {
     stickToBottomRef.current = false;
     window.requestAnimationFrame(() => {
@@ -70,16 +117,17 @@ export function ThreadTimeline({
     });
   }, []);
   const loadEarlier = useCallback(() => {
-    if (!hasMoreHistory || loadingEarlierRef.current) return;
+    if (!hasMoreHistory || loadingEarlierRef.current || navigatingRef.current || revealingHistory) return;
     const stream = streamRef.current;
     if (stream) {
       prependAdjustmentRef.current = { scrollHeight: stream.scrollHeight, scrollTop: stream.scrollTop };
     }
     loadingEarlierRef.current = true;
     void onLoadEarlier().finally(() => { loadingEarlierRef.current = false; });
-  }, [hasMoreHistory, onLoadEarlier]);
+  }, [hasMoreHistory, onLoadEarlier, revealingHistory]);
 
   useLayoutEffect(() => {
+    if (navigatingRef.current || viewingHistory) return;
     if (loading && items.length === 0) return;
     stickToBottomRef.current = true;
     const stream = streamRef.current;
@@ -89,28 +137,30 @@ export function ThreadTimeline({
       frame = window.requestAnimationFrame(() => { initialScrollReadyRef.current = true; });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [loading, threadId]);
+  }, [loading, threadId, viewingHistory]);
+
+  useEffect(() => () => { navigationVersionRef.current += 1; }, [threadId]);
 
   useEffect(() => {
     const inner = innerRef.current;
     if (loading || !inner) return;
     const observer = new ResizeObserver(() => {
       const stream = streamRef.current;
-      if (stream && stickToBottomRef.current) stream.scrollTop = stream.scrollHeight;
+      if (stream && stickToBottomRef.current && !viewingHistory) stream.scrollTop = stream.scrollHeight;
     });
     observer.observe(inner);
     return () => observer.disconnect();
-  }, [loading, threadId]);
+  }, [loading, threadId, viewingHistory]);
 
   useLayoutEffect(() => {
     if (loading) return;
     const stream = streamRef.current;
     if (!stream) return;
-    if (stickToBottomRef.current) {
+    if (stickToBottomRef.current && !viewingHistory) {
       stream.scrollTop = stream.scrollHeight;
       stickToBottomRef.current = true;
     }
-  }, [items, loading]);
+  }, [items, loading, viewingHistory]);
 
   useLayoutEffect(() => {
     const stream = streamRef.current;
@@ -155,19 +205,21 @@ export function ThreadTimeline({
 
   return (
     <div className="timeline-shell">
+    <ThreadNavigation turns={outlineTurns} streamRef={streamRef} innerRef={innerRef}
+      busy={revealingHistory} error={outlineError} onNavigate={handleNavigate} />
     <div
       ref={streamRef}
       className="message-stream"
       aria-label="会话记录"
       onLoadCapture={() => {
         const stream = streamRef.current;
-        if (stream && stickToBottomRef.current) stream.scrollTop = stream.scrollHeight;
+        if (stream && stickToBottomRef.current && !viewingHistory) stream.scrollTop = stream.scrollHeight;
       }}
       onScroll={(event) => {
-        if (!initialScrollReadyRef.current) return;
+        if (!initialScrollReadyRef.current || navigatingRef.current) return;
         const stream = event.currentTarget;
         stickToBottomRef.current =
-          stream.scrollHeight - stream.scrollTop - stream.clientHeight < 140;
+          !viewingHistory && stream.scrollHeight - stream.scrollTop - stream.clientHeight < 140;
         setAwayFromBottom(!stickToBottomRef.current);
         if (initialScrollReadyRef.current && stream.scrollTop < 80) loadEarlier();
       }}
@@ -183,20 +235,27 @@ export function ThreadTimeline({
         : <ResponseSection section={section} timing={section.showTiming && section.turnId ? turnTimings[section.turnId] : undefined}
             active={section.turnId === activeTurnId} onInteract={preserveActivityPosition} key={section.key} />
       )}
-      {activeTurnId && !sections.some((section) => !section.user && section.turnId === activeTurnId) && (
+      {!viewingHistory && activeTurnId && !sections.some((section) => !section.user && section.turnId === activeTurnId) && (
         <div className="turn-response"><div className="worked-divider">
           <TurnDuration timing={turnTimings[activeTurnId]} active />
         </div></div>
       )}
+      {hasNewerHistory && <button type="button" className="history-trim history-later"
+        disabled={loadingLaterHistory || revealingHistory} onClick={() => { void onLoadLater?.(); }}>
+        {loadingLaterHistory ? '正在加载' : '显示后续记录'}
+      </button>}
       </div>
     </div>
-    {awayFromBottom && (
+    {(awayFromBottom || viewingHistory) && (
       <button
         type="button"
         className="jump-to-latest icon-button"
         aria-label="回到最新消息"
         title="回到最新消息"
         onClick={() => {
+          navigationVersionRef.current += 1;
+          navigatingRef.current = false;
+          if (viewingHistory && onReturnToLatest) { void onReturnToLatest(); return; }
           const stream = streamRef.current;
           if (stream) stream.scrollTop = stream.scrollHeight;
           stickToBottomRef.current = true;
@@ -230,7 +289,7 @@ const ResponseSection = memo(function ResponseSection({ section, timing, active,
     ? <ActivityGroup entry={entry} onInteract={onInteract} key={entry.key} />
     : entry.type === 'event' ? <ActivityItem item={entry.item} running={false} key={entry.key} />
     : <MessageItem item={entry.item} key={entry.key} />;
-  return <section className="turn-response">
+  return <section className="turn-response" data-turn-id={section.turnId}>
     {(timing || active && section.showTiming) && <div className="worked-divider">
       {completed && trace.length > 0 ? <button type="button" className="turn-disclosure" aria-expanded={open} aria-controls={bodyId}
         onClick={() => { onInteract(); setOpen(value => !value); }}>
@@ -265,7 +324,7 @@ const MessageItem = memo(function MessageItem({ item }: { item: ThreadItem }) {
       .map((entry) => userMessageText(entry.text ?? '')).filter(Boolean).join('\n\n');
     const long = text.length > 900;
     return (
-      <article className="message message--user">
+      <article className="message message--user" data-user-key={itemKey(item)} data-turn-id={item.turnId}>
         <div className="user-message-body">
           {text && <div className="user-message-text">{long && !expanded ? `${text.slice(0, 800)}...` : text}</div>}
           {(item.content ?? []).filter((entry) => entry.type === 'image' || entry.type === 'localImage').map((entry, index) => (

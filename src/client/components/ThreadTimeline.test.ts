@@ -57,4 +57,20 @@ describe('conversation presentation', () => {
     const oldFinished = { ...complete, id: 'old' };
     expect(mergeTurnTimings(updated, [running, oldFinished], baseline)).toEqual({ t: complete, old: oldFinished });
   });
+
+  it('provides user anchors and an outline independent of the currently loaded history window', () => {
+    const html = renderToStaticMarkup(createElement(ThreadTimeline, {
+      threadId: 'thread', items: [{ type: 'userMessage', id: 'u', turnId: 't', content: [{ type: 'text', text: 'Latest' }] }],
+      activeTurnId: null, turnTimings: { t: complete }, loading: false, hasMoreHistory: true,
+      loadingHistory: false, onLoadEarlier: async () => {},
+      outlineTurns: [{ ...complete, messages: [
+        { itemId: 'old-user', prompt: 'Earlier request', reply: 'Earlier reply' },
+        { itemId: 'u', prompt: 'Latest', reply: '' }
+      ] }]
+    }));
+    expect(html).toContain('data-user-key="[&quot;t&quot;,&quot;u&quot;]"');
+    expect(html).toContain('aria-label="第 1 轮：Earlier request"');
+    expect(html).toContain('aria-label="第 2 轮：Latest"');
+    expect(html.match(/class="thread-navigation-mark/g)).toHaveLength(2);
+  });
 });

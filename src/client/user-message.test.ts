@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { ThreadTimeline } from './components/ThreadTimeline';
-import { userMessageText } from './user-message';
+import { userMessageText } from '../shared/user-message';
 
 const fileContext = [
   '',
