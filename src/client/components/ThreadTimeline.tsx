@@ -79,10 +79,19 @@ export function ThreadTimeline({
   const loadingEarlierRef = useRef(false);
   const navigationVersionRef = useRef(0);
   const navigatingRef = useRef(false);
+  const navigationAnchorRef = useRef<string | null>(null);
   const prependAdjustmentRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const entries = useMemo(() => buildTimelineEntries(items, activeTurnId), [items, activeTurnId]);
   const sections = useMemo(() => buildTimelineSections(entries), [entries]);
+  const alignNavigationTarget = useCallback(() => {
+    const stream = streamRef.current;
+    const key = navigationAnchorRef.current;
+    if (!stream || !key) return;
+    const node = [...(innerRef.current?.querySelectorAll<HTMLElement>('[data-user-key]') ?? [])]
+      .find(node => node.dataset.userKey === key);
+    if (node) stream.scrollTop += node.getBoundingClientRect().top - stream.getBoundingClientRect().top - 24;
+  }, []);
   const navigate = useCallback(async (target: NavigationTarget) => {
     onCancelHistoryReveal?.();
     const version = ++navigationVersionRef.current;
@@ -90,6 +99,7 @@ export function ThreadTimeline({
     stickToBottomRef.current = false;
     prependAdjustmentRef.current = null;
     const key = itemKey({ turnId: target.turnId, id: target.itemId });
+    navigationAnchorRef.current = key;
     const find = () => [...(innerRef.current?.querySelectorAll<HTMLElement>('[data-user-key]') ?? [])]
       .find(node => node.dataset.userKey === key);
     if (!find() && onRevealHistory) await onRevealHistory(target.turnId, target.itemId);
@@ -99,14 +109,15 @@ export function ThreadTimeline({
       const node = find();
       const stream = streamRef.current;
       if (node && stream) {
-        stream.scrollTop += node.getBoundingClientRect().top - stream.getBoundingClientRect().top - 24;
+        alignNavigationTarget();
         setAwayFromBottom(true);
       }
       requestAnimationFrame(() => { if (version === navigationVersionRef.current) navigatingRef.current = false; });
     });
-  }, [onRevealHistory, onCancelHistoryReveal]);
+  }, [onRevealHistory, onCancelHistoryReveal, alignNavigationTarget]);
   const handleNavigate = useCallback((target: NavigationTarget) => { void navigate(target); }, [navigate]);
   const preserveActivityPosition = useCallback(() => {
+    navigationAnchorRef.current = null;
     stickToBottomRef.current = false;
     window.requestAnimationFrame(() => {
       const stream = streamRef.current;
@@ -117,7 +128,7 @@ export function ThreadTimeline({
     });
   }, []);
   const loadEarlier = useCallback(() => {
-    if (!hasMoreHistory || loadingEarlierRef.current || navigatingRef.current || revealingHistory) return;
+    if (!hasMoreHistory || loadingEarlierRef.current || navigatingRef.current || navigationAnchorRef.current || revealingHistory) return;
     const stream = streamRef.current;
     if (stream) {
       prependAdjustmentRef.current = { scrollHeight: stream.scrollHeight, scrollTop: stream.scrollTop };
@@ -139,18 +150,22 @@ export function ThreadTimeline({
     return () => window.cancelAnimationFrame(frame);
   }, [loading, threadId, viewingHistory]);
 
-  useEffect(() => () => { navigationVersionRef.current += 1; }, [threadId]);
+  useEffect(() => () => {
+    navigationVersionRef.current += 1;
+    navigationAnchorRef.current = null;
+  }, [threadId]);
 
   useEffect(() => {
     const inner = innerRef.current;
     if (loading || !inner) return;
     const observer = new ResizeObserver(() => {
+      if (navigationAnchorRef.current) { alignNavigationTarget(); return; }
       const stream = streamRef.current;
       if (stream && stickToBottomRef.current && !viewingHistory) stream.scrollTop = stream.scrollHeight;
     });
     observer.observe(inner);
     return () => observer.disconnect();
-  }, [loading, threadId, viewingHistory]);
+  }, [loading, threadId, viewingHistory, alignNavigationTarget]);
 
   useLayoutEffect(() => {
     if (loading) return;
@@ -161,6 +176,8 @@ export function ThreadTimeline({
       stickToBottomRef.current = true;
     }
   }, [items, loading, viewingHistory]);
+
+  useLayoutEffect(alignNavigationTarget, [items, turnTimings, alignNavigationTarget]);
 
   useLayoutEffect(() => {
     const stream = streamRef.current;
@@ -211,7 +228,12 @@ export function ThreadTimeline({
       ref={streamRef}
       className="message-stream"
       aria-label="会话记录"
+      onWheel={() => { navigationAnchorRef.current = null; }}
+      onTouchStart={() => { navigationAnchorRef.current = null; }}
+      onPointerDownCapture={() => { navigationAnchorRef.current = null; }}
+      onKeyDownCapture={() => { navigationAnchorRef.current = null; }}
       onLoadCapture={() => {
+        if (navigationAnchorRef.current) { alignNavigationTarget(); return; }
         const stream = streamRef.current;
         if (stream && stickToBottomRef.current && !viewingHistory) stream.scrollTop = stream.scrollHeight;
       }}
@@ -226,7 +248,8 @@ export function ThreadTimeline({
     >
       <div className="message-stream-inner" ref={innerRef}>
       {hasMoreHistory && (
-        <button type="button" className="history-trim" disabled={loadingHistory} onClick={loadEarlier}>
+        <button type="button" className="history-trim" disabled={loadingHistory}
+          onClick={() => { navigationAnchorRef.current = null; loadEarlier(); }}>
           {loadingHistory ? '正在加载' : '显示更早记录'}
         </button>
       )}
@@ -255,6 +278,7 @@ export function ThreadTimeline({
         onClick={() => {
           navigationVersionRef.current += 1;
           navigatingRef.current = false;
+          navigationAnchorRef.current = null;
           if (viewingHistory && onReturnToLatest) { void onReturnToLatest(); return; }
           const stream = streamRef.current;
           if (stream) stream.scrollTop = stream.scrollHeight;
