@@ -83,8 +83,8 @@ if ! launchctl print "$SERVICE" >/dev/null 2>&1; then
   launchctl bootstrap "$DOMAIN" "$PLIST"
 fi
 
-LOCAL_URL="$("$NODE_BIN" --input-type=module -e 'import dotenv from "dotenv"; dotenv.config({quiet: true}); process.stdout.write(`http://127.0.0.1:${process.env.PORT?.trim() || "4545"}`)')"
-PUBLIC_URL="$("$NODE_BIN" --input-type=module -e 'import dotenv from "dotenv"; dotenv.config({quiet: true}); process.stdout.write(process.env.PUBLIC_ORIGIN?.trim() || "")')"
+LOCAL_URL="$(DOTENV_CONFIG_QUIET=true "$NODE_BIN" --input-type=module -e 'import "dotenv/config"; process.stdout.write(`http://127.0.0.1:${process.env.PORT?.trim() || "4545"}`)')"
+PUBLIC_URL="$(DOTENV_CONFIG_QUIET=true "$NODE_BIN" --input-type=module -e 'import "dotenv/config"; process.stdout.write(process.env.PUBLIC_ORIGIN?.trim() || "")')"
 READY=0
 for (( attempt = 0; attempt < 30; attempt++ )); do
   if curl --silent --fail --max-time 1 "$LOCAL_URL/health" > /dev/null; then
