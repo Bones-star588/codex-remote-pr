@@ -44,7 +44,7 @@ export class TerminalManager {
   constructor(private readonly defaultCwd = os.homedir()) {}
 
   open(cwd = this.defaultCwd): TerminalWorkspace {
-    const resolved = fs.realpathSync(path.resolve(cwd));
+    const resolved = fs.realpathSync.native(path.resolve(cwd));
     if (!fs.statSync(resolved).isDirectory()) throw new Error('Terminal working directory is not a directory.');
     const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
     let workspace = this.workspaces.get(key);
