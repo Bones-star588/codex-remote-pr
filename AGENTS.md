@@ -28,7 +28,13 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   Conversation text follows native 14px/22.75px, weight 430; activity headers use
   14px/21px, weight 430. Keep the system font stack and lazy detail bodies.
 - Use native turn timing, including metadata cursors for older history. Never
-  derive turn duration from item timestamps or the browser connection time.
+  derive the turn start from item timestamps or the browser connection time.
+  Preserve native item timing anchors: the work divider freezes at the final
+  answer's native startedAtMs, before answer generation ends. Use saved turn
+  completedAt when that anchor is unavailable, then durationMs as a fallback.
+  Format narrow Chinese units with zero units omitted, matching Desktop.
+  Running labels use host time calibrated by existing heartbeat round trips,
+  not an uncorrected phone/browser clock. Recalibrate on reconnect.
   Refresh only the active time label once per second. Keep user/assistant gaps
   larger than prose spacing without loosening command rows.
 - Consecutive desktop activity headers use a compact 30px pitch; touch targets

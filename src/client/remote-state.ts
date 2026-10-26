@@ -34,7 +34,9 @@ export function upsertItem(items: ThreadItem[], next: ThreadItem, append = false
   if (append && current.type === 'agentMessage' && next.type === 'agentMessage') {
     copy[index] = { ...current, text: `${current.text}${next.text}` };
   } else {
-    copy[index] = next;
+    copy[index] = { ...next,
+      ...(next.startedAtMs == null && current.startedAtMs != null ? { startedAtMs: current.startedAtMs } : {}),
+      ...(next.completedAtMs == null && current.completedAtMs != null ? { completedAtMs: current.completedAtMs } : {}) };
   }
   return copy;
 }

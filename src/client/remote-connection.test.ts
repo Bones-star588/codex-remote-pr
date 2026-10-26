@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 
 import type { ServerMessage } from '../shared/protocol';
 import { RemoteConnection } from './remote-connection';
+import { hostNow, synchronizeHostClock } from './host-clock';
 
 class FakeSocket extends EventTarget {
   static OPEN = 1;
@@ -56,6 +57,7 @@ describe('Remote connection recovery', () => {
 
   afterEach(() => {
     connection.dispose();
+    synchronizeHostClock(Date.now(), Date.now(), Date.now());
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
@@ -72,6 +74,24 @@ describe('Remote connection recovery', () => {
     vi.advanceTimersByTime(1500);
     expect(FakeSocket.instances).toHaveLength(2);
     expect(first.readyState).toBe(3);
+  });
+
+  it('uses host time despite a five-minute browser clock error and rechecks it after reconnecting', () => {
+    vi.setSystemTime(500_000);
+    const first = FakeSocket.instances[0]!;
+    first.open();
+    vi.advanceTimersByTime(200);
+    first.message({ type: 'pong', at: new Date(200_100).toISOString() });
+    expect(hostNow()).toBe(200_200);
+    vi.advanceTimersByTime(1000);
+    expect(hostNow()).toBe(201_200);
+    browser.dispatchEvent(new Event('online'));
+    const second = FakeSocket.instances[1]!;
+    second.open();
+    vi.advanceTimersByTime(100);
+    second.message({ type: 'pong', at: new Date(201_250).toISOString() });
+    expect(hostNow()).toBe(201_300);
+    expect(onDisconnect).toHaveBeenCalledOnce();
   });
 
   it('times out a stalled handshake and ignores late events from it', () => {

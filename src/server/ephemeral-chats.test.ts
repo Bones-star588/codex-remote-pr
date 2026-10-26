@@ -40,4 +40,16 @@ describe('temporary chat ownership', () => {
       { type: 'agentMessage', turnId: 't', text: 'OK' }
     ]);
   });
+
+  it('keeps native reply timing in reconnect snapshots after embedded turn items replace the reply', () => {
+    const chats = new EphemeralChats<string>(async () => {});
+    chats.add('side', 'socket');
+    chats.record('item/started', { threadId: 'side', turnId: 't', startedAtMs: 147_250,
+      item: { type: 'agentMessage', id: 'a', phase: 'final_answer', text: '' } });
+    chats.record('item/completed', { threadId: 'side', turnId: 't', completedAtMs: 200_000,
+      item: { type: 'agentMessage', id: 'a', phase: 'final_answer', text: 'OK' } });
+    chats.record('turn/completed', { threadId: 'side', turn: { id: 't', status: 'completed',
+      items: [{ type: 'agentMessage', id: 'a', phase: 'final_answer', text: 'OK' }] } });
+    expect(chats.snapshot('side')?.items[0]).toMatchObject({ startedAtMs: 147_250, completedAtMs: 200_000 });
+  });
 });

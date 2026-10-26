@@ -1,4 +1,5 @@
 import type { ServerMessage } from '../shared/protocol';
+import { synchronizeHostClock } from './host-clock';
 
 interface ConnectionOptions<Message> {
   url: string;
@@ -16,6 +17,7 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
   private connectTimer: number | undefined;
   private heartbeatTimer: number | undefined;
   private pongTimer: number | undefined;
+  private pingSentAtMs: number | undefined;
 
   constructor(private readonly options: ConnectionOptions<Message>) {}
 
@@ -69,6 +71,11 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
         return;
       }
       if (message.type === 'pong') {
+        if (this.pingSentAtMs !== undefined && 'at' in message && typeof message.at === 'string') {
+          const serverTimeMs = Date.parse(message.at);
+          if (Number.isFinite(serverTimeMs)) synchronizeHostClock(serverTimeMs, this.pingSentAtMs, Date.now());
+        }
+        this.pingSentAtMs = undefined;
         window.clearTimeout(this.pongTimer);
         this.pongTimer = undefined;
         window.clearTimeout(this.heartbeatTimer);
@@ -89,6 +96,7 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
     window.clearTimeout(this.heartbeatTimer);
     window.clearTimeout(this.pongTimer);
     this.pongTimer = undefined;
+    this.pingSentAtMs = undefined;
   }
 
   private disconnect(socket: WebSocket, message: string): void {
@@ -113,6 +121,7 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
       this.disconnect(socket, 'Remote heartbeat timed out. Reconnecting...');
     }, 10_000);
     try {
+      this.pingSentAtMs = Date.now();
       socket.send(JSON.stringify({ type: 'ping' }));
     } catch {
       this.disconnect(socket, 'Remote connection lost. Reconnecting...');

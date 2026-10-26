@@ -50,13 +50,17 @@ export class EphemeralChats<Owner> {
       entry.turns.set(turn.id, turn);
       entry.activeTurnId = method === 'turn/started' ? turn.id : null;
       for (const item of items) {
-        entry.items.set(JSON.stringify([turn.id, item.id]), { ...item, turnId: turn.id });
+        const key = JSON.stringify([turn.id, item.id]);
+        entry.items.set(key, { ...entry.items.get(key), ...item, turnId: turn.id });
       }
     }
     const turnId = String(params.turnId ?? '');
     if (method === 'item/started' || method === 'item/completed') {
       const item = params.item as Record<string, unknown>;
-      entry.items.set(JSON.stringify([turnId, item.id]), { ...item, turnId });
+      const key = JSON.stringify([turnId, item.id]);
+      entry.items.set(key, { ...entry.items.get(key), ...item, turnId,
+        ...(method === 'item/started' ? { startedAtMs: params.startedAtMs }
+          : { completedAtMs: params.completedAtMs }) });
     }
     if (method === 'item/agentMessage/delta' || method === 'item/commandExecution/outputDelta') {
       const key = JSON.stringify([turnId, params.itemId]);

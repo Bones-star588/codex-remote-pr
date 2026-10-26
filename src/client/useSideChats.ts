@@ -40,7 +40,9 @@ export function sideChatEvent(chat: SideChat, method: string, params: Record<str
       error: (params.turn as { error?: { message: string } }).error?.message ?? chat.error };
   }
   if (method === 'item/started' || method === 'item/completed') {
-    return { ...chat, items: upsertItem(chat.items, { ...params.item as ThreadItem, turnId }) };
+    return { ...chat, items: upsertItem(chat.items, { ...params.item as ThreadItem, turnId,
+      ...(method === 'item/started' ? { startedAtMs: params.startedAtMs as number | null ?? null }
+        : { completedAtMs: params.completedAtMs as number | null ?? null }) }) };
   }
   if (method === 'item/agentMessage/delta') {
     return { ...chat, items: upsertItem(chat.items, {

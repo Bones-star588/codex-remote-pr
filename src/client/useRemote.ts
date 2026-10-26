@@ -1107,7 +1107,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       if (item?.id) {
         setItems((current) => viewingHistoryRef.current && !current.some(entry =>
           itemKey(entry) === itemKey({ id: item.id, turnId: String(params.turnId ?? '') })) ? current
-          : upsertItem(current, { ...item, turnId: String(params.turnId ?? '') }));
+          : upsertItem(current, { ...item, turnId: String(params.turnId ?? ''),
+            startedAtMs: params.startedAtMs as number | null ?? null }));
       }
     }
 
@@ -1127,7 +1128,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
         flushStreamingDeltas();
         setItems((current) => viewingHistoryRef.current && !current.some(entry =>
           itemKey(entry) === itemKey({ id: item.id, turnId: String(params.turnId ?? '') })) ? current
-          : upsertItem(current, { ...item, turnId: String(params.turnId ?? '') }));
+          : upsertItem(current, { ...item, turnId: String(params.turnId ?? ''),
+            completedAtMs: params.completedAtMs as number | null ?? null }));
       }
     }
 

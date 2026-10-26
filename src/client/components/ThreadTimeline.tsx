@@ -25,6 +25,7 @@ import { itemKey } from '../remote-state';
 import type { ThreadItem } from '../types';
 import { buildTimelineEntries, buildTimelineSections, isActivityIssue, type TimelineEntry, type TimelineSection } from '../timeline-model';
 import { elapsedTurnMs, formatWorkDuration, type TurnTiming } from '../../shared/turn-timing';
+import { hostNow } from '../host-clock';
 import { userMessageText } from '../../shared/user-message';
 import type { OutlineTurn } from '../../shared/thread-outline';
 import { ThreadNavigation, type NavigationTarget } from './ThreadNavigation';
@@ -316,6 +317,8 @@ const ResponseSection = memo(function ResponseSection({ section, timing, active,
     if (entry.type === 'message' && entry.item.type === 'agentMessage' &&
       entry.item.phase !== 'commentary' && entry.item.phase !== 'partial_answer') finalIndex = index;
   });
+  const finalEntry = section.entries[finalIndex];
+  const finalStartedAtMs = finalEntry?.type === 'message' ? finalEntry.item.startedAtMs ?? null : null;
   const trace = completed ? section.entries.slice(0, finalIndex < 0 ? undefined : finalIndex) : section.entries;
   const answer = completed && finalIndex >= 0 ? section.entries.slice(finalIndex) : [];
   const renderEntry = (entry: TimelineEntry) => entry.type === 'activity'
@@ -326,9 +329,9 @@ const ResponseSection = memo(function ResponseSection({ section, timing, active,
     {(timing || active && section.showTiming) && <div className="worked-divider">
       {completed && trace.length > 0 ? <button type="button" className="turn-disclosure" aria-expanded={open} aria-controls={bodyId}
         onClick={() => { onInteract(); setOpen(value => !value); }}>
-        <TurnDuration timing={timing} active={false} />
+        <TurnDuration timing={timing} active={false} finalStartedAtMs={finalStartedAtMs} />
         <ChevronRight size={13} className={open ? 'is-open' : ''} aria-hidden="true" />
-      </button> : <TurnDuration timing={timing} active={active} />}
+      </button> : <TurnDuration timing={timing} active={active} finalStartedAtMs={finalStartedAtMs} />}
     </div>}
     {(!completed || open) && <div className="turn-activity" id={bodyId}>{trace.map(renderEntry)}</div>}
     {answer.map(renderEntry)}
@@ -385,19 +388,29 @@ function ReplyActions({ text, turnId, onFork, onError }: {
   </div>;
 }
 
-function TurnDuration({ timing, active }: { timing: TurnTiming | undefined; active: boolean }) {
-  const [now, setNow] = useState(Date.now);
+function TurnDuration({ timing, active, finalStartedAtMs }: {
+  timing: TurnTiming | undefined; active: boolean; finalStartedAtMs?: number | null;
+}) {
+  const [now, setNow] = useState(hostNow);
   useEffect(() => {
-    if (!active || timing?.startedAt == null) return;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [active, timing?.startedAt]);
-  const duration = timing ? elapsedTurnMs(active ? { ...timing, status: 'inProgress' } : timing, now) : null;
-  const label = active ? '已处理' : timing?.status === 'interrupted' ? '已停止，用时'
-    : timing?.status === 'failed' ? '失败，用时' : '用时';
-  return <span className="turn-duration">{duration === null ? (active ? '正在处理' : '处理记录')
-    : `${label} ${formatWorkDuration(duration)}`}</span>;
+    if (!active || timing?.startedAt == null || finalStartedAtMs != null) return;
+    let timer: number | undefined;
+    const refresh = () => {
+      window.clearInterval(timer);
+      setNow(hostNow());
+      timer = document.visibilityState === 'hidden' ? undefined
+        : window.setInterval(() => setNow(hostNow()), 1000);
+    };
+    refresh();
+    document.addEventListener('visibilitychange', refresh);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
+  }, [active, timing?.startedAt, finalStartedAtMs]);
+  const duration = timing ? elapsedTurnMs(active ? { ...timing, status: 'inProgress' } : timing, now, finalStartedAtMs) : null;
+  const working = active && finalStartedAtMs == null;
+  const text = duration === null ? (working ? '处理中' : '活动')
+    : !active && timing?.status === 'interrupted' ? `你在 ${formatWorkDuration(duration)} 后停止了`
+    : working && duration < 1000 ? '处理中' : `${working ? '已处理' : '用时'} ${formatWorkDuration(duration)}`;
+  return <span className="turn-duration">{text}</span>;
 }
 
 const MessageItem = memo(function MessageItem({ item }: { item: ThreadItem }) {

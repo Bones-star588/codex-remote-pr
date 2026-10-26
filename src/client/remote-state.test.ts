@@ -39,6 +39,15 @@ describe('remote thread state', () => {
     ).toEqual([{ type: 'agentMessage', id: 'agent-1', text: 'hello world' }]);
   });
 
+  it('preserves native start anchors across deltas and completion notifications', () => {
+    const started: ThreadItem = { type: 'agentMessage', id: 'answer', text: '', phase: 'final_answer', startedAtMs: 147_250 };
+    const streamed = upsertItem([started], { type: 'agentMessage', id: 'answer', text: 'Answer' }, true);
+    expect(streamed[0]).toMatchObject({ startedAtMs: 147_250, phase: 'final_answer' });
+    const completed = upsertItem(streamed, { type: 'agentMessage', id: 'answer', text: 'Answer',
+      phase: 'final_answer', completedAtMs: 200_000 });
+    expect(completed[0]).toMatchObject({ startedAtMs: 147_250, completedAtMs: 200_000 });
+  });
+
   it('uses a stable fallback title', () => {
     const thread: Thread = {
       id: 'thread-1',

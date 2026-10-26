@@ -37,6 +37,28 @@ describe('conversation presentation', () => {
     expect(html).toContain('ANSWER');
   });
 
+  it('uses the saved final-answer start instead of counting the time spent generating that answer', () => {
+    const html = render([
+      { type: 'agentMessage', id: 'a', turnId: 't', phase: 'final_answer', text: 'ANSWER',
+        startedAtMs: 147_250, completedAtMs: 1_113_000 }
+    ], { t: complete });
+    expect(html).toContain('用时 47秒');
+    expect(html).not.toContain('16分钟');
+  });
+
+  it('freezes the work divider while a final answer is still streaming', () => {
+    const html = renderToStaticMarkup(createElement(ThreadTimeline, {
+      threadId: 'thread',
+      items: [{ type: 'agentMessage', id: 'a', turnId: 't', phase: 'final_answer', text: 'PARTIAL',
+        startedAtMs: 147_250 }],
+      activeTurnId: 't', turnTimings: { t: { ...complete, status: 'inProgress', completedAt: null, durationMs: null } },
+      loading: false, hasMoreHistory: false, loadingHistory: false, onLoadEarlier: async () => {}
+    }));
+    expect(html).toContain('用时 47秒');
+    expect(html).not.toContain('已处理');
+    expect(html).toContain('PARTIAL');
+  });
+
   it('combines mixed operations without reasoning rows or command-count noise', () => {
     const html = render([
       command,

@@ -38,4 +38,14 @@ describe('independent temporary chat state', () => {
     expect(state.items).toMatchObject([{ id: 'a', type: 'agentMessage', turnId: 't', text: 'OK' }]);
     expect(state.activeTurnId).toBeNull();
   });
+
+  it('retains native work anchors through side-chat item and turn completion', () => {
+    let state = sideChatEvent(chat, 'item/started', { threadId: 'side', turnId: 't', startedAtMs: 147_250,
+      item: { type: 'agentMessage', id: 'a', phase: 'final_answer', text: '' } });
+    state = sideChatEvent(state, 'item/completed', { threadId: 'side', turnId: 't', completedAtMs: 200_000,
+      item: { type: 'agentMessage', id: 'a', phase: 'final_answer', text: 'OK' } });
+    state = sideChatEvent(state, 'turn/completed', { threadId: 'side',
+      turn: { id: 't', status: 'completed', items: [{ type: 'agentMessage', id: 'a', phase: 'final_answer', text: 'OK' }] } });
+    expect(state.items[0]).toMatchObject({ startedAtMs: 147_250, completedAtMs: 200_000 });
+  });
 });
