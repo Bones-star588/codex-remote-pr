@@ -18,6 +18,8 @@ export interface Thread {
   updatedAt: number;
   status: ThreadStatus;
   source?: unknown;
+  agentNickname?: string | null;
+  agentRole?: string | null;
   archived?: boolean;
   ephemeral?: boolean;
   permissionProfile?: string | null;
@@ -53,7 +55,20 @@ export type ThreadItem = (
   | { type: 'imageView'; id: string; path: string }
   | { type: 'imageGeneration'; id: string }
   | { type: 'contextCompaction'; id: string }
+  | {
+      type: 'collabAgentToolCall'; id: string;
+      tool: 'spawnAgent' | 'sendInput' | 'resumeAgent' | 'wait' | 'closeAgent' | 'sendMessage' |
+        'followupTask' | 'interruptAgent' | 'listAgents';
+      status: 'inProgress' | 'completed' | 'failed' | 'interrupted';
+      senderThreadId: string; receiverThreadIds: string[];
+      prompt: string | null; model: string | null; reasoningEffort: string | null;
+      agentsStates: Record<string, { status: SubagentStatus; message: string | null } | undefined>;
+    }
+  | { type: 'subAgentActivity'; id: string; kind: 'started' | 'interacted' | 'interrupted' | 'completed';
+      agentThreadId: string; agentPath: string; model: string | null; reasoningEffort: string | null }
 ) & { turnId?: string; startedAtMs?: number | null; completedAtMs?: number | null };
+
+export type SubagentStatus = 'pendingInit' | 'running' | 'interrupted' | 'completed' | 'errored' | 'shutdown' | 'notFound';
 
 export interface FileChange {
   path: string;

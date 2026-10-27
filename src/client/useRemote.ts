@@ -8,7 +8,7 @@ import { permissionProfileId, permissionProfileUpdate, type PermissionProfile, t
 import { api, isAbortedRequest, ReadRequests } from './api';
 import { constrainedNetwork, prioritizeInteraction, yieldToInteraction } from './background-work';
 import { RemoteConnection } from './remote-connection';
-import { itemKey, mergeLatestHistoryItems, mergeOlderHistoryItems, mergeTurnTimings, reconcileThreadList, upsertItem } from './remote-state';
+import { itemKey, mergeLatestHistoryItems, mergeOlderHistoryItems, mergeOlderTurnTimings, mergeTurnTimings, reconcileThreadList, upsertItem } from './remote-state';
 import type {
   BridgeStatus,
   ModelInfo,
@@ -24,6 +24,8 @@ import { turnInput } from './slash-commands';
 import { dedupeThreads } from './workspace-model';
 import { loadedOutline, mergeOutlineTurns } from './thread-navigation';
 import type { ChatEventListener, ChatTransport } from './chat-transport';
+import { subagentSource } from './subagents';
+import { HistoryPrefetch, prepareHistoryPage } from './history-prefetch';
 
 interface PendingRpc {
   resolve: (value: unknown) => void;
@@ -117,12 +119,14 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
   const historyCacheRef = useRef(new Map<string, ThreadHistoryPage>());
   const lastRecoveryRef = useRef(0);
   const additionalThreadsRef = useRef<string[]>([]);
+  const threadWatchersRef = useRef(new Map<string, string[]>());
   const eventListenersRef = useRef(new Set<ChatEventListener>());
   const dirtyThreadIdsRef = useRef(new Set<string>());
   const replayCursorRef = useRef<{ epoch: string; sequence: number } | null>(bootstrap?.cursor ?? null);
   const outlineRefreshRef = useRef<(() => void) | null>(null);
   const historyRequestsRef = useRef(new ReadRequests());
   const permissionRequestsRef = useRef(new ReadRequests());
+  const earlierPageRef = useRef(new HistoryPrefetch());
 
   activeThreadRef.current = activeThreadId;
   threadsRef.current = threads;
@@ -162,8 +166,10 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       eventListenersRef.current.add(listener);
       return () => { eventListenersRef.current.delete(listener); };
     },
-    watch(threadIds) {
-      additionalThreadsRef.current = threadIds;
+    watch(threadIds, owner) {
+      if (threadIds.length) threadWatchersRef.current.set(owner, threadIds);
+      else threadWatchersRef.current.delete(owner);
+      additionalThreadsRef.current = [...new Set([...threadWatchersRef.current.values()].flat())];
       watchThread(activeThreadRef.current);
     }
   }), [rpc, watchThread]);
@@ -332,6 +338,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       const sameThread = activeThreadRef.current === threadId;
       if (!options.silent) {
         prioritizeInteraction();
+        earlierPageRef.current.clear();
         selectionVersionRef.current += 1;
         if (!historyRequestsRef.current.has(path)) historyRequestsRef.current.cancel();
         pendingRevealRef.current = null;
@@ -425,6 +432,24 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     [clearStreamingDeltas, flushStreamingDeltas, watchThread]
   );
 
+  const prepareEarlierHistory = useCallback(() => {
+    const threadId = activeThreadRef.current;
+    const cursor = olderHistoryCursorRef.current;
+    const version = selectionVersionRef.current;
+    if (!threadId || cursor === null) return null;
+    return earlierPageRef.current.read(JSON.stringify([version, threadId, cursor]), signal => prepareHistoryPage(
+      () => fetchHistoryPage(threadId, cursor),
+      turnsCursor => rpc('thread/turns/list', { threadId, limit: 100, itemsView: 'notLoaded', cursor: turnsCursor }),
+      turnTimingsRef.current, turnsCursorRef.current, signal
+    ));
+  }, [fetchHistoryPage, rpc]);
+
+  const prefetchEarlierHistory = useCallback(async () => {
+    if (loadingHistoryRef.current) return;
+    // Speculation never changes loading/error state; a foreground read can retry.
+    try { await prepareEarlierHistory(); } catch { /* Retain the visible conversation. */ }
+  }, [prepareEarlierHistory]);
+
   const loadEarlierHistory = useCallback(async () => {
     const threadId = activeThreadRef.current;
     const cursor = olderHistoryCursorRef.current;
@@ -433,33 +458,22 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     loadingHistoryRef.current = true;
     setLoadingHistory(true);
     try {
-      const page = await fetchHistoryPage(threadId, cursor);
+      const page = await prepareEarlierHistory();
+      if (!page) return;
       if (threadId !== activeThreadRef.current || version !== selectionVersionRef.current) return;
       const olderItems = page.items.map((entry) => ({
         ...entry.item, turnId: entry.turnId,
         startedAtMs: entry.startedAtMs, completedAtMs: entry.completedAtMs
       }));
-      const missingTurns = new Set(olderItems.map((item) => item.turnId!).filter((id) => !turnTimingsRef.current[id]));
-      const timings: TurnTiming[] = [];
-      let turnsCursor = turnsCursorRef.current;
-      while (missingTurns.size > 0 && turnsCursor !== null) {
-        const result = await rpc<{ data: TurnTiming[]; nextCursor: string | null }>('thread/turns/list', {
-          threadId, limit: 100, itemsView: 'notLoaded', cursor: turnsCursor
-        });
-        if (threadId !== activeThreadRef.current || version !== selectionVersionRef.current) return;
-        timings.push(...result.data);
-        result.data.forEach((turn) => missingTurns.delete(turn.id));
-        if (result.nextCursor === turnsCursor) break;
-        turnsCursor = result.nextCursor;
-      }
-      turnsCursorRef.current = turnsCursor;
-      if (timings.length > 0) setTurnTimings((current) => {
-        const next = { ...Object.fromEntries(timings.map((turn) => [turn.id, turn])), ...current };
+      turnsCursorRef.current = page.turnsCursor;
+      if (page.turns.length > 0) setTurnTimings((current) => {
+        const next = mergeOlderTurnTimings(current, page.turns);
         turnTimingsRef.current = next;
         return next;
       });
       setItems((current) => mergeOlderHistoryItems(olderItems, current));
       olderHistoryCursorRef.current = page.nextCursor;
+      earlierPageRef.current.clear();
       setHasMoreHistory(page.nextCursor !== null);
     } catch (error) {
       if (version === selectionVersionRef.current && !isAbortedRequest(error)) {
@@ -471,7 +485,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
         setLoadingHistory(false);
       }
     }
-  }, [fetchHistoryPage, rpc]);
+  }, [prepareEarlierHistory]);
 
   const loadLaterHistory = useCallback(async () => {
     const threadId = activeThreadRef.current;
@@ -505,6 +519,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     if (!threadId) return false;
     const wasViewing = viewingHistoryRef.current;
     const version = ++selectionVersionRef.current;
+    earlierPageRef.current.clear();
     historyRequestsRef.current.cancel();
     pendingRevealRef.current = { version, wasViewing };
     clearStreamingDeltas();
@@ -549,6 +564,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     if (!pending) return;
     selectionVersionRef.current += 1;
     historyRequestsRef.current.cancel();
+    earlierPageRef.current.clear();
     pendingRevealRef.current = null;
     viewingHistoryRef.current = pending.wasViewing;
     setViewingHistory(pending.wasViewing);
@@ -607,6 +623,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
 
   const closeThread = useCallback(() => {
     selectionVersionRef.current += 1;
+    earlierPageRef.current.clear();
     historyRequestsRef.current.cancel();
     activeThreadRef.current = null;
     watchThread(null);
@@ -657,6 +674,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       }
       setThreads((current) => dedupeThreads([...current, thread]));
       selectionVersionRef.current += 1;
+      earlierPageRef.current.clear();
       historyRequestsRef.current.cancel();
       activeThreadRef.current = thread.id;
       watchThread(thread.id);
@@ -946,6 +964,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     connection.start();
     return () => {
       disposedRef.current = true;
+      earlierPageRef.current.clear();
       selectionVersionRef.current += 1;
       permissionRequestVersionRef.current += 1;
       historyRequestsRef.current.cancel();
@@ -1079,7 +1098,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
   function handleCodexEvent(method: string, params: Record<string, unknown>): void {
     for (const listener of eventListenersRef.current) listener(method, params);
     const eventThread = params.thread as Thread | undefined;
-    if (eventThread?.ephemeral || additionalThreadsRef.current.includes(String(params.threadId ?? eventThread?.id ?? ''))) return;
+    const eventThreadId = String(params.threadId ?? eventThread?.id ?? '');
+    if (eventThread?.ephemeral || eventThreadId !== activeThreadRef.current && additionalThreadsRef.current.includes(eventThreadId)) return;
     if (method === 'thread/tokenUsage/updated') {
       const threadId = String(params.threadId ?? '');
       const usage = params.tokenUsage as ContextUsage | undefined;
@@ -1092,7 +1112,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     if (method === 'thread/compacted' && params.threadId === activeThreadRef.current) refreshActiveHistory();
     if (method === 'thread/started') {
       const thread = params.thread as Thread | undefined;
-      if (thread && !archivedRef.current) setThreads((current) => dedupeThreads([...current, thread]));
+      if (thread && !subagentSource(thread) && !archivedRef.current) setThreads((current) => dedupeThreads([...current, thread]));
     }
 
     if (method.startsWith('project/')) {
@@ -1284,6 +1304,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     refreshProjects,
     openThread,
     loadEarlierHistory,
+    prefetchEarlierHistory,
     loadLaterHistory,
     revealHistory,
     cancelHistoryReveal,

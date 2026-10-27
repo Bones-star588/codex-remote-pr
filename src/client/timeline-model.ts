@@ -17,8 +17,14 @@ export type TimelineEntry =
 
 export type ActivityKind = 'command' | 'file' | 'reasoning' | 'tool' | 'search' | 'image';
 
-export function buildTimelineEntries(items: ThreadItem[], activeTurnId: string | null = null): TimelineEntry[] {
+export function buildTimelineEntries(
+  items: ThreadItem[], activeTurnId: string | null = null, previous: TimelineEntry[] = []
+): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
+  const activityKeys = new Map<string, string>();
+  for (const entry of previous) {
+    if (entry.type === 'activity') for (const item of entry.items) activityKeys.set(itemKey(item), entry.key);
+  }
   let activityItems: ThreadItem[] = [];
   const flushActivity = (isLast = false) => {
     if (activityItems.length === 0) return;
@@ -30,7 +36,7 @@ export function buildTimelineEntries(items: ThreadItem[], activeTurnId: string |
     const kind = (['tool', 'file', 'command', 'search', 'image'] as ActivityKind[]).find((kind) => kinds.includes(kind))!;
     entries.push({
       type: 'activity',
-      key: `activity-${itemKey(activityItems[0]!)}`,
+      key: activityItems.map(item => activityKeys.get(itemKey(item))).find(Boolean) ?? `activity-${itemKey(activityItems[0]!)}`,
       kind,
       kinds,
       items: activityItems,
@@ -62,7 +68,16 @@ export function buildTimelineEntries(items: ThreadItem[], activeTurnId: string |
     }
   });
   flushActivity(true);
-  return entries;
+  const previousByKey = new Map(previous.map(entry => [entry.key, entry]));
+  return entries.map(entry => {
+    const existing = previousByKey.get(entry.key);
+    if (!existing) return entry;
+    if (entry.type === 'activity' && existing.type === 'activity') {
+      return entry.running === existing.running && entry.items.length === existing.items.length &&
+        entry.items.every((item, index) => item === existing.items[index]) ? existing : entry;
+    }
+    return entry.type !== 'activity' && existing.type === entry.type && entry.item === existing.item ? existing : entry;
+  });
 }
 
 function activityKind(item: ThreadItem): ActivityKind | null {
@@ -94,7 +109,7 @@ export interface TimelineSection {
   showTiming: boolean;
 }
 
-export function buildTimelineSections(entries: TimelineEntry[]): TimelineSection[] {
+export function buildTimelineSections(entries: TimelineEntry[], previous: TimelineSection[] = []): TimelineSection[] {
   const sections: TimelineSection[] = [];
   const lastResponse = new Map<string, TimelineSection>();
   for (const entry of entries) {
@@ -109,5 +124,25 @@ export function buildTimelineSections(entries: TimelineEntry[]): TimelineSection
     if (!user && item.turnId) lastResponse.set(item.turnId, section);
   }
   for (const section of lastResponse.values()) section.showTiming = true;
-  return sections;
+  // A page can begin inside a response. Keep its identity when its prefix arrives.
+  const previousByItem = new Map<string, string>();
+  for (const section of previous) {
+    for (const entry of section.entries) {
+      const items = entry.type === 'activity' ? entry.items : [entry.item];
+      for (const item of items) previousByItem.set(itemKey(item), section.key);
+    }
+  }
+  const retained = new Set<string>();
+  for (const section of sections) {
+    const key = section.entries.flatMap(entry => (entry.type === 'activity' ? entry.items : [entry.item])
+      .map(item => previousByItem.get(itemKey(item)))).find(key => key && !retained.has(key));
+    if (key) section.key = key;
+    retained.add(section.key);
+  }
+  const previousByKey = new Map(previous.map(section => [section.key, section]));
+  return sections.map(section => {
+    const existing = previousByKey.get(section.key);
+    return existing && existing.showTiming === section.showTiming && existing.entries.length === section.entries.length &&
+      existing.entries.every((entry, index) => entry === section.entries[index]) ? existing : section;
+  });
 }

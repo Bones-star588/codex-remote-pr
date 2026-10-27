@@ -152,4 +152,42 @@ describe('timeline model', () => {
     expect(sections.map(section => [section.user, section.showTiming, section.entries.length]))
       .toEqual([[true, false, 1], [false, false, 1], [true, false, 1], [false, true, 2]]);
   });
+
+  it('retains a partial response and its open activity when earlier items arrive', () => {
+    const tail: ThreadItem[] = [
+      { ...command('second'), turnId: 't' }, { ...agent('answer'), turnId: 't' }
+    ];
+    const initial = buildTimelineEntries(tail);
+    const sections = buildTimelineSections(initial);
+    const updated = buildTimelineEntries([{ ...command('first'), turnId: 't' }, ...tail], null, initial);
+    const next = buildTimelineSections(updated, sections);
+    expect(next[0]!.key).toBe(sections[0]!.key);
+    expect(updated[0]!.key).toBe(initial[0]!.key);
+  });
+
+  it('preserves both sides of a same-turn steering boundary when prepending', () => {
+    const tail: ThreadItem[] = [
+      { ...agent('progress'), turnId: 't' },
+      { type: 'userMessage', id: 'steer', turnId: 't', content: [] },
+      { ...agent('answer'), turnId: 't' }
+    ];
+    const initial = buildTimelineSections(buildTimelineEntries(tail));
+    const next = buildTimelineSections(buildTimelineEntries([{ ...command('first'), turnId: 't' }, ...tail]), initial);
+    expect(next.map(section => section.key)).toEqual(initial.map(section => section.key));
+    expect(new Set(next.map(section => section.key)).size).toBe(3);
+  });
+
+  it('reuses unchanged responses when paging or streaming in another turn', () => {
+    const earlier: ThreadItem = { ...agent('earlier'), turnId: 'old' };
+    const latest: ThreadItem = { ...agent('latest'), turnId: 'new' };
+    const initialEntries = buildTimelineEntries([earlier, latest]);
+    const initial = buildTimelineSections(initialEntries);
+    const entries = buildTimelineEntries([earlier, { ...latest, text: 'Streaming' }], 'new', initialEntries);
+    const sections = buildTimelineSections(entries, initial);
+    expect(sections[0]).toBe(initial[0]);
+    expect(sections[1]).not.toBe(initial[1]);
+    const prefixed = buildTimelineEntries([{ ...agent('prefix'), turnId: 'older' }, earlier, latest], null, initialEntries);
+    expect(buildTimelineSections(prefixed, initial).slice(1)).toEqual(initial);
+    expect(buildTimelineSections(prefixed, initial)[1]).toBe(initial[0]);
+  });
 });

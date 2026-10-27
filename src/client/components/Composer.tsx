@@ -78,6 +78,7 @@ export function Composer({
   const recognitionRef = useRef<Dictation | null>(null);
   const commandRunningRef = useRef(false);
   const skillsLoaderRef = useRef(loadSkills);
+  const skillScopeRef = useRef(skillScope);
   skillsLoaderRef.current = loadSkills;
   const speechConstructor = (window as SpeechWindow).SpeechRecognition ?? (window as SpeechWindow).webkitSpeechRecognition;
   const contextWindow = contextUsage?.modelContextWindow;
@@ -109,6 +110,8 @@ export function Composer({
     setSlashIndex(Math.max(0, options.findIndex((option) => !option.disabledReason)));
   }, [draft, skills, hasSavedThread, activeTurnId]);
   useEffect(() => {
+    if (skillScopeRef.current === skillScope) return;
+    skillScopeRef.current = skillScope;
     setSkills([]);
     setSelectedSkills([]);
     setSkillsError(null);

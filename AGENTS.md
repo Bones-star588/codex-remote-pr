@@ -47,6 +47,14 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   Anchor a visible stable item, not a scrollHeight snapshot taken before a
   request. Restore before paint and on delayed layout changes, while updating
   the anchor when the reader scrolls during a request.
+  Prefetch at most one older page in memory within two viewport heights of the
+  top; insert near the top without replacing the visible stream. Prepare native
+  timings before insertion, share speculative/foreground reads, and discard
+  abandoned pages. Preserve response/activity identities and expanded state
+  across partial-turn boundaries. Do not estimate chat-block heights with
+  content-visibility; reserve thumbnail geometry and reuse unchanged responses.
+  Underfilled viewports prefetch but consume history only on upward intent.
+  Older timing metadata fills missing turns; current live timings always win.
 - Reply links open lazy inspector preview tabs. Resolve relative files against
   the owning chat's cwd, retain native line suffixes, and keep preview content
   out of public caches. HTML runs without same-origin privileges; its short-lived
@@ -108,6 +116,19 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   live Desktop can send ephemeral replies only in turn/completed. Retain
   successfully submitted user input in the temporary snapshot with its
   clientUserMessageId; do not duplicate reply bodies inside timing state.
+  Composer portals sit above the inspector, including expanded and mobile
+  panels. Mobile focus trapping ignores portal targets. Dialogs and consumed
+  shortcuts must not trigger workspace shortcuts. Preserve initial queued
+  skills and current model choices across asynchronous side-thread creation.
+- Subagents use native collabAgentToolCall and subAgentActivity records, merged
+  per child within a response. Keep their clickable entrances outside completed
+  process folds. Discover direct children using parentThreadId and
+  sourceKinds: ['subAgentThreadSpawn'], all providers, both archive states and
+  all native cursors. Keep agent conversations separate from ephemeral chats.
+  Read bounded child history first; rejoin active children without config
+  overrides. Closing a child viewer must never interrupt or unsubscribe its
+  native thread. Compose watcher owners so side chats and children remain live
+  together. Do not insert spawned child threads as ordinary top-level tasks.
 - Main-chat queued submissions use native queue IDs and cursor pagination.
   Dispatch through native queue/start; steering uses expectedTurnId then removes
   the queued submission. Preserve image and skill inputs when editing text.

@@ -22,6 +22,10 @@ export function mergeTurnTimings(current: Record<string, TurnTiming>, latest: Tu
   return next;
 }
 
+export function mergeOlderTurnTimings(current: Record<string, TurnTiming>, older: TurnTiming[]): Record<string, TurnTiming> {
+  return { ...Object.fromEntries(older.map(turn => [turn.id, turn])), ...current };
+}
+
 export function findActiveTurnId(turns: Thread['turns'] | undefined): string | null {
   return [...(turns ?? [])].reverse().find((turn) => turn.status === 'inProgress')?.id ?? null;
 }

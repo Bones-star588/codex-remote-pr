@@ -1,6 +1,6 @@
 import {
   AlignJustify, ChevronDown, ChevronsDownUp, ChevronsUpDown, Columns2,
-  FileCode2, Folder, GitBranch, TerminalSquare, WrapText, X, Plus, MessageCirclePlus, Maximize2, Minimize2
+  Bot, FileCode2, Folder, GitBranch, TerminalSquare, WrapText, X, Plus, MessageCirclePlus, Maximize2, Minimize2
 } from 'lucide-react';
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { itemKey } from '../remote-state';
@@ -14,6 +14,9 @@ import { SideChatView } from './SideChatView';
 import type { PreviewTarget } from '../../shared/file-preview';
 import { previewLabel } from '../preview-links';
 import { PreviewLink } from './PreviewLinks';
+import type { useSubagentChats } from '../useSubagentChats';
+import { SubagentChatView } from './SubagentChatView';
+import { SubagentRows } from './Subagents';
 
 const FilePreview = lazy(() => import('./FilePreview'));
 
@@ -28,9 +31,12 @@ interface InspectorProps {
   sideChatRequest: { id: number; input?: ChatInput } | null;
   previewRequest: { id: number; target: PreviewTarget } | null;
   cwd?: string | undefined;
+  subagentChats: ReturnType<typeof useSubagentChats>;
+  subagentRequest: { id: number; threadId: string } | null;
 }
 
-export function Inspector({ open, thread, items, onClose, layout, view, remote, sideChatRequest, previewRequest, cwd }: InspectorProps) {
+export function Inspector({ open, thread, items, onClose, layout, view, remote, sideChatRequest, previewRequest, cwd,
+  subagentChats, subagentRequest }: InspectorProps) {
   const [tab, setTab] = useState<string>('changes');
   const [expanded, setExpanded] = useState(false);
   const [previews, setPreviews] = useState<Array<{ id: string; target: PreviewTarget }>>([]);
@@ -38,6 +44,7 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
   const inspectorRef = useRef<HTMLElement>(null);
   useEffect(() => { setTab(view); }, [view]);
   useEffect(() => { if (sideChatRequest) addSideChat(sideChatRequest.input); }, [sideChatRequest]);
+  useEffect(() => { if (subagentRequest) setTab(`agent-${subagentRequest.threadId}`); }, [subagentRequest]);
   useEffect(() => {
     if (!previewRequest) return;
     const target = previewRequest.target;
@@ -75,7 +82,11 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
     ...(tab === 'changes' || changedPaths.length ? [{ id: 'changes', label: `审阅 ${changedPaths.length}` }] : []),
     ...(tab === 'activity' ? [{ id: 'activity' as const, label: '命令记录' }] : []),
     ...(tab === 'files' ? [{ id: 'files' as const, label: '文件' }] : []),
+    ...(tab === 'agents' || subagentChats.directory.length || items.some(item =>
+      item.type === 'subAgentActivity' || item.type === 'collabAgentToolCall' && item.receiverThreadIds.length > 0)
+      ? [{ id: 'agents', label: '子智能体' }] : []),
     ...sideChats.chats.map(chat => ({ id: chat.id, label: chat.title })),
+    ...subagentChats.chats.map(chat => ({ id: `agent-${chat.id}`, label: chat.thread?.agentNickname || chat.agent.name })),
     ...previews.map(preview => ({ id: preview.id, label: previewLabel(preview.target) }))
   ];
   return (
@@ -84,7 +95,7 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
       <aside id="workspace-inspector" hidden={!open} className={`inspector${expanded ? ' inspector--expanded' : ''}`}
         ref={inspectorRef} aria-label="任务检查器"
         onKeyDown={(event) => {
-          if (event.key !== 'Tab' || layout !== 'mobile') return;
+          if (event.key !== 'Tab' || layout !== 'mobile' || !event.currentTarget.contains(event.target as Node)) return;
           const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), textarea, select, summary')]
             .filter(control => control.getClientRects().length);
           if (event.shiftKey && document.activeElement === controls[0]) {
@@ -98,11 +109,13 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
             {tabs.map(({ id, label }) => (
               <div key={id} className={`inspector-tab${tab === id ? ' is-active' : ''}`}>
               <button type="button" role="tab" aria-selected={tab === id}
-                id={`inspector-tab-${id}`} aria-controls={sideChats.chats.some(chat => chat.id === id) ? `side-chat-${id}`
+                id={`inspector-tab-${id}`} aria-controls={subagentChats.chats.some(chat => `agent-${chat.id}` === id) ? `subagent-${id}`
+                  : sideChats.chats.some(chat => chat.id === id) ? `side-chat-${id}`
                   : previews.some(preview => preview.id === id) ? `file-${id}` : 'inspector-content'}
                 className={tab === id ? 'is-active' : ''} onClick={() => setTab(id)}>
                 {sideChats.chats.some(chat => chat.id === id) && <MessageCirclePlus size={14} aria-hidden="true" />}
                 {previews.some(preview => preview.id === id) && <FileCode2 size={14} aria-hidden="true" />}
+                {subagentChats.chats.some(chat => `agent-${chat.id}` === id) && <Bot size={14} aria-hidden="true" />}
                 {label}
               </button>
               {sideChats.chats.some(chat => chat.id === id) && <button type="button" className="inspector-tab-close"
@@ -116,6 +129,11 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
                   setPreviews(current => current.filter(preview => preview.id !== id));
                   if (tab === id) setTab(previews.find(preview => preview.id !== id)?.id ?? 'launcher');
                 }}><X size={12} /></button>}
+              {subagentChats.chats.some(chat => `agent-${chat.id}` === id) && <button type="button" className="inspector-tab-close"
+                aria-label={`关闭子智能体 ${label}`} title={`关闭子智能体 ${label}`} onClick={() => {
+                  subagentChats.close(id.slice(6));
+                  if (tab === id) setTab('agents');
+                }}><X size={12} /></button>}
               </div>
             ))}
           </div>
@@ -127,14 +145,26 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
             <button type="button" className="icon-button" onClick={onClose} aria-label="关闭检查器" title="关闭检查器"><X size={16} /></button>
           </div>
         </header>
-        <div hidden={sideChats.chats.some(chat => chat.id === tab) || previews.some(preview => preview.id === tab)} className="inspector-body"
+        <div hidden={sideChats.chats.some(chat => chat.id === tab) || previews.some(preview => preview.id === tab) ||
+          subagentChats.chats.some(chat => `agent-${chat.id}` === tab)} className="inspector-body"
           id="inspector-content" role="tabpanel" aria-labelledby={`inspector-tab-${tab}`}>
           {tab === 'launcher' ? <div className="inspector-launcher">
             <button type="button" onClick={() => addSideChat()}><MessageCirclePlus size={16} />侧边聊天</button>
+            <button type="button" onClick={() => setTab('agents')}><Bot size={16} />子智能体</button>
             <button type="button" onClick={() => setTab('changes')}><FileCode2 size={16} />审阅</button>
             <button type="button" onClick={() => setTab('activity')}><TerminalSquare size={16} />命令记录</button>
             <button type="button" onClick={() => setTab('files')}><Folder size={16} />文件</button>
-          </div> : !thread ? <EmptyInspector text="选择一个任务" /> : tab === 'changes' ? (
+          </div> : !thread ? <EmptyInspector text="选择一个任务" /> : tab === 'agents' ? (
+            <>
+              {subagentChats.directoryLoading && <div className="file-preview-loading" role="status" aria-label="正在加载子智能体">
+                <div className="message-skeleton message-skeleton--long" /></div>}
+              {subagentChats.directoryError && <div className="error-banner" role="alert">{subagentChats.directoryError}</div>}
+              <SubagentRows items={items} parentId={thread.id} />
+              {!subagentChats.directoryLoading && !subagentChats.directoryError &&
+                !subagentChats.directory.length && !items.some(item => item.type === 'subAgentActivity' ||
+                  item.type === 'collabAgentToolCall' && item.receiverThreadIds.length > 0) && <EmptyInspector text="暂无子智能体" />}
+            </>
+          ) : tab === 'changes' ? (
             <Review items={items} cwd={thread.cwd} />
           ) : tab === 'activity' ? (
             <div className="inspector-list">
@@ -163,6 +193,12 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
           <Suspense fallback={<div className="file-preview-loading" role="status" aria-label="正在加载预览"><div className="message-skeleton message-skeleton--long" /></div>}>
             <FilePreview target={preview.target} />
           </Suspense>
+        </div>)}
+        {subagentChats.chats.map(chat => <div key={chat.id} hidden={tab !== `agent-${chat.id}`} className="side-chat-tab"
+          role="tabpanel" id={`subagent-agent-${chat.id}`} aria-labelledby={`inspector-tab-agent-${chat.id}`}>
+          <SubagentChatView chat={chat} onLoadEarlier={() => subagentChats.load(chat.id, true)}
+            onPrefetchEarlier={() => subagentChats.prefetch(chat.id)}
+            onRetry={() => subagentChats.load(chat.id)} />
         </div>)}
       </aside>
     </>

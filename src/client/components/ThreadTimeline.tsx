@@ -34,6 +34,8 @@ import { markdownBlocks } from '../markdown-blocks';
 import { copyText } from '../clipboard';
 import { captureReadingAnchor, restoreReadingAnchor, type ReadingAnchor } from '../reading-anchor';
 import { PreviewImage, PreviewLink } from './PreviewLinks';
+import { SubagentRows } from './Subagents';
+import { isSubagentItem } from '../subagents';
 
 interface ThreadTimelineProps {
   threadId: string;
@@ -44,6 +46,7 @@ interface ThreadTimelineProps {
   hasMoreHistory: boolean;
   loadingHistory: boolean;
   onLoadEarlier: () => Promise<void>;
+  onPrefetchEarlier?: () => Promise<void>;
   outlineTurns?: OutlineTurn[];
   outlineError?: string | null;
   viewingHistory?: boolean;
@@ -70,6 +73,7 @@ export function ThreadTimeline({
   hasMoreHistory,
   loadingHistory,
   onLoadEarlier,
+  onPrefetchEarlier,
   outlineTurns = [],
   outlineError = null,
   viewingHistory = false,
@@ -89,14 +93,19 @@ export function ThreadTimeline({
   const initialScrollReadyRef = useRef(false);
   const loadingEarlierRef = useRef(false);
   const earlierAttemptRef = useRef<string | null>(null);
+  const prefetchAttemptRef = useRef<string | null>(null);
   const navigationVersionRef = useRef(0);
   const navigatingRef = useRef(false);
   const navigationAnchorRef = useRef<string | null>(null);
   const readingAnchorRef = useRef<ReadingAnchor | null>(null);
   const restoredScrollTopRef = useRef<number | null>(null);
+  const touchYRef = useRef<number | null>(null);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
-  const entries = useMemo(() => buildTimelineEntries(items, activeTurnId), [items, activeTurnId]);
-  const sections = useMemo(() => buildTimelineSections(entries), [entries]);
+  const previousSectionsRef = useRef<TimelineSection[]>([]);
+  const entries = useMemo(() => buildTimelineEntries(items, activeTurnId,
+    previousSectionsRef.current.flatMap(section => section.entries)), [items, activeTurnId]);
+  const sections = useMemo(() => buildTimelineSections(entries, previousSectionsRef.current), [entries]);
+  useLayoutEffect(() => { previousSectionsRef.current = sections; }, [sections]);
   const alignNavigationTarget = useCallback(() => {
     const stream = streamRef.current;
     const key = navigationAnchorRef.current;
@@ -107,6 +116,7 @@ export function ThreadTimeline({
   }, []);
   const navigate = useCallback(async (target: NavigationTarget) => {
     onCancelHistoryReveal?.();
+    innerRef.current?.style.removeProperty('--reading-tail');
     const version = ++navigationVersionRef.current;
     navigatingRef.current = true;
     stickToBottomRef.current = false;
@@ -150,33 +160,41 @@ export function ThreadTimeline({
     window.requestAnimationFrame(() => {
       const stream = streamRef.current;
       if (!stream) return;
-      const nearBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 140;
+      const nearBottom = !loadingEarlierRef.current && !viewingHistory &&
+        stream.scrollHeight - stream.scrollTop - stream.clientHeight < 140;
       stickToBottomRef.current = nearBottom;
       setAwayFromBottom(!nearBottom);
+      rememberReadingPosition();
     });
-  }, []);
+  }, [rememberReadingPosition, viewingHistory]);
   const loadEarlier = useCallback((manual = false) => {
     if (!navigator.onLine || !hasMoreHistory || loadingEarlierRef.current || navigatingRef.current || navigationAnchorRef.current || revealingHistory) return;
-    const attempt = `${threadId}:${items.length}`;
+    const attempt = JSON.stringify([threadId, items[0] ? itemKey(items[0]) : '', items.length]);
     if (!manual && earlierAttemptRef.current === attempt) return;
     earlierAttemptRef.current = attempt;
+    stickToBottomRef.current = false;
+    setAwayFromBottom(true);
     rememberReadingPosition();
     loadingEarlierRef.current = true;
     void onLoadEarlier().finally(() => { loadingEarlierRef.current = false; });
-  }, [hasMoreHistory, onLoadEarlier, revealingHistory, threadId, items.length, rememberReadingPosition]);
+  }, [hasMoreHistory, onLoadEarlier, revealingHistory, threadId, items, rememberReadingPosition]);
+  const prefetchEarlier = useCallback(() => {
+    if (!navigator.onLine || !hasMoreHistory || !onPrefetchEarlier || revealingHistory || navigatingRef.current) return;
+    const attempt = JSON.stringify([threadId, items[0] ? itemKey(items[0]) : '', items.length]);
+    if (prefetchAttemptRef.current === attempt) return;
+    prefetchAttemptRef.current = attempt;
+    void onPrefetchEarlier();
+  }, [hasMoreHistory, onPrefetchEarlier, revealingHistory, threadId, items]);
 
   useLayoutEffect(() => {
-    if (navigatingRef.current || viewingHistory) return;
+    if (navigatingRef.current || viewingHistory) { initialScrollReadyRef.current = true; return; }
+    if (initialScrollReadyRef.current) return;
     if (loading && items.length === 0) return;
     stickToBottomRef.current = true;
     readingAnchorRef.current = null;
     const stream = streamRef.current;
     if (stream) stream.scrollTop = stream.scrollHeight;
-    let frame = window.requestAnimationFrame(() => {
-      if (stream) stream.scrollTop = stream.scrollHeight;
-      frame = window.requestAnimationFrame(() => { initialScrollReadyRef.current = true; });
-    });
-    return () => window.cancelAnimationFrame(frame);
+    initialScrollReadyRef.current = true;
   }, [loading, threadId, viewingHistory]);
 
   useEffect(() => () => {
@@ -219,10 +237,13 @@ export function ThreadTimeline({
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       const stream = streamRef.current;
-      if (!loading && !loadingHistory && stream && stream.scrollTop < 80) loadEarlier();
+      if (!loading && !loadingHistory && stream && !navigationAnchorRef.current) {
+        if (stream.scrollTop < stream.clientHeight * 2) prefetchEarlier();
+        if (stream.scrollTop > 0 && stream.scrollTop < Math.max(160, stream.clientHeight * .65)) loadEarlier();
+      }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [items.length, loadEarlier, loading, loadingHistory]);
+  }, [items.length, loadEarlier, loading, loadingHistory, prefetchEarlier]);
 
   if (loading && items.length === 0) {
     return (
@@ -253,10 +274,24 @@ export function ThreadTimeline({
       ref={streamRef}
       className="message-stream"
       aria-label="会话记录"
-      onWheel={() => { navigationAnchorRef.current = null; }}
-      onTouchStart={() => { navigationAnchorRef.current = null; }}
+      onWheel={event => {
+        navigationAnchorRef.current = null;
+        if (event.deltaY < 0 && event.currentTarget.scrollTop <= 1) loadEarlier();
+      }}
+      onTouchStart={event => {
+        navigationAnchorRef.current = null;
+        touchYRef.current = event.touches[0]?.clientY ?? null;
+      }}
+      onTouchMove={event => {
+        const y = event.touches[0]?.clientY ?? null;
+        if (y !== null && touchYRef.current !== null && y > touchYRef.current + 2 && event.currentTarget.scrollTop <= 1) loadEarlier();
+        touchYRef.current = y;
+      }}
       onPointerDownCapture={() => { navigationAnchorRef.current = null; }}
-      onKeyDownCapture={() => { navigationAnchorRef.current = null; }}
+      onKeyDownCapture={event => {
+        navigationAnchorRef.current = null;
+        if (['Home', 'PageUp', 'ArrowUp'].includes(event.key) && event.currentTarget.scrollTop <= 1) loadEarlier();
+      }}
       onLoadCapture={() => {
         if (navigationAnchorRef.current) { alignNavigationTarget(); return; }
         const stream = streamRef.current;
@@ -271,10 +306,11 @@ export function ThreadTimeline({
         restoredScrollTopRef.current = null;
         if (restored !== null && Math.abs(stream.scrollTop - restored) < 1) return;
         stickToBottomRef.current =
-          !viewingHistory && stream.scrollHeight - stream.scrollTop - stream.clientHeight < 140;
+          !loadingEarlierRef.current && !viewingHistory && stream.scrollHeight - stream.scrollTop - stream.clientHeight < 140;
         setAwayFromBottom(!stickToBottomRef.current);
         rememberReadingPosition();
-        if (initialScrollReadyRef.current && stream.scrollTop < 80) loadEarlier();
+        if (!navigationAnchorRef.current && stream.scrollTop < stream.clientHeight * 2) prefetchEarlier();
+        if (stream.scrollTop < Math.max(160, stream.clientHeight * .65)) loadEarlier();
       }}
     >
       <div className="message-stream-inner" ref={innerRef}>
@@ -309,6 +345,7 @@ export function ThreadTimeline({
         title="回到最新消息"
         onClick={() => {
           navigationVersionRef.current += 1;
+          innerRef.current?.style.removeProperty('--reading-tail');
           navigatingRef.current = false;
           navigationAnchorRef.current = null;
           readingAnchorRef.current = null;
@@ -344,11 +381,18 @@ const ResponseSection = memo(function ResponseSection({ section, timing, active,
   });
   const finalEntry = section.entries[finalIndex];
   const finalStartedAtMs = finalEntry?.type === 'message' ? finalEntry.item.startedAtMs ?? null : null;
-  const trace = completed ? section.entries.slice(0, finalIndex < 0 ? undefined : finalIndex) : section.entries;
-  const answer = completed && finalIndex >= 0 ? section.entries.slice(finalIndex) : [];
+  const agentItems = useMemo(() => section.entries.flatMap(entry =>
+    entry.type === 'event' && isSubagentItem(entry.item) ? [entry.item] : []), [section.entries]);
+  const firstAgentKey = section.entries.find(entry => entry.type === 'event' && isSubagentItem(entry.item))?.key;
+  const trace = (completed ? section.entries.slice(0, finalIndex < 0 ? undefined : finalIndex) : section.entries)
+    .filter(entry => !completed || entry.type !== 'event' || !isSubagentItem(entry.item));
+  const answer = completed && finalIndex >= 0 ? section.entries.slice(finalIndex)
+    .filter(entry => entry.type !== 'event' || !isSubagentItem(entry.item)) : [];
   const renderEntry = (entry: TimelineEntry) => entry.type === 'activity'
     ? <ActivityGroup entry={entry} onInteract={onInteract} key={entry.key} />
-    : entry.type === 'event' ? <ActivityItem item={entry.item} running={false} key={entry.key} />
+    : entry.type === 'event' ? isSubagentItem(entry.item)
+      ? entry.key === firstAgentKey ? <SubagentRows items={agentItems} key={entry.key} /> : null
+      : <ActivityItem item={entry.item} running={false} key={entry.key} />
     : <MessageItem item={entry.item} key={entry.key} />;
   return <section className="turn-response" data-turn-id={section.turnId} data-scroll-anchor={`response-${section.key}`}>
     {(timing || active && section.showTiming) && <div className="worked-divider">
@@ -359,6 +403,7 @@ const ResponseSection = memo(function ResponseSection({ section, timing, active,
       </button> : <TurnDuration timing={timing} active={active} finalStartedAtMs={finalStartedAtMs} />}
     </div>}
     {(!completed || open) && <div className="turn-activity" id={bodyId}>{trace.map(renderEntry)}</div>}
+    {completed && agentItems.length > 0 && <SubagentRows items={agentItems} />}
     {answer.map(renderEntry)}
     {!active && finalIndex >= 0 && <ReplyActions text={section.entries.slice(finalIndex).flatMap(entry =>
       entry.type === 'message' && entry.item.type === 'agentMessage' ? [entry.item.text] : []).join('\n\n')}
@@ -381,7 +426,7 @@ function ReplyActions({ text, turnId, onFork, onError }: {
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
-    const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); close(); } };
+    const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); } };
     window.addEventListener('keydown', keydown, true);
     window.addEventListener('resize', close);
     window.addEventListener('scroll', close, true);
@@ -510,6 +555,7 @@ const ActivityGroup = memo(function ActivityGroup({
         <button
           type="button"
           className="activity-group-toggle"
+          data-scroll-anchor={entry.key}
           aria-expanded={open}
           aria-controls={bodyId}
           onClick={() => setOpen((value) => !value)}
@@ -594,9 +640,11 @@ const ActivityItem = memo(function ActivityItem({ item, running }: { item: Threa
   const status = 'status' in item
     ? item.status === 'inProgress' && !running ? 'ended' : item.status
     : undefined;
-  const detailProps = { onToggle: (event: React.SyntheticEvent<HTMLDetailsElement>) => setOpen(event.currentTarget.open) };
+  const anchorProps = { 'data-scroll-anchor': itemKey(item) };
+  const detailProps = { ...anchorProps,
+    onToggle: (event: React.SyntheticEvent<HTMLDetailsElement>) => setOpen(event.currentTarget.open) };
   if (item.type === 'agentMessage') {
-    return <div className="activity-commentary markdown"><MarkdownText text={item.text} /></div>;
+    return <div className="activity-commentary markdown" {...anchorProps}><MarkdownText text={item.text} /></div>;
   }
   if (item.type === 'reasoning') {
     return (
@@ -671,7 +719,7 @@ const ActivityItem = memo(function ActivityItem({ item, running }: { item: Threa
 
   if (item.type === 'plan') {
     return (
-      <div className="plan-row">
+      <div className="plan-row" {...anchorProps}>
         <Play size={15} aria-hidden="true" />
         <div>
           <strong>执行计划</strong>
@@ -715,7 +763,7 @@ const ActivityItem = memo(function ActivityItem({ item, running }: { item: Threa
 
   if (item.type === 'webSearch') {
     return (
-      <div className="activity-row activity-row--static">
+      <div className="activity-row activity-row--static" {...anchorProps}>
         <Globe2 size={15} aria-hidden="true" />
         <span>网页搜索</span>
         {item.query && <code>{item.query}</code>}
@@ -725,7 +773,7 @@ const ActivityItem = memo(function ActivityItem({ item, running }: { item: Threa
 
   if (item.type === 'imageView') {
     return (
-      <figure className="activity-image">
+      <figure className="activity-image" {...anchorProps}>
         <ImagePreview src={localImageSource(item.path)} />
       </figure>
     );
@@ -733,7 +781,7 @@ const ActivityItem = memo(function ActivityItem({ item, running }: { item: Threa
 
   if (item.type === 'imageGeneration') {
     return (
-      <div className="activity-row activity-row--static">
+      <div className="activity-row activity-row--static" {...anchorProps}>
         <Image size={15} aria-hidden="true" />
         <span>图片生成</span>
       </div>
@@ -742,7 +790,7 @@ const ActivityItem = memo(function ActivityItem({ item, running }: { item: Threa
 
   if (item.type === 'contextCompaction') {
     return (
-      <div className="context-divider">
+      <div className="context-divider" {...anchorProps}>
         <FoldVertical size={15} aria-hidden="true" />
         <span>上下文已自动压缩</span>
       </div>

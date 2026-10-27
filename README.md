@@ -34,6 +34,7 @@ The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when 
 - **Readable long histories.** Load older pages on demand, preserve the reading position, and use Desktop-style activity summaries and completed-turn disclosures.
 - **Conversation outline.** Desktop-style marks preview requests and replies and jump to earlier turns; phones use a touch list.
 - **Side chats and queued messages.** Open temporary chats in inspector tabs. Queue follow-ups in the main chat, edit or remove them, steer the current turn, or move a prompt into a side chat.
+- **Subagents.** Native delegation records show compact agent rows with live status. Click a row to read that agent's conversation in an inspector tab, including paginated history and folded tool activity.
 - **Workspace and reply actions.** Create a host folder and add it as a project, archive chats from the sidebar, copy replies, and branch through a specific reply.
 - **Native model metadata.** Model choices and supported reasoning levels come from the runtime, including custom model catalogs exposed by it.
 - **Slash commands.** Search commands and native skills from the composer, with keyboard and touch selection, native plan mode, compaction, reviews, and chat forks.
@@ -100,6 +101,11 @@ context at that moment. Later messages remain independent. Hiding the inspector
 preserves its tabs; closing a side-chat tab interrupts its active turn and
 releases the temporary chat.
 
+Model and reasoning choices use the native catalog and apply to the next new
+turn. Steering an already running turn retains that turn's existing model.
+Changing the side-chat selection preserves its draft and attached skills without
+changing the main chat's settings.
+
 Side-chat tabs and drafts live in memory, not browser storage. A short socket
 disconnect has a 30-second recovery grace; Remote keeps an in-memory event
 snapshot to recover missed streaming output. Reloading/closing the page or
@@ -126,6 +132,25 @@ Completed replies expose copy and a menu with **Branch to new chat**. That branc
 includes the selected reply's turn and excludes later turns.
 
 ![Temporary side chat beside the main conversation](docs/images/side-chat.png)
+
+### Subagent Conversations
+
+Delegated agents appear beneath the parent turn with their native name, role,
+and known status. Repeated spawn/wait/activity records merge into one entrance
+per agent in that response, retained when the completed process folds.
+Click an agent to open its conversation on the right. The **Subagents** inspector
+tab also pages through the current chat's direct children, including archived
+children that are absent from the currently loaded history.
+
+Agent conversations share the native event transport, load recent history first,
+and page older messages on demand. Running agents rejoin the native subscription;
+finished and archived chats are read without restarting their work. Closing a
+viewer only removes that tab and its Remote subscription: it does not interrupt,
+archive, or unsubscribe the native agent. The viewer is for reading; delegated
+instructions remain in the parent workflow. Temporary side chats keep their
+separate close-and-interrupt behavior.
+
+![Subagent conversation in the inspector](docs/images/subagents.png)
 
 ## File and Web Previews
 
@@ -443,10 +468,11 @@ Codex CLI detection checks Windows app packages, local standalone installations,
 
 - The login shell loads separately from the workspace. Workspace code and bootstrap load concurrently. Bootstrap waits only for the first task page, for at most 1.5 seconds; unfinished models/projects load after connection. All subsequent task pages remain accessible and load progressively, yielding to typing and selection.
 - Opening a chat combines its native metadata and latest 40 history items in one request. Older history remains available in pages of up to 100 items. Switching back to one of the five recently opened chats shows its in-memory snapshot while refreshing from the desktop; snapshots disappear on logout or page reload.
+- Scrolling toward older messages prepares one page and its timing metadata in memory before reaching the top. Insertion preserves the visible message and expanded process details; the current conversation remains visible while requests run. Subagent viewers use the same mechanism. Speculative failures remain silent and can be retried when the page is needed. No conversation page is added to persistent browser or edge caches.
 - Switching chats, jumping to another history window or closing a chat aborts abandoned HTTP history downloads. Duplicate pending reads share one request. Permission reads follow the selected directory. Cancellation does not interrupt model turns or undo native operations already dispatched.
 - Bootstrap and WebSocket initialization share pending model/project lookups. Completed metadata is reused for five seconds to cover transit between the two connections; project creation and bridge disconnection invalidate the relevant entries. Conversations and model actions do not use this metadata cache.
 - HTTP responses and supported WebSocket messages use compression. Fingerprinted assets have immutable caching; authenticated bootstrap and history responses use `no-store`.
-- Native events update individual task rows; completion refreshes only the latest outline page. Full list/history calibration runs at most once every five minutes. Background pagination pauses in hidden tabs and yields on constrained connections. Streaming updates batch at 60ms, 100ms on constrained networks, and 250ms in hidden tabs. Markdown reuses completed blocks; offscreen turns defer layout.
+- Native events update individual task rows; completion refreshes only the latest outline page. Full list/history calibration runs at most once every five minutes. Background pagination pauses in hidden tabs and yields on constrained connections. Streaming updates batch at 60ms, 100ms on constrained networks, and 250ms in hidden tabs. Markdown reuses completed blocks and unchanged responses retain their components. Conversation blocks use their actual layout heights; image thumbnails reserve a stable contain-fit area while originals remain available in the viewer.
 - Short WebSocket outages replay subscribed events from a host-memory journal bounded to 90 seconds and 2 MiB. Expired cursors or a host restart restore native snapshots. Replayed events are deduplicated, approvals use a fresh pending snapshot, and interrupted model requests are never automatically resubmitted.
 - The production service worker caches only the public application shell and static assets. API responses, chats, approvals, images, and terminal data are not stored in its cache. Offline shell availability does not make chats available offline. Install the site from a supporting HTTPS browser, or use Safari's Add to Home Screen.
 - The tunnel installers default to HTTP/2. Windows accepts `-TunnelProtocol auto|http2|quic` on `scripts/install-task-windows.ps1`; the macOS tunnel installer accepts `TUNNEL_PROTOCOL`. Compare protocols on the actual host before changing them; a slow route can still dominate dynamic requests.
@@ -514,7 +540,7 @@ npm test
 npm run build
 ```
 
-The suite has **126 tests across 27 test files**, including native timing, activity folding, conversation navigation, side-chat event isolation and recovery, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
+The suite has **158 tests across 33 test files**, including native timing, activity folding, conversation navigation, side-chat event isolation and recovery, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
 
 ```text
 src/client/       React workspace, composer, history, approvals, reconnect

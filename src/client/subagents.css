@@ -1,0 +1,16 @@
+.subagent-list { display: flex; flex-direction: column; gap: 2px; margin: 6px 0 12px; }
+.subagent-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-soft); font: inherit; font-size: 14px; line-height: 21px; text-align: left; }
+.subagent-row:hover { background: var(--surface-hover); }
+.subagent-row > svg { flex: none; color: var(--muted); }
+.subagent-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-role { min-width: 0; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.subagent-status { display: inline-flex; flex: none; align-items: center; gap: 4px; margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.subagent-status--errored, .subagent-status--notFound { color: var(--danger); }
+.subagent-chat-heading { display: flex; flex: none; align-items: center; gap: 8px; min-height: 44px; padding: 6px 14px; border-bottom: 1px solid var(--line); color: var(--ink-soft); }
+.subagent-chat-heading > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 500; }
+.subagent-chat-heading > svg, .subagent-chat-heading .icon-button { flex: none; }
+.subagent-empty { padding: 20px; color: var(--muted); font-size: 13px; text-align: center; }
+.inspector-body > .subagent-list { padding: 8px; }
+@media (pointer: coarse) {
+  .subagent-row, .subagent-chat-heading .icon-button { min-height: 44px; }
+}

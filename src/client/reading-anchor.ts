@@ -2,6 +2,7 @@ export interface ReadingAnchor {
   key: string;
   node: HTMLElement;
   offset: number;
+  scrollTop: number;
 }
 
 export function captureReadingAnchor(stream: HTMLElement, inner: HTMLElement): ReadingAnchor | null {
@@ -23,7 +24,8 @@ export function captureReadingAnchor(stream: HTMLElement, inner: HTMLElement): R
     if (!(child instanceof HTMLElement) || !visible(child)) continue;
     const node = [...child.querySelectorAll<HTMLElement>('[data-scroll-anchor]')].find(visible)
       ?? (child.dataset.scrollAnchor ? child : null);
-    if (node) return { key: node.dataset.scrollAnchor!, node, offset: node.getBoundingClientRect().top - viewport.top };
+    if (node) return { key: node.dataset.scrollAnchor!, node, offset: node.getBoundingClientRect().top - viewport.top,
+      scrollTop: stream.scrollTop };
   }
   return null;
 }
@@ -33,8 +35,21 @@ export function restoreReadingAnchor(stream: HTMLElement, inner: HTMLElement, an
     : [...inner.querySelectorAll<HTMLElement>('[data-scroll-anchor]')].find(node => node.dataset.scrollAnchor === anchor.key);
   if (!node) return false;
   anchor.node = node;
-  const delta = node.getBoundingClientRect().top - stream.getBoundingClientRect().top - anchor.offset;
+  // Account for a touch/compositor scroll whose scroll event has not arrived yet.
+  const offset = anchor.offset - (stream.scrollTop - anchor.scrollTop);
+  const delta = node.getBoundingClientRect().top - stream.getBoundingClientRect().top - offset;
+  anchor.offset = offset;
+  anchor.scrollTop = stream.scrollTop;
   if (Math.abs(delta) <= .5) return false;
-  stream.scrollTop += delta;
+  const target = stream.scrollTop + delta;
+  const missingSpace = target - (stream.scrollHeight - stream.clientHeight);
+  // A short initial page has blank space below it. Keep that space while
+  // prepending, otherwise the browser clamps the requested reading position.
+  if (missingSpace > .5) {
+    const tail = parseFloat(inner.style.getPropertyValue('--reading-tail')) || 0;
+    inner.style.setProperty('--reading-tail', `${tail + missingSpace}px`);
+  }
+  stream.scrollTop = target;
+  anchor.scrollTop = stream.scrollTop;
   return true;
 }

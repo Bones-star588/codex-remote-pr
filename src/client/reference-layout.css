@@ -103,10 +103,6 @@ svg { stroke-width: 1.8; }
 .message-stream-inner > .message--user:first-child { margin-top: 0; }
 .turn-response { margin-bottom: 28px; }
 .turn-response .message:last-child { margin-bottom: 0; }
-.turn-response, .message-stream-inner > .message--user {
-  content-visibility: auto;
-  contain-intrinsic-block-size: auto 160px;
-}
 .file-preview-tab { display: flex; min-height: 0; flex: 1; overflow: hidden; }
 .file-preview-tab[hidden] { display: none; }
 .file-preview { display: flex; width: 100%; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }

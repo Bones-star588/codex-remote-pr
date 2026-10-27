@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { displayThreadTitle, findActiveTurnId, mergeLatestHistoryItems, mergeOlderHistoryItems, reconcileThreadList, upsertItem } from './remote-state';
+import { displayThreadTitle, findActiveTurnId, mergeLatestHistoryItems, mergeOlderHistoryItems, mergeOlderTurnTimings, reconcileThreadList, upsertItem } from './remote-state';
+import type { TurnTiming } from '../shared/turn-timing';
 import type { Thread, ThreadItem } from './types';
 
 describe('remote thread state', () => {
+  it('does not roll completed child timing back when an earlier speculative page is consumed', () => {
+    const completed: TurnTiming = { id: 'child', status: 'completed', startedAt: 1, completedAt: 2, durationMs: 1000 };
+    const prefetched: TurnTiming = { ...completed, status: 'inProgress', completedAt: null, durationMs: null };
+    const missing = { ...completed, id: 'older' };
+    const merged = mergeOlderTurnTimings({ child: completed }, [prefetched, missing]);
+    expect(merged.child).toBe(completed);
+    expect(merged.older).toBe(missing);
+  });
   it('keeps live additions, renames and removals while paginated reconciliation finishes', () => {
     const task = (id: string, name = id) => ({ id, name, updatedAt: 10 } as Thread);
     const unchanged = task('unchanged');

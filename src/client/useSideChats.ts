@@ -76,7 +76,7 @@ export function useSideChats(transport: ChatTransport, connected: boolean) {
     update(current => current.map(chat => chat.id === id ? { ...chat, ...changes } : chat));
   }, [update]);
   const watch = useCallback(() => {
-    transport.watch(chatsRef.current.flatMap(chat => chat.threadId ? [chat.threadId] : []));
+    transport.watch(chatsRef.current.flatMap(chat => chat.threadId ? [chat.threadId] : []), 'side-chats');
   }, [transport]);
 
   useEffect(() => {
@@ -90,7 +90,11 @@ export function useSideChats(transport: ChatTransport, connected: boolean) {
         update(current => current.map(chat => events.reduce((state, [name, data]) => sideChatEvent(state, name, data), chat)));
       }, 60);
     });
-    return () => { unsubscribe(); if (timerRef.current !== null) clearTimeout(timerRef.current); };
+    return () => {
+      unsubscribe();
+      transport.watch([], 'side-chats');
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+    };
   }, [transport, update]);
 
   useEffect(() => {
@@ -140,7 +144,9 @@ export function useSideChats(transport: ChatTransport, connected: boolean) {
           ...(chat.effort ? { config: { model_reasoning_effort: chat.effort } } : {}),
           ...(chat.permissions ? permissionProfileUpdate(chat.permissions) : {})
         });
-      patch(id, { threadId: result.thread.id, model: chat.model || result.model || result.thread.model || '' });
+      update(current => current.map(entry => entry.id === id ? {
+        ...entry, threadId: result.thread.id, model: entry.model || result.model || result.thread.model || ''
+      } : entry));
       watch();
       return result.thread.id;
     })().finally(() => creatingRef.current.delete(id));

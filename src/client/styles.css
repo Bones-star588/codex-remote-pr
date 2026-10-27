@@ -39,7 +39,7 @@
   --review-width: 440px;
   --z-sidebar: 30;
   --z-backdrop: 25;
-  --z-popover: 40;
+  --z-popover: 54;
   --z-inspector: 50;
   --z-toast: 60;
 }
@@ -878,7 +878,9 @@ kbd {
 
 .image-thumbnail {
   display: inline-block;
+  width: 360px;
   max-width: 100%;
+  aspect-ratio: 4 / 3;
   border: 0;
   background: transparent;
   padding: 0;
@@ -889,9 +891,11 @@ kbd {
 .image-thumbnail img {
   display: block;
   max-width: 100%;
-  max-height: 420px;
-  height: auto;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
   object-fit: contain;
+  object-position: left center;
 }
 
 .image-viewer {
@@ -1458,6 +1462,12 @@ kbd {
 .message-stream-inner {
   width: min(var(--content-max), 100%);
   margin-inline: auto;
+}
+
+.message-stream-inner::after {
+  content: '';
+  display: block;
+  height: var(--reading-tail, 0px);
 }
 
 .message-stream--loading,

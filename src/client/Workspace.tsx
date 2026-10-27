@@ -12,7 +12,7 @@ import {
   Check,
   X
 } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { v4 as randomUUID } from 'uuid';
 
 import { api } from './api';
@@ -33,6 +33,10 @@ import type { ChatInput } from './queued-messages';
 import { turnInput } from './slash-commands';
 import { QueuedMessages } from './components/QueuedMessages';
 import { PreviewLinks } from './components/PreviewLinks';
+import { SubagentsContext } from './components/Subagents';
+import { useSubagentChats } from './useSubagentChats';
+import { subagentChatStatus, type Subagent } from './subagents';
+import './subagents.css';
 import type { PreviewTarget } from '../shared/file-preview';
 
 interface WorkspaceProps {
@@ -65,6 +69,17 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [sideChatRequest, setSideChatRequest] = useState<{ id: number; input?: ChatInput } | null>(null);
   const [previewRequest, setPreviewRequest] = useState<{ id: number; target: PreviewTarget } | null>(null);
+  const subagentChats = useSubagentChats(remote.chatTransport, remote.connected, remote.activeThread?.id);
+  const [selectedSubagent, setSelectedSubagent] = useState<{ id: number; threadId: string } | null>(null);
+  const openSubagent = useCallback((agent: Subagent) => {
+    subagentChats.open(agent);
+    setSelectedSubagent(previous => ({ id: (previous?.id ?? 0) + 1, threadId: agent.threadId }));
+    setInspectorOpen(true);
+  }, [subagentChats.open]);
+  const subagentsContext = useMemo(() => ({ open: openSubagent,
+    states: Object.fromEntries(subagentChats.chats.map(chat => [chat.id, subagentChatStatus(chat)])),
+    threads: [...remote.threads, ...subagentChats.directory, ...subagentChats.chats.flatMap(chat => chat.thread ? [chat.thread] : [])]
+  }), [openSubagent, remote.threads, subagentChats.directory, subagentChats.chats]);
   const openPreview = useCallback((target: PreviewTarget) => {
     setPreviewRequest(previous => ({ id: (previous?.id ?? 0) + 1, target }));
     setInspectorOpen(true);
@@ -115,6 +130,7 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.target instanceof Element && event.target.closest('dialog[open]')) return;
       const inTerminal = event.target instanceof Element && event.target.closest('.terminal-screen');
       if (inTerminal && event.key.toLowerCase() !== 'j') return;
       if ((event.ctrlKey || event.metaKey) && ['n', 'k'].includes(event.key.toLowerCase())) {
@@ -268,6 +284,7 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
   const title = activeThread ? displayThreadTitle(activeThread) : '新任务';
 
   return (
+    <SubagentsContext.Provider value={subagentsContext}>
     <PreviewLinks cwd={permissionCwd ?? ''} onOpen={openPreview}>
     <WorkspacePanels layout={layout} sidebarCollapsed={sidebarCollapsed} inspectorOpen={inspectorOpen}>
       <Sidebar
@@ -441,6 +458,8 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
         cwd={permissionCwd}
         sideChatRequest={sideChatRequest}
         previewRequest={previewRequest}
+        subagentChats={subagentChats}
+        subagentRequest={selectedSubagent}
       />
       {commandDialog && <CommandDialog key={`${activeThread?.id ?? 'home'}:${commandDialog.type}`}
         state={commandDialog}
@@ -465,6 +484,7 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
       />}
     </WorkspacePanels>
     </PreviewLinks>
+    </SubagentsContext.Provider>
   );
 }
 
@@ -563,6 +583,7 @@ function ThreadScreen({
   onOpenSideChat: (input: ChatInput) => void;
 }) {
   const [queueEnabled, setQueueEnabled] = useState(true);
+  const forkReply = useCallback((turnId: string) => remote.forkThread(thread.id, turnId), [remote.forkThread, thread.id]);
   useEffect(() => { if (!remote.activeTurnId) setQueueEnabled(true); }, [remote.activeTurnId]);
   return (
     <div className="thread-screen">
@@ -576,6 +597,7 @@ function ThreadScreen({
         hasMoreHistory={remote.hasMoreHistory}
         loadingHistory={remote.loadingHistory}
         onLoadEarlier={remote.loadEarlierHistory}
+        onPrefetchEarlier={remote.prefetchEarlierHistory}
         outlineTurns={remote.outlineTurns}
         outlineError={remote.outlineError}
         viewingHistory={remote.viewingHistory}
@@ -586,7 +608,7 @@ function ThreadScreen({
         onRevealHistory={remote.revealHistory}
         onCancelHistoryReveal={remote.cancelHistoryReveal}
         onReturnToLatest={remote.returnToLatest}
-        onFork={turnId => remote.forkThread(thread.id, turnId)}
+        onFork={forkReply}
         onActionError={onError}
       />
 

@@ -5,5 +5,5 @@ export type ChatEventListener = (method: string, params: Record<string, unknown>
 export interface ChatTransport {
   rpc: <T>(method: ClientRpcMethod, params?: unknown) => Promise<T>;
   subscribe: (listener: ChatEventListener) => () => void;
-  watch: (threadIds: string[]) => void;
+  watch: (threadIds: string[], owner: string) => void;
 }

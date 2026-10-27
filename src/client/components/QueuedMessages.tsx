@@ -50,7 +50,7 @@ export function QueuedMessages({ transport, threadId, activeTurnId, connected, o
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
-    const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); close(); } };
+    const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); } };
     window.addEventListener('resize', close);
     window.addEventListener('keydown', keydown, true);
     return () => { window.removeEventListener('resize', close); window.removeEventListener('keydown', keydown, true); };
