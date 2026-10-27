@@ -141,6 +141,7 @@ export interface ProjectInfo {
 }
 
 export interface WorkspaceBootstrap {
+  cursor?: { epoch: string; sequence: number };
   threads: { data: Thread[]; nextCursor: string | null } | null;
   models: { data: ModelInfo[] } | null;
   projects: { data: ProjectInfo[] } | null;

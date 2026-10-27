@@ -1,9 +1,29 @@
 import { describe, expect, it } from 'vitest';
 
-import { displayThreadTitle, findActiveTurnId, mergeLatestHistoryItems, mergeOlderHistoryItems, upsertItem } from './remote-state';
+import { displayThreadTitle, findActiveTurnId, mergeLatestHistoryItems, mergeOlderHistoryItems, reconcileThreadList, upsertItem } from './remote-state';
 import type { Thread, ThreadItem } from './types';
 
 describe('remote thread state', () => {
+  it('keeps live additions, renames and removals while paginated reconciliation finishes', () => {
+    const task = (id: string, name = id) => ({ id, name, updatedAt: 10 } as Thread);
+    const unchanged = task('unchanged');
+    const renamed = task('renamed');
+    const removed = task('removed');
+    const live = task('new');
+    const changed = { ...renamed, name: 'Live title' };
+    const result = reconcileThreadList([unchanged, changed, live],
+      [task('unchanged'), task('renamed'), task('removed'), task('older')],
+      [unchanged, renamed, removed]);
+    expect(result.map(thread => thread.id).sort()).toEqual(['new', 'older', 'renamed', 'unchanged']);
+    expect(result.find(thread => thread.id === 'renamed')).toBe(changed);
+  });
+  it('replaces unchanged paginated rows and keeps a newly loaded row archived during pagination', () => {
+    const old = { id: 'existing', name: 'Old', updatedAt: 1 } as Thread;
+    const loaded = { id: 'page-two', name: 'Page two', updatedAt: 2 } as Thread;
+    const latest = { ...old, name: 'Snapshot title', updatedAt: 3 };
+    const baseline = [old, loaded];
+    expect(reconcileThreadList([old], [latest, { ...loaded }], baseline)).toEqual([latest]);
+  });
   it('preserves live updates received after a history request began and inserts missing items in order', () => {
     const message = (id: string, text = id): ThreadItem => ({ type: 'agentMessage', id, text });
     const baseline = [message('old'), message('shared', 'partial')];

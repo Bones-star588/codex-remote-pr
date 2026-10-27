@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { v4 as randomUUID } from 'uuid';
 
 import type { ClientRpcMethod, ServerMessage } from '../shared/protocol';
 import type { TurnTiming } from '../shared/turn-timing';
 import type { OutlineTurn } from '../shared/thread-outline';
 import { permissionProfileId, permissionProfileUpdate, type PermissionProfile, type PermissionSettings } from '../shared/permissions';
-import { api } from './api';
+import { api, isAbortedRequest, ReadRequests } from './api';
+import { constrainedNetwork, prioritizeInteraction, yieldToInteraction } from './background-work';
 import { RemoteConnection } from './remote-connection';
-import { itemKey, mergeLatestHistoryItems, mergeOlderHistoryItems, mergeTurnTimings, upsertItem } from './remote-state';
+import { itemKey, mergeLatestHistoryItems, mergeOlderHistoryItems, mergeTurnTimings, reconcileThreadList, upsertItem } from './remote-state';
 import type {
   BridgeStatus,
   ModelInfo,
@@ -116,6 +118,11 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
   const lastRecoveryRef = useRef(0);
   const additionalThreadsRef = useRef<string[]>([]);
   const eventListenersRef = useRef(new Set<ChatEventListener>());
+  const dirtyThreadIdsRef = useRef(new Set<string>());
+  const replayCursorRef = useRef<{ epoch: string; sequence: number } | null>(bootstrap?.cursor ?? null);
+  const outlineRefreshRef = useRef<(() => void) | null>(null);
+  const historyRequestsRef = useRef(new ReadRequests());
+  const permissionRequestsRef = useRef(new ReadRequests());
 
   activeThreadRef.current = activeThreadId;
   threadsRef.current = threads;
@@ -125,11 +132,12 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
   authExpiredRef.current = onAuthExpired;
 
   const rpc = useCallback(<T,>(method: ClientRpcMethod, params: unknown = {}): Promise<T> => {
+    if (/^(turn\/|thread\/queue\/|review\/)/.test(method)) prioritizeInteraction();
     const socket = socketRef.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error('Remote connection is not ready.'));
     }
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     return new Promise<T>((resolve, reject) => {
       const timer = window.setTimeout(() => {
         if (!pendingRef.current.has(id)) return;
@@ -163,6 +171,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
   const refreshThreads = useCallback((firstPage?: NonNullable<WorkspaceBootstrap['threads']>): Promise<Thread[]> => {
     if (listRefreshRef.current) return listRefreshRef.current;
     const archived = archivedRef.current;
+    const baseline = [...threadsRef.current];
+    const knownIds = new Set(baseline.map(thread => thread.id));
     const request = (async () => {
     setThreadsLoading(true);
     try {
@@ -179,20 +189,28 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
           archived,
           ...(cursor ? { cursor } : {})
         });
-        collected.push(...(result.data ?? []).filter(thread => !thread.ephemeral).map((thread) => ({ ...thread, archived })));
+        const page = (result.data ?? []).filter(thread => !thread.ephemeral).map((thread) => ({ ...thread, archived }));
+        collected.push(...page);
+        const additions = page.filter(thread => !knownIds.has(thread.id));
+        for (const thread of additions) {
+          knownIds.add(thread.id);
+          baseline.push(thread);
+        }
         if (archived === archivedRef.current) {
           setThreads((current) => {
-            const partial = dedupeThreads([...collected, ...current]);
-            return JSON.stringify(current) === JSON.stringify(partial) ? current : partial;
+            // Existing rows reconcile once at the end, preserving live changes between pages.
+            const partial = dedupeThreads([...additions, ...current]);
+            return current.length === partial.length && partial.every((thread, index) => thread === current[index]) ? current : partial;
           });
         }
-        if (!result.nextCursor || seenCursors.has(result.nextCursor)) break;
+        if (archived !== archivedRef.current || !result.nextCursor || seenCursors.has(result.nextCursor)) break;
         seenCursors.add(result.nextCursor);
         cursor = result.nextCursor;
+        await yieldToInteraction();
       }
       const nextThreads = dedupeThreads(collected);
       if (archived === archivedRef.current) {
-        setThreads((current) => JSON.stringify(current) === JSON.stringify(nextThreads) ? current : nextThreads);
+        setThreads(current => reconcileThreadList(current, nextThreads, baseline));
       }
       return nextThreads;
     } finally {
@@ -211,16 +229,22 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
   const fetchHistoryPage = useCallback(async (threadId: string, before: string | null = null, direction: 'before' | 'after' = 'before') => {
     const query = new URLSearchParams({ threadId, limit: before === null ? '40' : '100' });
     if (before !== null) query.set(direction, before);
-    return api<ThreadHistoryPage>(`/api/thread/history?${query.toString()}`, { cache: 'no-store' });
+    return historyRequestsRef.current.get<ThreadHistoryPage>(`/api/thread/history?${query.toString()}`);
   }, []);
 
   const refreshPermissions = useCallback(async (cwd?: string) => {
     const version = ++permissionRequestVersionRef.current;
     const query = new URLSearchParams(cwd ? { cwd } : {});
-    const result = await api<{ data: PermissionProfile[]; defaultProfile: string | null }>(`/api/permissions?${query}`, { cache: 'no-store' });
-    if (version !== permissionRequestVersionRef.current) return;
-    setPermissionProfiles(result.data);
-    setDefaultPermissionProfile(result.defaultProfile);
+    const path = `/api/permissions?${query}`;
+    if (!permissionRequestsRef.current.has(path)) permissionRequestsRef.current.cancel();
+    try {
+      const result = await permissionRequestsRef.current.get<{ data: PermissionProfile[]; defaultProfile: string | null }>(path);
+      if (version !== permissionRequestVersionRef.current) return;
+      setPermissionProfiles(result.data);
+      setDefaultPermissionProfile(result.defaultProfile);
+    } catch (error) {
+      if (!isAbortedRequest(error)) throw error;
+    }
   }, []);
 
   const clearStreamingDeltas = useCallback(() => {
@@ -282,7 +306,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       streamFlushTimerRef.current = window.setTimeout(() => {
         streamFlushTimerRef.current = null;
         flushStreamingDeltas();
-      }, 60);
+      }, document.visibilityState === 'hidden' ? 250 : constrainedNetwork() ? 100 : 60);
     },
     [flushStreamingDeltas]
   );
@@ -294,6 +318,12 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     ) => {
       if (options.silent && activeThreadRef.current !== threadId) return;
       if (options.silent && viewingHistoryRef.current) return;
+      const isNew = newThreadsRef.current.has(threadId);
+      const archived = threadsRef.current.find((thread) => thread.id === threadId)?.archived;
+      const query = new URLSearchParams({
+        threadId, mode: isNew ? 'new' : archived ? 'read' : 'resume'
+      });
+      const path = `/api/thread/open?${query}`;
       const cached = historyCacheRef.current.get(threadId);
       const cachedItems = cached ? cached.items.map((entry) => ({
         ...entry.item, turnId: entry.turnId,
@@ -301,7 +331,9 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       })) : [];
       const sameThread = activeThreadRef.current === threadId;
       if (!options.silent) {
+        prioritizeInteraction();
         selectionVersionRef.current += 1;
+        if (!historyRequestsRef.current.has(path)) historyRequestsRef.current.cancel();
         pendingRevealRef.current = null;
         viewingHistoryRef.current = false;
         newerHistoryCursorRef.current = null;
@@ -338,14 +370,9 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       if (!options.silent) setLoadingThread(true);
       setLastError(null);
       try {
-        const isNew = newThreadsRef.current.has(threadId);
-        const archived = threadsRef.current.find((thread) => thread.id === threadId)?.archived;
-        const query = new URLSearchParams({
-          threadId, mode: isNew ? 'new' : archived ? 'read' : 'resume'
-        });
-        const { result, ...page } = await api<ThreadHistoryPage & {
+        const { result, ...page } = await historyRequestsRef.current.get<ThreadHistoryPage & {
           result: { thread: Thread; collaborationMode?: CollaborationMode } & PermissionSettings;
-        }>(`/api/thread/open?${query}`, { cache: 'no-store' });
+        }>(path);
         const thread = {
           ...result.thread, permissionProfile: permissionProfileId(result), archived: Boolean(archived),
           ...(result.collaborationMode ? { collaborationMode: result.collaborationMode } : {})
@@ -385,6 +412,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
           setHasMoreHistory(page.nextCursor !== null);
         }
       } catch (error) {
+        if (isAbortedRequest(error)) return;
         if (version === selectionVersionRef.current) setLastError(error instanceof Error ? error.message : String(error));
         throw error;
       } finally {
@@ -434,7 +462,9 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       olderHistoryCursorRef.current = page.nextCursor;
       setHasMoreHistory(page.nextCursor !== null);
     } catch (error) {
-      setLastError(error instanceof Error ? error.message : String(error));
+      if (version === selectionVersionRef.current && !isAbortedRequest(error)) {
+        setLastError(error instanceof Error ? error.message : String(error));
+      }
     } finally {
       if (version === selectionVersionRef.current) {
         loadingHistoryRef.current = false;
@@ -459,7 +489,9 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       newerHistoryCursorRef.current = page.nextCursor;
       setHasNewerHistory(page.nextCursor !== null);
     } catch (error) {
-      if (version === selectionVersionRef.current) setLastError(error instanceof Error ? error.message : String(error));
+      if (version === selectionVersionRef.current && !isAbortedRequest(error)) {
+        setLastError(error instanceof Error ? error.message : String(error));
+      }
     } finally {
       if (version === selectionVersionRef.current) {
         loadingHistoryRef.current = false;
@@ -473,6 +505,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     if (!threadId) return false;
     const wasViewing = viewingHistoryRef.current;
     const version = ++selectionVersionRef.current;
+    historyRequestsRef.current.cancel();
     pendingRevealRef.current = { version, wasViewing };
     clearStreamingDeltas();
     viewingHistoryRef.current = true;
@@ -484,8 +517,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     setLoadingLaterHistory(false);
     try {
       const query = new URLSearchParams({ threadId, turnId, itemId });
-      const page = await api<Pick<ThreadHistoryPage, 'items' | 'nextCursor'> & { newerCursor: string | null }>(
-        `/api/thread/around?${query}`, { cache: 'no-store' });
+      const page = await historyRequestsRef.current.get<Pick<ThreadHistoryPage, 'items' | 'nextCursor'> & { newerCursor: string | null }>(
+        `/api/thread/around?${query}`);
       if (version !== selectionVersionRef.current || threadId !== activeThreadRef.current) return false;
       const windowItems = page.items.map(entry => ({ ...entry.item, turnId: entry.turnId,
         startedAtMs: entry.startedAtMs, completedAtMs: entry.completedAtMs }));
@@ -515,6 +548,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     const pending = pendingRevealRef.current;
     if (!pending) return;
     selectionVersionRef.current += 1;
+    historyRequestsRef.current.cancel();
     pendingRevealRef.current = null;
     viewingHistoryRef.current = pending.wasViewing;
     setViewingHistory(pending.wasViewing);
@@ -536,13 +570,12 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     const controller = new AbortController();
     const threadId = activeThreadId;
     setOutlineError(null);
-    void (async () => {
-      let cursor: string | null = null;
-      do {
-        const query: URLSearchParams = new URLSearchParams({ threadId, ...(cursor ? { cursor } : {}) });
+    const readPage = async (cursor: string | null) => {
+        await yieldToInteraction(controller.signal);
+        const query = new URLSearchParams({ threadId, ...(cursor ? { cursor } : {}) });
         const page: { turns: OutlineTurn[]; nextCursor: string | null } = await api(
           `/api/thread/outline?${query}`, { cache: 'no-store', signal: controller.signal });
-        if (controller.signal.aborted || threadId !== activeThreadRef.current) return;
+        if (controller.signal.aborted || threadId !== activeThreadRef.current) return null;
         setOutlineTurns(current => mergeOutlineTurns(current, page.turns, true));
         setTurnTimings(current => {
           const next = { ...current };
@@ -551,17 +584,30 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
           }
           return next;
         });
-        if (page.nextCursor === cursor) break;
-        cursor = page.nextCursor;
-      } while (cursor);
-    })().catch(error => {
+        return page.nextCursor;
+    };
+    const failed = (error: unknown) => {
       if (!controller.signal.aborted) setOutlineError(error instanceof Error ? error.message : String(error));
-    });
-    return () => controller.abort();
-  }, [activeThreadId, activeTurnId]);
+    };
+    let headRequest: Promise<unknown> | null = null;
+    outlineRefreshRef.current = () => {
+      if (headRequest) return;
+      headRequest = readPage(null).catch(failed).finally(() => { headRequest = null; });
+    };
+    void (async () => {
+      let cursor: string | null = null;
+      do {
+        const nextCursor = await readPage(cursor);
+        if (nextCursor === cursor) break;
+        cursor = nextCursor;
+      } while (cursor);
+    })().catch(failed);
+    return () => { controller.abort(); outlineRefreshRef.current = null; };
+  }, [activeThreadId]);
 
   const closeThread = useCallback(() => {
     selectionVersionRef.current += 1;
+    historyRequestsRef.current.cancel();
     activeThreadRef.current = null;
     watchThread(null);
     clearStreamingDeltas();
@@ -611,6 +657,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       }
       setThreads((current) => dedupeThreads([...current, thread]));
       selectionVersionRef.current += 1;
+      historyRequestsRef.current.cancel();
       activeThreadRef.current = thread.id;
       watchThread(thread.id);
       setActiveThreadId(result.thread.id);
@@ -786,13 +833,25 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     [rpc]
   );
 
-  const scheduleThreadRefresh = useCallback(() => {
+  const scheduleThreadRefresh = useCallback((threadId?: string) => {
+    dirtyThreadIdsRef.current.add(threadId || '*');
     if (refreshThreadsTimerRef.current) window.clearTimeout(refreshThreadsTimerRef.current);
     refreshThreadsTimerRef.current = window.setTimeout(() => {
       refreshThreadsTimerRef.current = null;
-      void refreshThreads().catch(() => undefined);
-    }, 400);
-  }, [refreshThreads]);
+      const ids = [...dirtyThreadIdsRef.current];
+      dirtyThreadIdsRef.current.clear();
+      void (async () => {
+        await yieldToInteraction();
+        if (ids.includes('*')) { await refreshThreads(); return; }
+        for (const threadId of ids) {
+          const { thread } = await rpc<{ thread: Thread }>('thread/read', { threadId, includeTurns: false });
+          if (!thread.ephemeral && Boolean(thread.archived) === archivedRef.current) {
+            setThreads(current => dedupeThreads([...current.filter(entry => entry.id !== thread.id), thread]));
+          }
+        }
+      })().catch(() => undefined);
+    }, 800);
+  }, [refreshThreads, rpc]);
 
   const rejectPendingServerResponses = useCallback((error: Error) => {
     for (const pending of pendingServerResponsesRef.current.values()) {
@@ -846,12 +905,21 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       url: `${protocol}//${window.location.host}/ws`,
       onSocket: (socket) => { socketRef.current = socket; },
       onOpen: () => {
+        const cursor = replayCursorRef.current;
+        socketRef.current?.send(JSON.stringify({ type: 'sync.resume',
+          epoch: cursor?.epoch ?? null, after: cursor?.sequence ?? 0,
+          threadId: activeThreadRef.current, additionalThreadIds: additionalThreadsRef.current }));
+      },
+      onMessage: (message) => {
+        if (message.type !== 'sync.ready') { handleMessage(message); return; }
+        replayCursorRef.current = { epoch: message.epoch, sequence: message.sequence };
         lastRecoveryRef.current = Date.now();
         setConnected(true);
         setLastError(null);
         watchThread(activeThreadRef.current);
         const initial = initialBootstrapRef.current;
         initialBootstrapRef.current = null;
+        if (message.resumed && !initial) return;
         void Promise.allSettled([
           refreshThreads(initial?.threads ?? undefined),
           initial?.models ? Promise.resolve() : rpc<{ data: ModelInfo[] }>('model/list', { limit: 100, includeHidden: false }).then((result) =>
@@ -861,8 +929,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
         ]);
         const threadId = activeThreadRef.current;
         if (threadId && !initial) void openThread(threadId, { silent: true, preserveHistory: true }).catch(() => undefined);
+        outlineRefreshRef.current?.();
       },
-      onMessage: handleMessage,
       onDisconnect: (error) => {
         setConnected(false);
         setLastError(error.message);
@@ -878,6 +946,10 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     connection.start();
     return () => {
       disposedRef.current = true;
+      selectionVersionRef.current += 1;
+      permissionRequestVersionRef.current += 1;
+      historyRequestsRef.current.cancel();
+      permissionRequestsRef.current.cancel();
       if (refreshThreadsTimerRef.current) window.clearTimeout(refreshThreadsTimerRef.current);
       clearStreamingDeltas();
       connection.dispose();
@@ -900,12 +972,12 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     if (!authenticated || !connected) return;
     const recover = () => {
       if (document.visibilityState !== 'visible') return;
-      if (Date.now() - lastRecoveryRef.current < 15_000) return;
+      if (Date.now() - lastRecoveryRef.current < 300_000) return;
       lastRecoveryRef.current = Date.now();
       void refreshThreads().catch(() => undefined);
       refreshActiveHistory();
     };
-    const timer = window.setInterval(recover, 30_000);
+    const timer = window.setInterval(recover, 300_000);
     window.addEventListener('focus', recover);
     document.addEventListener('visibilitychange', recover);
     return () => {
@@ -916,6 +988,13 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
   }, [authenticated, connected, refreshActiveHistory, refreshThreads]);
 
   function handleMessage(message: ServerMessage): void {
+    if (message.sequence != null && message.epoch && replayCursorRef.current?.epoch !== message.epoch) {
+      replayCursorRef.current = { epoch: message.epoch, sequence: 0 };
+    }
+    if (message.sequence != null && replayCursorRef.current) {
+      if (message.sequence <= replayCursorRef.current.sequence) return;
+      replayCursorRef.current.sequence = message.sequence;
+    }
     if (message.type === 'rpc.result') {
       const pending = pendingRef.current.get(message.id);
       if (pending) {
@@ -938,6 +1017,9 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
 
     if (message.type === 'bridge.status') {
       setBridgeStatus({ status: message.status, ...(message.message ? { message: message.message } : {}) });
+      if (message.status === 'ready' && replayCursorRef.current) {
+        lastRecoveryRef.current = 0;
+      }
       return;
     }
 
@@ -1002,8 +1084,6 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
       const threadId = String(params.threadId ?? '');
       const usage = params.tokenUsage as ContextUsage | undefined;
       if (threadId && usage) setTokenUsage((current) => ({ ...current, [threadId]: usage }));
-    } else if (method.startsWith('thread/')) {
-      scheduleThreadRefresh();
     }
     if (method === 'remote/connected') {
       scheduleThreadRefresh();
@@ -1016,14 +1096,15 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     }
 
     if (method.startsWith('project/')) {
-      void refreshProjects().catch(() => undefined);
-      scheduleThreadRefresh();
+      void yieldToInteraction().then(refreshProjects).catch(() => undefined);
     }
+    if (method === 'thread/unarchived') scheduleThreadRefresh(String(params.threadId ?? ''));
 
     if (method === 'thread/status/changed') {
       const threadId = String(params.threadId ?? '');
       const status = params.status as Thread['status'] | undefined;
       if (threadId && status) {
+        if (!threadsRef.current.some(thread => thread.id === threadId)) scheduleThreadRefresh(threadId);
         setThreads((current) => current.map((thread) => (thread.id === threadId ? { ...thread, status } : thread)));
         setActiveThread((current) => (current?.id === threadId ? { ...current, status } : current));
         if (threadId === activeThreadRef.current && status.type !== 'active') {
@@ -1121,6 +1202,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
         setTurnTimings((current) => ({ ...current, [turn.id]: turn }));
       }
     }
+    if (method === 'turn/started') scheduleThreadRefresh(String(params.threadId ?? ''));
 
     if (method === 'item/completed' && params.threadId === activeThreadRef.current) {
       const item = params.item as ThreadItem | undefined;
@@ -1156,7 +1238,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
         setActiveTurnId(null);
         refreshActiveHistory();
       }
-      scheduleThreadRefresh();
+      scheduleThreadRefresh(threadId);
+      if (threadId === activeThreadRef.current) outlineRefreshRef.current?.();
     }
   }
 

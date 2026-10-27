@@ -1,5 +1,10 @@
 import type { ModelInfo, ProjectInfo, Thread } from './types';
 
+export function layoutForViewport(width: number, height: number, coarsePointer = false): 'mobile' | 'desktop' {
+  return width < 720 || (width < 980 && width / height < 1.18) ||
+    (coarsePointer && width < 1024 && height < 540) ? 'mobile' : 'desktop';
+}
+
 export type TaskFilter = 'all' | 'active' | 'done';
 
 export interface ProjectThreadGroup {

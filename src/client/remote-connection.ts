@@ -108,7 +108,7 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
     this.options.onDisconnect(new Error(message));
     window.clearTimeout(this.reconnectTimer);
     if (!this.stopped && navigator.onLine) {
-      const delay = Math.min(1500 * 2 ** this.failures++, 15_000);
+      const delay = Math.min(500 * 2 ** this.failures++, 15_000);
       this.reconnectTimer = window.setTimeout(this.connect, delay);
     }
   }

@@ -60,3 +60,8 @@ copyright and license notices, including platform-native terminal components.
 
 Documentation screenshots show this project's UI with synthetic data, not real
 user conversations or an official OpenAI product screenshot.
+
+File previews use Highlight.js (BSD-3-Clause, copyright Ivan Sagalaev) and
+Mozilla PDF.js through `pdfjs-dist` (Apache-2.0). Unmodified package license
+texts are distributed in `public/licenses/`; PDF.js's worker remains a separate
+asset. Both renderers load on demand.

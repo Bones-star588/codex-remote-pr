@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
 import { RemoteConnection } from '../remote-connection';
+import { copyText } from '../clipboard';
 import type { TerminalClientMessage, TerminalInfo, TerminalServerMessage } from '../../shared/terminal';
 import './terminal.css';
 
@@ -110,7 +111,8 @@ export default function TerminalPanel({ cwd, onClose }: { cwd: string | undefine
     terminal.attachCustomKeyEventHandler((event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j') return false;
       if (event.ctrlKey && event.key.toLowerCase() === 'c' && terminal.hasSelection()) {
-        if (event.type === 'keydown') void navigator.clipboard?.writeText(terminal.getSelection());
+        if (event.type === 'keydown') void copyText(terminal.getSelection()).catch(error =>
+          setError(error instanceof Error ? error.message : String(error)));
         return false;
       }
       return true;

@@ -2,7 +2,7 @@ import {
   AlignJustify, ChevronDown, ChevronsDownUp, ChevronsUpDown, Columns2,
   FileCode2, Folder, GitBranch, TerminalSquare, WrapText, X, Plus, MessageCirclePlus, Maximize2, Minimize2
 } from 'lucide-react';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { itemKey } from '../remote-state';
 import { buildReviewTurns, splitDiffLines, type DiffLine, type ReviewFile } from '../review-model';
 import type { Thread, ThreadItem } from '../types';
@@ -11,6 +11,11 @@ import type { ChatInput } from '../queued-messages';
 import { useSideChats } from '../useSideChats';
 import { resolveReasoningEffort } from '../workspace-model';
 import { SideChatView } from './SideChatView';
+import type { PreviewTarget } from '../../shared/file-preview';
+import { previewLabel } from '../preview-links';
+import { PreviewLink } from './PreviewLinks';
+
+const FilePreview = lazy(() => import('./FilePreview'));
 
 interface InspectorProps {
   open: boolean;
@@ -21,16 +26,26 @@ interface InspectorProps {
   view: 'changes' | 'activity' | 'files';
   remote: RemoteState;
   sideChatRequest: { id: number; input?: ChatInput } | null;
+  previewRequest: { id: number; target: PreviewTarget } | null;
   cwd?: string | undefined;
 }
 
-export function Inspector({ open, thread, items, onClose, layout, view, remote, sideChatRequest, cwd }: InspectorProps) {
+export function Inspector({ open, thread, items, onClose, layout, view, remote, sideChatRequest, previewRequest, cwd }: InspectorProps) {
   const [tab, setTab] = useState<string>('changes');
   const [expanded, setExpanded] = useState(false);
+  const [previews, setPreviews] = useState<Array<{ id: string; target: PreviewTarget }>>([]);
   const sideChats = useSideChats(remote.chatTransport, remote.connected);
   const inspectorRef = useRef<HTMLElement>(null);
   useEffect(() => { setTab(view); }, [view]);
   useEffect(() => { if (sideChatRequest) addSideChat(sideChatRequest.input); }, [sideChatRequest]);
+  useEffect(() => {
+    if (!previewRequest) return;
+    const target = previewRequest.target;
+    const id = `preview-${encodeURIComponent(target.kind === 'file' ? target.path : target.url)}`;
+    setPreviews(current => current.some(preview => preview.id === id)
+      ? current.map(preview => preview.id === id ? { id, target } : preview) : [...current, { id, target }]);
+    setTab(id);
+  }, [previewRequest]);
   useEffect(() => {
     inspectorRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -60,7 +75,8 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
     ...(tab === 'changes' || changedPaths.length ? [{ id: 'changes', label: `审阅 ${changedPaths.length}` }] : []),
     ...(tab === 'activity' ? [{ id: 'activity' as const, label: '命令记录' }] : []),
     ...(tab === 'files' ? [{ id: 'files' as const, label: '文件' }] : []),
-    ...sideChats.chats.map(chat => ({ id: chat.id, label: chat.title }))
+    ...sideChats.chats.map(chat => ({ id: chat.id, label: chat.title })),
+    ...previews.map(preview => ({ id: preview.id, label: previewLabel(preview.target) }))
   ];
   return (
     <>
@@ -82,9 +98,11 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
             {tabs.map(({ id, label }) => (
               <div key={id} className={`inspector-tab${tab === id ? ' is-active' : ''}`}>
               <button type="button" role="tab" aria-selected={tab === id}
-                id={`inspector-tab-${id}`} aria-controls={sideChats.chats.some(chat => chat.id === id) ? `side-chat-${id}` : 'inspector-content'}
+                id={`inspector-tab-${id}`} aria-controls={sideChats.chats.some(chat => chat.id === id) ? `side-chat-${id}`
+                  : previews.some(preview => preview.id === id) ? `file-${id}` : 'inspector-content'}
                 className={tab === id ? 'is-active' : ''} onClick={() => setTab(id)}>
                 {sideChats.chats.some(chat => chat.id === id) && <MessageCirclePlus size={14} aria-hidden="true" />}
+                {previews.some(preview => preview.id === id) && <FileCode2 size={14} aria-hidden="true" />}
                 {label}
               </button>
               {sideChats.chats.some(chat => chat.id === id) && <button type="button" className="inspector-tab-close"
@@ -92,6 +110,11 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
                 disabled={sideChats.chats.find(chat => chat.id === id)?.closing} onClick={async () => {
                   const closed = await sideChats.close(id);
                   if (closed && tab === id) setTab('launcher');
+                }}><X size={12} /></button>}
+              {previews.some(preview => preview.id === id) && <button type="button" className="inspector-tab-close"
+                aria-label={`关闭${label}`} title={`关闭${label}`} onClick={() => {
+                  setPreviews(current => current.filter(preview => preview.id !== id));
+                  if (tab === id) setTab(previews.find(preview => preview.id !== id)?.id ?? 'launcher');
                 }}><X size={12} /></button>}
               </div>
             ))}
@@ -104,7 +127,7 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
             <button type="button" className="icon-button" onClick={onClose} aria-label="关闭检查器" title="关闭检查器"><X size={16} /></button>
           </div>
         </header>
-        <div hidden={sideChats.chats.some(chat => chat.id === tab)} className="inspector-body"
+        <div hidden={sideChats.chats.some(chat => chat.id === tab) || previews.some(preview => preview.id === tab)} className="inspector-body"
           id="inspector-content" role="tabpanel" aria-labelledby={`inspector-tab-${tab}`}>
           {tab === 'launcher' ? <div className="inspector-launcher">
             <button type="button" onClick={() => addSideChat()}><MessageCirclePlus size={16} />侧边聊天</button>
@@ -123,7 +146,7 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
               <div className="inspector-path-row"><Folder size={15} /><code title={thread.cwd}>{thread.cwd}</code></div>
               {thread.gitInfo?.branch && <div className="inspector-path-row"><GitBranch size={15} /><span>{thread.gitInfo.branch}</span></div>}
               {changedPaths.map((path) => (
-                <div className="inspector-path-row" key={path}><FileCode2 size={15} /><code title={path}>{displayPath(path, thread.cwd)}</code></div>
+                <div className="inspector-path-row" key={path}><FileCode2 size={15} /><PreviewLink href={path}><code title={path}>{displayPath(path, thread.cwd)}</code></PreviewLink></div>
               ))}
             </div>
           )}
@@ -134,6 +157,12 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
             onPatch={changes => sideChats.patch(chat.id, changes)}
             onSend={input => sideChats.send(chat.id, input)}
             onNew={() => addSideChat()} />
+        </div>)}
+        {previews.map(preview => <div key={preview.id} hidden={tab !== preview.id} className="file-preview-tab"
+          role="tabpanel" id={`file-${preview.id}`} aria-labelledby={`inspector-tab-${preview.id}`}>
+          <Suspense fallback={<div className="file-preview-loading" role="status" aria-label="正在加载预览"><div className="message-skeleton message-skeleton--long" /></div>}>
+            <FilePreview target={preview.target} />
+          </Suspense>
         </div>)}
       </aside>
     </>

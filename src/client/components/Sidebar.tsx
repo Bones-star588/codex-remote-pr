@@ -8,6 +8,7 @@ import type { RemoteState } from '../useRemote';
 import type { Thread } from '../types';
 import { buildSidebarGroups, connectionLabel } from '../workspace-model';
 import { WorkspaceFolderDialog } from './WorkspaceFolderDialog';
+import { api } from '../api';
 
 interface SidebarProps {
   remote: RemoteState;
@@ -30,6 +31,7 @@ export function Sidebar({
 }: SidebarProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [connections, setConnections] = useState<{ publicOrigin: string | null; lanOrigins: string[] } | null>(null);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [expansion, setExpansion] = useState<Record<string, boolean>>(() => {
@@ -68,11 +70,15 @@ export function Sidebar({
   }, [projectPickerOpen]);
   useEffect(() => {
     if (!accountOpen) return;
+    const controller = new AbortController();
+    void api<{ publicOrigin: string | null; lanOrigins: string[] }>('/api/connections', {
+      signal: controller.signal, cache: 'no-store'
+    }).then(setConnections).catch(() => undefined);
     const dismiss = (event: PointerEvent) => {
       if (!footerRef.current?.contains(event.target as Node) && !productRef.current?.contains(event.target as Node)) setAccountOpen(false);
     };
     window.addEventListener('pointerdown', dismiss);
-    return () => window.removeEventListener('pointerdown', dismiss);
+    return () => { controller.abort(); window.removeEventListener('pointerdown', dismiss); };
   }, [accountOpen]);
 
   return (
@@ -165,6 +171,10 @@ export function Sidebar({
               setAccountOpen(false);
               void remote.toggleArchived().catch((error: Error) => remote.setLastError(error.message));
             }}><Archive size={15} /><span>{remote.showArchived ? '返回所有任务' : '已归档任务'}</span></button>
+            {connections?.publicOrigin && location.origin !== connections.publicOrigin &&
+              <a className="connection-link" href={connections.publicOrigin}>公网连接</a>}
+            {connections?.lanOrigins.filter(origin => origin !== location.origin).map(origin =>
+              <a className="connection-link" href={origin} key={origin}>局域网 · {new URL(origin).host}</a>)}
             <div className="account-menu-separator" />
             <button type="button" role="menuitem" onClick={onLogout}><LogOut size={15} /><span>退出登录</span></button>
           </div>

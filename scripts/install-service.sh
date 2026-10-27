@@ -38,7 +38,7 @@ import path from 'node:path';
 
 // Preserve exported overrides without freezing values read from .env.
 const inheritedEnvironment = Object.fromEntries([
-  'HOST', 'PORT', 'DATA_DIR', 'PUBLIC_ORIGIN', 'ALLOWED_ORIGINS',
+  'HOST', 'PORT', 'LAN_PORT', 'LAN_ADDRESS', 'DATA_DIR', 'PUBLIC_ORIGIN', 'ALLOWED_ORIGINS',
   'CODEX_BINARY', 'CODEX_HOME', 'CODEX_WORKDIR', 'CODEX_DESKTOP_DEBUG_PORT',
   'TRUST_PROXY', 'SESSION_DAYS', 'DOTENV_CONFIG_PATH'
 ].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));

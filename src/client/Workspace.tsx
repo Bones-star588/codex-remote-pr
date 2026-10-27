@@ -12,7 +12,8 @@ import {
   Check,
   X
 } from 'lucide-react';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { v4 as randomUUID } from 'uuid';
 
 import { api } from './api';
 import { ApprovalDock } from './components/ApprovalDock';
@@ -25,12 +26,14 @@ import { CommandDialog, type CommandDialogState } from './components/CommandDial
 import { displayThreadTitle } from './remote-state';
 import { useRemote } from './useRemote';
 import type { ComposerAttachment, SkillInfo, Thread, WorkspaceBootstrap } from './types';
-import { modelDisplayName, reasoningLabel, resolveReasoningEffort } from './workspace-model';
+import { layoutForViewport, modelDisplayName, reasoningLabel, resolveReasoningEffort } from './workspace-model';
 import { collaborationMode, slashCommands, type SlashCommandId } from './slash-commands';
 import { permissionLabel } from '../shared/permissions';
 import type { ChatInput } from './queued-messages';
 import { turnInput } from './slash-commands';
 import { QueuedMessages } from './components/QueuedMessages';
+import { PreviewLinks } from './components/PreviewLinks';
+import type { PreviewTarget } from '../shared/file-preview';
 
 interface WorkspaceProps {
   onAuthExpired: () => void;
@@ -61,6 +64,11 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
   const [commandDialog, setCommandDialog] = useState<CommandDialogState | null>(null);
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [sideChatRequest, setSideChatRequest] = useState<{ id: number; input?: ChatInput } | null>(null);
+  const [previewRequest, setPreviewRequest] = useState<{ id: number; target: PreviewTarget } | null>(null);
+  const openPreview = useCallback((target: PreviewTarget) => {
+    setPreviewRequest(previous => ({ id: (previous?.id ?? 0) + 1, target }));
+    setInspectorOpen(true);
+  }, []);
 
   const activeThread = remote.activeThread;
   const defaultModel = remote.models.find((model) => model.isDefault) ?? remote.models[0];
@@ -260,6 +268,7 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
   const title = activeThread ? displayThreadTitle(activeThread) : '新任务';
 
   return (
+    <PreviewLinks cwd={permissionCwd ?? ''} onOpen={openPreview}>
     <WorkspacePanels layout={layout} sidebarCollapsed={sidebarCollapsed} inspectorOpen={inspectorOpen}>
       <Sidebar
         remote={remote}
@@ -431,6 +440,7 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
         remote={remote}
         cwd={permissionCwd}
         sideChatRequest={sideChatRequest}
+        previewRequest={previewRequest}
       />
       {commandDialog && <CommandDialog key={`${activeThread?.id ?? 'home'}:${commandDialog.type}`}
         state={commandDialog}
@@ -454,6 +464,7 @@ export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
         onClose={() => { setCommandDialog(null); setComposerFocusRequest((value) => value + 1); }}
       />}
     </WorkspacePanels>
+    </PreviewLinks>
   );
 }
 
@@ -609,7 +620,7 @@ function ThreadScreen({
           onSubmit={async (text, attachments, skills) => {
             if (remote.activeTurnId && queueEnabled) {
               await remote.chatTransport.rpc('thread/queue/add', {
-                threadId: thread.id, clientUserMessageId: crypto.randomUUID(), input: turnInput(text, attachments, skills)
+                threadId: thread.id, clientUserMessageId: randomUUID(), input: turnInput(text, attachments, skills)
               });
             } else await onSubmit(text, attachments, skills);
           }}
@@ -627,8 +638,7 @@ function useResponsiveLayout(): LayoutMode {
   const getLayout = (): LayoutMode => {
     const width = window.innerWidth;
     const height = window.innerHeight;
-    if (width < 720 || (width < 980 && width / height < 1.18)) return 'mobile';
-    return 'desktop';
+    return layoutForViewport(width, height, matchMedia('(pointer: coarse)').matches);
   };
   const [layout, setLayout] = useState<LayoutMode>(getLayout);
 

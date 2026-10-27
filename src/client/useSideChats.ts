@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { v4 as randomUUID } from 'uuid';
 import type { ChatTransport } from './chat-transport';
 import type { ChatInput } from './queued-messages';
 import { upsertItem, mergeLatestHistoryItems, mergeTurnTimings } from './remote-state';
@@ -117,7 +118,7 @@ export function useSideChats(transport: ChatTransport, connected: boolean) {
 
   function add(options: Pick<SideChat, 'model' | 'effort' | 'permissions'> & Partial<Pick<SideChat, 'cwd' | 'projectId' | 'sourceThreadId' | 'initialInput'>>) {
     const index = ++sequenceRef.current;
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     update(current => [...current, { ...options, id, title: index === 1 ? '侧边聊天' : `侧边聊天 ${index}`,
       mode: 'default', items: [], timings: {}, activeTurnId: null, error: null }]);
     return id;
@@ -152,7 +153,7 @@ export function useSideChats(transport: ChatTransport, connected: boolean) {
     const chat = chatsRef.current.find(entry => entry.id === id);
     if (!chat || chat.closing || chat.unavailable) return;
     patch(id, { error: null });
-    const clientUserMessageId = crypto.randomUUID();
+    const clientUserMessageId = randomUUID();
     const submitted = (entry: SideChat, turnId: string): SideChat => ({
       ...entry, items: upsertItem(entry.items, { type: 'userMessage', id: clientUserMessageId, turnId, content: input })
     });

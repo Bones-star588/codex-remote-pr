@@ -17,6 +17,11 @@ fi
 
 TUNNEL_NAME="${TUNNEL_NAME:-codex-remote}"
 LOCAL_URL="${LOCAL_URL:-http://127.0.0.1:${PORT:-4545}}"
+TUNNEL_PROTOCOL="${TUNNEL_PROTOCOL:-http2}"
+case "$TUNNEL_PROTOCOL" in
+  auto|http2|quic) ;;
+  *) echo "TUNNEL_PROTOCOL must be auto, http2, or quic." >&2; exit 1 ;;
+esac
 
 echo "==> Opening Cloudflare login"
 cloudflared tunnel login
@@ -41,6 +46,7 @@ mkdir -p "$CONFIG_DIR"
 
 cat > "$CONFIG_FILE" <<YAML
 tunnel: ${TUNNEL_ID}
+protocol: ${TUNNEL_PROTOCOL}
 credentials-file: ${CONFIG_DIR}/${TUNNEL_ID}.json
 
 ingress:

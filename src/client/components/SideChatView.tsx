@@ -11,6 +11,7 @@ import { ApprovalDock } from './ApprovalDock';
 import { CommandDialog, type CommandDialogState } from './CommandDialog';
 import { Composer } from './Composer';
 import { ThreadTimeline } from './ThreadTimeline';
+import { PreviewLinks } from './PreviewLinks';
 
 export function SideChatView({ chat, remote, layout, onPatch, onSend, onNew }: {
   chat: SideChat;
@@ -37,7 +38,7 @@ export function SideChatView({ chat, remote, layout, onPatch, onSend, onNew }: {
   const modelInfo = remote.models.find(model => model.model === chat.model);
   const effort = resolveReasoningEffort(modelInfo, chat.effort);
 
-  return <div className="side-chat-view">
+  return <PreviewLinks cwd={chat.cwd ?? ''}><div className="side-chat-view">
     {chat.error && <div className="error-banner" role="alert"><CircleAlert size={15} /><span>{chat.error}</span>
       <button type="button" aria-label="关闭侧聊错误" onClick={() => onPatch({ error: null })}><X size={14} /></button></div>}
     {chat.items.length ? <ThreadTimeline threadId={chat.threadId ?? chat.id}
@@ -80,5 +81,5 @@ export function SideChatView({ chat, remote, layout, onPatch, onSend, onNew }: {
       { label: '工作目录', value: chat.cwd ?? '' }
     ]} loadMcp={() => remote.listMcp(chat.threadId)} onReview={async () => {}}
       onClose={() => setDialog(null)} />}
-  </div>;
+  </div></PreviewLinks>;
 }

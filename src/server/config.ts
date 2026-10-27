@@ -19,6 +19,8 @@ export interface AppConfig {
   codexWorkdir: string;
   codexBinary: string;
   codexBinaryCandidates: string[];
+  lanPort: number;
+  lanOrigins: string[];
 }
 
 function newestDirectories(directory: string, accept: (name: string) => boolean): string[] {
@@ -108,12 +110,20 @@ const dataDir = path.resolve(process.env.DATA_DIR?.trim() || 'data');
 const codexHome = path.resolve(process.env.CODEX_HOME?.trim() || path.join(os.homedir(), '.codex'));
 const publicOrigin = process.env.PUBLIC_ORIGIN?.trim().replace(/\/+$/, '') || null;
 const binaryCandidates = codexBinaryCandidates();
+const lanPort = Number.parseInt(process.env.LAN_PORT?.trim() || '0', 10);
+const lanAddresses = Object.values(os.networkInterfaces()).flat().filter(
+  (address): address is os.NetworkInterfaceInfo => Boolean(address && !address.internal && address.family === 'IPv4'));
+const lanOrigins = lanPort ? [...new Set([
+  ...(process.env.LAN_ADDRESS ? [process.env.LAN_ADDRESS] : []), ...lanAddresses.map(address => address.address)
+])].map(address => `http://${address}:${lanPort}`) : [];
 
 export const config: AppConfig = {
   host: process.env.HOST?.trim() || '127.0.0.1',
   port: Number.parseInt(process.env.PORT?.trim() || '4545', 10),
   publicOrigin,
-  allowedOrigins: [...new Set([...(publicOrigin ? [publicOrigin] : []), ...parseOrigins(process.env.ALLOWED_ORIGINS)])],
+  allowedOrigins: [...new Set([...(publicOrigin ? [publicOrigin] : []), ...parseOrigins(process.env.ALLOWED_ORIGINS), ...lanOrigins])],
+  lanPort,
+  lanOrigins,
   trustProxy: process.env.TRUST_PROXY !== '0',
   sessionDays: Math.max(1, Number.parseInt(process.env.SESSION_DAYS?.trim() || '30', 10)),
   dataDir,

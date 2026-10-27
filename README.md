@@ -25,7 +25,7 @@ The screenshots show the actual frontend with synthetic projects, messages, path
 
 Desktop capture: **2560 × 1440**. Phone capture: **390 × 844 CSS pixels**. These are capture sizes, not fixed rendering resolutions. The UI uses the browser's viewport and device pixel ratio, so a 390 × 844 CSS viewport on a 3× screen is rendered at 1170 × 2532 physical pixels.
 
-The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when the width/height ratio is less than 1.18. It includes dynamic viewport height and safe-area spacing. Reference viewport sizes are 2560 × 1440, 1440 × 900, 1024 × 768, 390 × 844, and 320 × 568.
+The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when the width/height ratio is less than 1.18. Touch screens narrower than 1024px and shorter than 540px also retain the phone layout in landscape. Dynamic viewport height and safe-area spacing are supported. The acceptance matrix in `scripts/acceptance-viewports.json` includes 2560×1440, 1920×1080, 1440×900, 1024×768, 402×874 at DPR 3 (1206×2622 physical pixels), its 874×402 landscape orientation (2622×1206), 390×844, and 320×568. Browser controls can reduce the available viewport; these are simulated dimensions, not physical-phone network acceptance.
 
 ## Features
 
@@ -126,6 +126,32 @@ Completed replies expose copy and a menu with **Branch to new chat**. That branc
 includes the selected reply's turn and excludes later turns.
 
 ![Temporary side chat beside the main conversation](docs/images/side-chat.png)
+
+## File and Web Previews
+
+Click a file or website link in a reply to open an inspector tab beside the chat.
+Relative file links resolve against that chat's host directory, including on a
+phone. Reopening a file reuses its tab. Code and JSON have syntax highlighting,
+line numbers, wrapping, copy and download controls; native `:42` and `#L42` links
+select the referenced line. Markdown and HTML offer preview/source switching.
+Images and PDFs open in the same panel. PDF rendering is loaded on demand and
+provides page navigation, zoom and page-text copying. Office and other
+binary files currently offer downloads rather than document rendering.
+
+Local HTML runs in an isolated iframe, including relative CSS, images, scripts,
+and modules within its directory. Its resource URL grants read access to that
+directory for 15 minutes; do not share it, and use Refresh to renew it. This does
+not start a development server or build a source project. External websites may
+reject embedding; use the new-tab button when that happens.
+Website URLs use the browser's network. Host-only `localhost` development
+servers are not proxied to a remote phone by this feature.
+
+Previews load only when clicked. File contents stay outside the public static
+cache. Reading host files is a manual operator action, independent of the model's
+permission profile. Older-history insertion preserves the current visible item
+before paint and through subsequent layout changes.
+
+![File preview beside the conversation](docs/images/file-preview.png)
 
 ## Workspace Terminal
 
@@ -415,12 +441,50 @@ Codex CLI detection checks Windows app packages, local standalone installations,
 
 ## Loading and Mobile Networks
 
-- The login shell loads separately from the workspace. One authenticated bootstrap supplies the first task page, models, and projects; subsequent task pages appear progressively until the full list is loaded.
+- The login shell loads separately from the workspace. Workspace code and bootstrap load concurrently. Bootstrap waits only for the first task page, for at most 1.5 seconds; unfinished models/projects load after connection. All subsequent task pages remain accessible and load progressively, yielding to typing and selection.
 - Opening a chat combines its native metadata and latest 40 history items in one request. Older history remains available in pages of up to 100 items. Switching back to one of the five recently opened chats shows its in-memory snapshot while refreshing from the desktop; snapshots disappear on logout or page reload.
+- Switching chats, jumping to another history window or closing a chat aborts abandoned HTTP history downloads. Duplicate pending reads share one request. Permission reads follow the selected directory. Cancellation does not interrupt model turns or undo native operations already dispatched.
+- Bootstrap and WebSocket initialization share pending model/project lookups. Completed metadata is reused for five seconds to cover transit between the two connections; project creation and bridge disconnection invalidate the relevant entries. Conversations and model actions do not use this metadata cache.
 - HTTP responses and supported WebSocket messages use compression. Fingerprinted assets have immutable caching; authenticated bootstrap and history responses use `no-store`.
-- Initial metadata waits at most 1.5 seconds per native request before the workspace falls back to its normal connection refresh. Returning to the foreground avoids redundant refreshes within 15 seconds; native live events continue immediately.
-- A slow tunnel can still dominate loading time. Compare localhost with the public origin and inspect `data/cloudflared.log`. For repeated QUIC stalls, test the tunnel's `--protocol http2` setting on that host. This is a deployment choice, not the default for every installation.
-- Phone browser sizes are CSS pixels. Tests include 390x844 and 320x568, plus a DPR 3 touch context; they do not replace measurements on your actual phone and network.
+- Native events update individual task rows; completion refreshes only the latest outline page. Full list/history calibration runs at most once every five minutes. Background pagination pauses in hidden tabs and yields on constrained connections. Streaming updates batch at 60ms, 100ms on constrained networks, and 250ms in hidden tabs. Markdown reuses completed blocks; offscreen turns defer layout.
+- Short WebSocket outages replay subscribed events from a host-memory journal bounded to 90 seconds and 2 MiB. Expired cursors or a host restart restore native snapshots. Replayed events are deduplicated, approvals use a fresh pending snapshot, and interrupted model requests are never automatically resubmitted.
+- The production service worker caches only the public application shell and static assets. API responses, chats, approvals, images, and terminal data are not stored in its cache. Offline shell availability does not make chats available offline. Install the site from a supporting HTTPS browser, or use Safari's Add to Home Screen.
+- The tunnel installers default to HTTP/2. Windows accepts `-TunnelProtocol auto|http2|quic` on `scripts/install-task-windows.ps1`; the macOS tunnel installer accepts `TUNNEL_PROTOCOL`. Compare protocols on the actual host before changing them; a slow route can still dominate dynamic requests.
+
+### Optional Static Edge Hosting
+
+Serve public frontend files from Cloudflare Workers Static Assets while keeping authenticated `/api/*`, `/ws`, and `/health` on the existing Tunnel. Install and authenticate the `cf` CLI, then set the hostname and zone for an existing deployment:
+
+```powershell
+$env:REMOTE_EDGE_HOST = "codex.example.com"
+$env:REMOTE_EDGE_ZONE = "example.com"
+npm run deploy:edge
+```
+
+On macOS, use `REMOTE_EDGE_HOST=codex.example.com REMOTE_EDGE_ZONE=example.com npm run deploy:edge`.
+The build mounts only the exact application-shell paths and `/assets/*`; it does not publish host data or change DNS. Deploy the matching backend first when the transport protocol changes. Re-run the edge deployment after frontend changes; restarting the local service alone does not update edge assets.
+
+### Optional LAN Fallback
+
+Run `npm run setup:lan` in the installed checkout, then restart Remote. It enables a second listener on port 4546 that shares authentication, chats, and terminal sessions with the existing server. The settings menu lists available LAN/VPN addresses alongside the public entry. An optional port argument changes 4546; `LAN_ADDRESS` chooses the preferred local IPv4 address.
+
+This fallback uses HTTP on a trusted private LAN/VPN, not public Internet access. HTTPS-only features such as PWA installation and dictation still require the public HTTPS entry. Windows firewall setup needs administrator rights; run the setup command in an administrator terminal if it reports that the rule could not be added. Other devices and the router must allow peer connections. Set `LAN_PORT=0` and restart to disable it.
+
+Measure the current route with `node scripts/benchmark-network.mjs https://codex.example.com 10`. It reports median/P95 and failures for the shell and dynamic health request using reused connections. These host measurements do not replace tests on an actual phone, mobile network, or signed-in macOS desktop.
+
+If the Tunnel log shows edge addresses in a proxy's `198.18.*` fake-IP range
+instead of real Cloudflare addresses, add `+.argotunnel.com` to the existing
+`dns.fake-ip-filter` list in blacklist mode. In Clash Verge, edit the persistent
+DNS settings rather than only the generated runtime YAML, so a profile refresh
+does not remove the exclusion. Retain all other filters, reload the core and
+clear its fake-IP cache. Verify `region1.v2.argotunnel.com` and
+`region2.v2.argotunnel.com` through the proxy's actual DNS listener before
+restarting the Tunnel if its connections are still unavailable. A running
+process with zero ready connections is still offline. HTTP/2 alone cannot fix
+incorrect DNS answers.
+Disabling a DNS override can also be sufficient when the resulting system/proxy
+resolver returns real addresses. Check the effective resolver: a subscription
+may itself enable fake-IP even with the override disabled.
 
 ## Security and Privacy
 
@@ -450,7 +514,7 @@ npm test
 npm run build
 ```
 
-The suite has **110 tests across 25 test files**, including native timing, activity folding, conversation navigation, side-chat event isolation and recovery, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
+The suite has **126 tests across 27 test files**, including native timing, activity folding, conversation navigation, side-chat event isolation and recovery, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
 
 ```text
 src/client/       React workspace, composer, history, approvals, reconnect

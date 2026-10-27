@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
+import { v4 as randomUUID } from 'uuid';
 import { permissionLabel, type PermissionProfile } from '../../shared/permissions';
 import type { ComposerAttachment, ContextUsage, ModelInfo, ProjectInfo, SkillInfo, SkillsResult } from '../types';
 import { modelDisplayName, reasoningLabel, reasoningOptionsForModel } from '../workspace-model';
@@ -162,7 +163,7 @@ export function Composer({
           reader.onerror = () => reject(new Error(`无法读取 ${file.name}`));
           reader.readAsDataURL(file);
         });
-        return { id: crypto.randomUUID(), name: file.name, url };
+        return { id: randomUUID(), name: file.name, url };
       }));
       setAttachments((current) => [...current, ...images]);
     } catch (error) { onError(error); }

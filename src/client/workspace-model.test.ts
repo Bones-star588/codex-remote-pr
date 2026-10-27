@@ -4,10 +4,18 @@ import {
   buildSidebarGroups,
   dedupeThreads,
   findProjectForThread,
+  layoutForViewport,
   reasoningOptionsForModel,
   resolveReasoningEffort
 } from './workspace-model';
 import type { ModelInfo, ProjectInfo, Thread } from './types';
+
+it('uses the phone layout for both orientations of a 1206 by 2622 screen at DPR 3', () => {
+  expect(layoutForViewport(402, 874, true)).toBe('mobile');
+  expect(layoutForViewport(874, 402, true)).toBe('mobile');
+  expect(layoutForViewport(1024, 768, true)).toBe('desktop');
+  expect(layoutForViewport(2560, 1440)).toBe('desktop');
+});
 
 const project: ProjectInfo = {
   id: 'project-1',

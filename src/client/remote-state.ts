@@ -1,5 +1,17 @@
 import type { Thread, ThreadItem } from './types';
 import type { TurnTiming } from '../shared/turn-timing';
+import { dedupeThreads } from './workspace-model';
+
+export function reconcileThreadList(current: Thread[], snapshot: Thread[], baseline: Thread[]): Thread[] {
+  const before = new Map(baseline.map(thread => [thread.id, thread]));
+  const live = new Map(current.map(thread => [thread.id, thread]));
+  const next = new Map(snapshot.filter(thread => !before.has(thread.id) || live.has(thread.id))
+    .map(thread => [thread.id, thread]));
+  for (const thread of current) {
+    if (thread !== before.get(thread.id)) next.set(thread.id, thread);
+  }
+  return dedupeThreads([...next.values()]);
+}
 
 export function mergeTurnTimings(current: Record<string, TurnTiming>, latest: TurnTiming[], baseline: Record<string, TurnTiming>): Record<string, TurnTiming> {
   const next = { ...current };

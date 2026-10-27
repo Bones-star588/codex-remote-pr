@@ -44,6 +44,25 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 - Task list requests include all providers with `modelProviders: []` and
   `useStateDbOnly: true`. Follow native cursors; never assume one page is complete.
 - Keep history bounded and preserve reading position when prepending older pages.
+  Anchor a visible stable item, not a scrollHeight snapshot taken before a
+  request. Restore before paint and on delayed layout changes, while updating
+  the anchor when the reader scrolls during a request.
+- Reply links open lazy inspector preview tabs. Resolve relative files against
+  the owning chat's cwd, retain native line suffixes, and keep preview content
+  out of public caches. HTML runs without same-origin privileges; its short-lived
+  resource grant is read-only and confined to the document's directory.
+  Never expose the Remote session to generated HTML. Binary Office formats are
+  downloads; HTML preview does not build source projects.
+- Keep task pagination complete and yield to interaction; do not restart full
+  task/outline pagination on routine native events. Short reconnects replay
+  subscribed events from the bounded memory journal, with sequence deduplication
+  and native snapshot fallback. Never resubmit uncertain model requests.
+- PWA and edge caches contain public static assets only. Do not cache API,
+  conversations, local images, approvals, or terminal output. Edge routes must
+  leave /api, /ws and /health on the authenticated origin.
+- Use scripts/acceptance-viewports.json for responsive acceptance, including
+  402x874 and 874x402 CSS viewports at DPR 3. Physical-phone networks and
+  signed-in macOS integration require separate live acceptance.
 - Conversation marks use native summary cursors independently of history pages.
   Jump through native item cursors into a bounded window, with paging in both
   directions and return to latest. Preserve known turn ordering when a loaded
@@ -54,6 +73,10 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   native task cursors progressively. Open chats with one native-backed HTTP
   request: 40 latest records, then older pages of up to 100. Keep the five-chat
   cache in memory only and replace stale snapshots with fresh native results.
+- Abort abandoned HTTP history and permission reads when their selection changes;
+  coalesce identical pending reads. Bootstrap and WebSocket share model/project
+  lookups, with a five-second completed-result handoff. Invalidate on project
+  creation or bridge loss. Never deduplicate or cancel model actions this way.
 - Do not resume a new unsent chat before its first persisted turn.
 - Native `turn/steer` uses `expectedTurnId`.
 - Composer slash commands use native RPC actions, not text prompts. Skills come

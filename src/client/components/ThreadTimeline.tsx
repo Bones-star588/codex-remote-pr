@@ -30,6 +30,10 @@ import { userMessageText } from '../../shared/user-message';
 import type { OutlineTurn } from '../../shared/thread-outline';
 import { ThreadNavigation, type NavigationTarget } from './ThreadNavigation';
 import { ImagePreview } from './ImagePreview';
+import { markdownBlocks } from '../markdown-blocks';
+import { copyText } from '../clipboard';
+import { captureReadingAnchor, restoreReadingAnchor, type ReadingAnchor } from '../reading-anchor';
+import { PreviewImage, PreviewLink } from './PreviewLinks';
 
 interface ThreadTimelineProps {
   threadId: string;
@@ -84,10 +88,12 @@ export function ThreadTimeline({
   const stickToBottomRef = useRef(true);
   const initialScrollReadyRef = useRef(false);
   const loadingEarlierRef = useRef(false);
+  const earlierAttemptRef = useRef<string | null>(null);
   const navigationVersionRef = useRef(0);
   const navigatingRef = useRef(false);
   const navigationAnchorRef = useRef<string | null>(null);
-  const prependAdjustmentRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const readingAnchorRef = useRef<ReadingAnchor | null>(null);
+  const restoredScrollTopRef = useRef<number | null>(null);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const entries = useMemo(() => buildTimelineEntries(items, activeTurnId), [items, activeTurnId]);
   const sections = useMemo(() => buildTimelineSections(entries), [entries]);
@@ -104,7 +110,7 @@ export function ThreadTimeline({
     const version = ++navigationVersionRef.current;
     navigatingRef.current = true;
     stickToBottomRef.current = false;
-    prependAdjustmentRef.current = null;
+    readingAnchorRef.current = null;
     const key = itemKey({ turnId: target.turnId, id: target.itemId });
     navigationAnchorRef.current = key;
     const find = () => [...(innerRef.current?.querySelectorAll<HTMLElement>('[data-user-key]') ?? [])]
@@ -123,8 +129,23 @@ export function ThreadTimeline({
     });
   }, [onRevealHistory, onCancelHistoryReveal, alignNavigationTarget]);
   const handleNavigate = useCallback((target: NavigationTarget) => { void navigate(target); }, [navigate]);
+  const rememberReadingPosition = useCallback(() => {
+    const stream = streamRef.current;
+    const inner = innerRef.current;
+    readingAnchorRef.current = stream && inner && !stickToBottomRef.current
+      ? captureReadingAnchor(stream, inner) : null;
+  }, []);
+  const restoreReadingPosition = useCallback(() => {
+    const stream = streamRef.current;
+    const inner = innerRef.current;
+    const anchor = readingAnchorRef.current;
+    if (stream && inner && anchor && !stickToBottomRef.current && !navigationAnchorRef.current) {
+      if (restoreReadingAnchor(stream, inner, anchor)) restoredScrollTopRef.current = stream.scrollTop;
+    }
+  }, []);
   const preserveActivityPosition = useCallback(() => {
     navigationAnchorRef.current = null;
+    readingAnchorRef.current = null;
     stickToBottomRef.current = false;
     window.requestAnimationFrame(() => {
       const stream = streamRef.current;
@@ -134,20 +155,21 @@ export function ThreadTimeline({
       setAwayFromBottom(!nearBottom);
     });
   }, []);
-  const loadEarlier = useCallback(() => {
-    if (!hasMoreHistory || loadingEarlierRef.current || navigatingRef.current || navigationAnchorRef.current || revealingHistory) return;
-    const stream = streamRef.current;
-    if (stream) {
-      prependAdjustmentRef.current = { scrollHeight: stream.scrollHeight, scrollTop: stream.scrollTop };
-    }
+  const loadEarlier = useCallback((manual = false) => {
+    if (!navigator.onLine || !hasMoreHistory || loadingEarlierRef.current || navigatingRef.current || navigationAnchorRef.current || revealingHistory) return;
+    const attempt = `${threadId}:${items.length}`;
+    if (!manual && earlierAttemptRef.current === attempt) return;
+    earlierAttemptRef.current = attempt;
+    rememberReadingPosition();
     loadingEarlierRef.current = true;
     void onLoadEarlier().finally(() => { loadingEarlierRef.current = false; });
-  }, [hasMoreHistory, onLoadEarlier, revealingHistory]);
+  }, [hasMoreHistory, onLoadEarlier, revealingHistory, threadId, items.length, rememberReadingPosition]);
 
   useLayoutEffect(() => {
     if (navigatingRef.current || viewingHistory) return;
     if (loading && items.length === 0) return;
     stickToBottomRef.current = true;
+    readingAnchorRef.current = null;
     const stream = streamRef.current;
     if (stream) stream.scrollTop = stream.scrollHeight;
     let frame = window.requestAnimationFrame(() => {
@@ -169,10 +191,11 @@ export function ThreadTimeline({
       if (navigationAnchorRef.current) { alignNavigationTarget(); return; }
       const stream = streamRef.current;
       if (stream && stickToBottomRef.current && !viewingHistory) stream.scrollTop = stream.scrollHeight;
+      else restoreReadingPosition();
     });
     observer.observe(inner);
     return () => observer.disconnect();
-  }, [loading, threadId, viewingHistory, alignNavigationTarget]);
+  }, [loading, threadId, viewingHistory, alignNavigationTarget, restoreReadingPosition]);
 
   useLayoutEffect(() => {
     if (loading) return;
@@ -186,13 +209,8 @@ export function ThreadTimeline({
 
   useLayoutEffect(alignNavigationTarget, [items, turnTimings, alignNavigationTarget]);
 
-  useLayoutEffect(() => {
-    const stream = streamRef.current;
-    const previous = prependAdjustmentRef.current;
-    if (!stream || !previous) return;
-    stream.scrollTop = previous.scrollTop + (stream.scrollHeight - previous.scrollHeight);
-    prependAdjustmentRef.current = null;
-  }, [items.length]);
+  // Correct before paint, then keep the same item fixed as skipped content and images acquire real heights.
+  useLayoutEffect(restoreReadingPosition, [items, turnTimings, loadingHistory, restoreReadingPosition]);
 
   useEffect(() => {
     if (!loadingHistory) loadingEarlierRef.current = false;
@@ -243,20 +261,26 @@ export function ThreadTimeline({
         if (navigationAnchorRef.current) { alignNavigationTarget(); return; }
         const stream = streamRef.current;
         if (stream && stickToBottomRef.current && !viewingHistory) stream.scrollTop = stream.scrollHeight;
+        else restoreReadingPosition();
       }}
       onScroll={(event) => {
         if (!initialScrollReadyRef.current || navigatingRef.current) return;
         const stream = event.currentTarget;
+        // Layout compensation emits scroll too; it must not replace the reader's anchor.
+        const restored = restoredScrollTopRef.current;
+        restoredScrollTopRef.current = null;
+        if (restored !== null && Math.abs(stream.scrollTop - restored) < 1) return;
         stickToBottomRef.current =
           !viewingHistory && stream.scrollHeight - stream.scrollTop - stream.clientHeight < 140;
         setAwayFromBottom(!stickToBottomRef.current);
+        rememberReadingPosition();
         if (initialScrollReadyRef.current && stream.scrollTop < 80) loadEarlier();
       }}
     >
       <div className="message-stream-inner" ref={innerRef}>
       {hasMoreHistory && (
         <button type="button" className="history-trim" disabled={loadingHistory}
-          onClick={() => { navigationAnchorRef.current = null; loadEarlier(); }}>
+          onClick={() => { navigationAnchorRef.current = null; loadEarlier(true); }}>
           {loadingHistory ? '正在加载' : '显示更早记录'}
         </button>
       )}
@@ -287,6 +311,7 @@ export function ThreadTimeline({
           navigationVersionRef.current += 1;
           navigatingRef.current = false;
           navigationAnchorRef.current = null;
+          readingAnchorRef.current = null;
           if (viewingHistory && onReturnToLatest) { void onReturnToLatest(); return; }
           const stream = streamRef.current;
           if (stream) stream.scrollTop = stream.scrollHeight;
@@ -325,7 +350,7 @@ const ResponseSection = memo(function ResponseSection({ section, timing, active,
     ? <ActivityGroup entry={entry} onInteract={onInteract} key={entry.key} />
     : entry.type === 'event' ? <ActivityItem item={entry.item} running={false} key={entry.key} />
     : <MessageItem item={entry.item} key={entry.key} />;
-  return <section className="turn-response" data-turn-id={section.turnId}>
+  return <section className="turn-response" data-turn-id={section.turnId} data-scroll-anchor={`response-${section.key}`}>
     {(timing || active && section.showTiming) && <div className="worked-divider">
       {completed && trace.length > 0 ? <button type="button" className="turn-disclosure" aria-expanded={open} aria-controls={bodyId}
         onClick={() => { onInteract(); setOpen(value => !value); }}>
@@ -369,7 +394,7 @@ function ReplyActions({ text, turnId, onFork, onError }: {
   return <div className="reply-actions">
     <button type="button" className="icon-button" aria-label={copied ? '已复制回复' : '复制回复'}
       title={copied ? '已复制' : '复制回复'} onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => setCopied(true)).catch(onError);
+        void copyText(text).then(() => setCopied(true)).catch(onError);
       }}>{copied ? <Check size={15} /> : <Copy size={15} />}</button>
     {onFork && turnId && <button type="button" className="icon-button" aria-label="回复操作" title="回复操作"
       disabled={busy} aria-haspopup="menu" aria-expanded={Boolean(menu)} onClick={event => {
@@ -420,7 +445,8 @@ const MessageItem = memo(function MessageItem({ item }: { item: ThreadItem }) {
       .map((entry) => userMessageText(entry.text ?? '')).filter(Boolean).join('\n\n');
     const long = text.length > 900;
     return (
-      <article className="message message--user" data-user-key={itemKey(item)} data-turn-id={item.turnId}>
+      <article className="message message--user" data-user-key={itemKey(item)} data-turn-id={item.turnId}
+        data-scroll-anchor={itemKey(item)}>
         <div className="user-message-body">
           {text && <div className="user-message-text">{long && !expanded ? `${text.slice(0, 800)}...` : text}</div>}
           {(item.content ?? []).filter((entry) => entry.type === 'image' || entry.type === 'localImage').map((entry, index) => (
@@ -438,7 +464,8 @@ const MessageItem = memo(function MessageItem({ item }: { item: ThreadItem }) {
 
   if (item.type === 'agentMessage') {
     return (
-      <article className={`message message--agent${item.phase === 'commentary' ? ' message--commentary' : ''}`}>
+      <article className={`message message--agent${item.phase === 'commentary' ? ' message--commentary' : ''}`}
+        data-scroll-anchor={itemKey(item)}>
         <div className="agent-message-body markdown">
           <MarkdownText text={item.text} />
         </div>
@@ -725,17 +752,22 @@ const ActivityItem = memo(function ActivityItem({ item, running }: { item: Threa
   return null;
 });
 
-const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
+export const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
+  const blocks = useMemo(() => markdownBlocks(text), [text]);
+  return <>{blocks.map(block => <MarkdownBlock key={block.offset} text={block.text} />)}</>;
+});
+
+const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       urlTransform={(url) =>
-        localImageSource(url).startsWith('/api/local-image?') ? url : defaultUrlTransform(url)
+        /^(?:file:\/\/|[a-z]:[\\/])/i.test(url) || localImageSource(url).startsWith('/api/local-image?') ? url : defaultUrlTransform(url)
       }
       components={{
-        a: (props) => <a {...props} target="_blank" rel="noreferrer" />,
+        a: PreviewLink,
         img: ({ src, alt }) => (
-          <ImagePreview src={localImageSource(typeof src === 'string' ? src : undefined)} alt={alt ?? ''} />
+          <PreviewImage src={typeof src === 'string' ? src : undefined} alt={alt ?? ''} />
         )
       }}
     >

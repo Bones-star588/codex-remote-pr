@@ -26,3 +26,32 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 
   return body as T;
 }
+
+export function isAbortedRequest(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
+export class ReadRequests {
+  private pending = new Map<string, { controller: AbortController; promise: Promise<unknown> }>();
+
+  has(path: string): boolean {
+    return this.pending.has(path);
+  }
+
+  get<T>(path: string): Promise<T> {
+    const existing = this.pending.get(path);
+    if (existing) return existing.promise as Promise<T>;
+    const controller = new AbortController();
+    const promise = api<T>(path, { cache: 'no-store', signal: controller.signal }).finally(() => {
+      if (this.pending.get(path)?.controller === controller) this.pending.delete(path);
+    });
+    this.pending.set(path, { controller, promise });
+    return promise;
+  }
+
+  cancel(): void {
+    const previous = [...this.pending.values()];
+    this.pending.clear();
+    previous.forEach(({ controller }) => controller.abort());
+  }
+}

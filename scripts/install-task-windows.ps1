@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-  [switch]$Unregister
+  [switch]$Unregister,
+  [ValidateSet("auto", "http2", "quic")]
+  [string]$TunnelProtocol = "http2"
 )
 
 $ErrorActionPreference = "Stop"
@@ -93,7 +95,7 @@ if (Test-Path $tokenFile) {
   Register-CodexRemoteTask `
     -TaskName $TunnelTaskName `
     -Executable $cloudflaredPath `
-    -Arguments "tunnel --no-autoupdate --metrics 127.0.0.1:20241 --loglevel info --logfile `"$(Join-Path $Root 'data\cloudflared.log')`" run --token-file `"$tokenFile`"" `
+    -Arguments "tunnel --protocol $TunnelProtocol --no-autoupdate --metrics 127.0.0.1:20241 --loglevel info --logfile `"$(Join-Path $Root 'data\cloudflared.log')`" run --token-file `"$tokenFile`"" `
     -Description "Codex Remote Cloudflare Tunnel"
 }
 

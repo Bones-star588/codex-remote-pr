@@ -1,0 +1,10 @@
+[
+  { "name": "desktop-2k", "width": 2560, "height": 1440, "deviceScaleFactor": 1, "mobile": false },
+  { "name": "desktop-full-hd", "width": 1920, "height": 1080, "deviceScaleFactor": 1, "mobile": false },
+  { "name": "desktop-compact", "width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": false },
+  { "name": "tablet", "width": 1024, "height": 768, "deviceScaleFactor": 1, "mobile": false },
+  { "name": "iphone-1206x2622", "width": 402, "height": 874, "deviceScaleFactor": 3, "mobile": true },
+  { "name": "iphone-2622x1206", "width": 874, "height": 402, "deviceScaleFactor": 3, "mobile": true },
+  { "name": "phone", "width": 390, "height": 844, "deviceScaleFactor": 3, "mobile": true },
+  { "name": "small-phone", "width": 320, "height": 568, "deviceScaleFactor": 2, "mobile": true }
+]

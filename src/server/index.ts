@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import http from 'node:http';
+import type { Duplex } from 'node:stream';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,16 +25,19 @@ import { codexBridge } from './codex-bridge.js';
 import { config } from './config.js';
 import { desktopBridge } from './desktop-bridge.js';
 import { readThreadHistoryAround, readThreadHistoryPage, readThreadOutline } from './thread-history.js';
-import { readWorkspaceBootstrap } from './bootstrap.js';
+import { MetadataReader, readWorkspaceBootstrap } from './bootstrap.js';
 import { readOpenThread } from './thread-open.js';
 import { TerminalManager } from './terminal-manager.js';
 import { handleTerminalSocket } from './terminal-socket.js';
 import { EphemeralChats } from './ephemeral-chats.js';
 import { QueueDispatcher } from './queue-dispatcher.js';
+import { EventJournal } from './event-journal.js';
+import { filePreviewRouter } from './file-preview.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const server = http.createServer(app);
+const lanServer = config.lanPort ? http.createServer(app) : null;
 const wss = new WebSocketServer({
   noServer: true,
   perMessageDeflate: {
@@ -44,6 +48,9 @@ const wss = new WebSocketServer({
   }
 });
 const clients = new Set<WebSocket>();
+const synchronizedClients = new Set<WebSocket>();
+const eventJournal = new EventJournal();
+const metadataReader = new MetadataReader((method, params) => codexBridge.request(method, params));
 const watchedThreads = new Map<WebSocket, Set<string>>();
 const ephemeralChats = new EphemeralChats<WebSocket>(threadId => codexBridge.request('thread/unsubscribe', { threadId }));
 const queueDispatcher = new QueueDispatcher(<T,>(method: import('../shared/protocol.js').ClientRpcMethod, params: unknown) =>
@@ -217,17 +224,23 @@ app.get(
   asyncRoute(async (req, res) => {
     const configured = isPasswordConfigured();
     const authenticated = isAuthenticated(req);
+    const cursor = { epoch: eventJournal.epoch, sequence: eventJournal.sequence };
     res.setHeader('Cache-Control', 'no-store');
     res.json({
       configured,
       authenticated,
       setupAllowed: !configured && isLocalRequest(req),
       workspace: authenticated
-        ? await readWorkspaceBootstrap((method, params) => codexBridge.request(method, params))
+        ? { ...await readWorkspaceBootstrap(metadataReader.read), cursor }
         : null
     });
   })
 );
+
+app.get('/api/connections', requireAuth, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ publicOrigin: config.publicOrigin, lanOrigins: lanServer?.listening ? config.lanOrigins : [] });
+});
 
 app.get(
   '/api/desktop/status',
@@ -259,7 +272,8 @@ app.get(
     }
     const mode = req.query.mode === 'new' || req.query.mode === 'read' ? req.query.mode : 'resume';
     res.setHeader('Cache-Control', 'no-store');
-    res.json(await readOpenThread((method, params) => codexBridge.request(method, params), threadId, mode));
+    const result = await readOpenThread((method, params) => codexBridge.request(method, params), threadId, mode);
+    if (!res.destroyed) res.json(result);
   })
 );
 
@@ -331,6 +345,8 @@ app.get(
   })
 );
 
+app.use('/api/file-preview', filePreviewRouter(requireAuth));
+
 app.get(
   '/api/local-image',
   requireAuth,
@@ -356,7 +372,7 @@ app.get(
   })
 );
 
-server.on('upgrade', (req, socket, head) => {
+const handleUpgrade = (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     if (url.pathname !== '/ws' && url.pathname !== '/ws/terminal') {
@@ -384,7 +400,9 @@ server.on('upgrade', (req, socket, head) => {
   } catch {
     socket.destroy();
   }
-});
+};
+server.on('upgrade', handleUpgrade);
+lanServer?.on('upgrade', handleUpgrade);
 
 wss.on('connection', (socket) => {
   clients.add(socket);
@@ -409,6 +427,7 @@ wss.on('connection', (socket) => {
   });
   socket.on('close', () => {
     clients.delete(socket);
+    synchronizedClients.delete(socket);
     watchedThreads.delete(socket);
     ephemeralChats.disconnect(socket);
   });
@@ -431,12 +450,26 @@ async function handleClientMessage(socket: WebSocket, raw: string): Promise<void
     const ids = [message.threadId, ...(message.additionalThreadIds ?? [])].filter((id): id is string => typeof id === 'string');
     watchedThreads.set(socket, new Set(ids));
     ephemeralChats.claim(message.additionalThreadIds ?? [], socket);
+    synchronizedClients.add(socket);
+    return;
+  }
+  if (message.type === 'sync.resume') {
+    const ids = new Set([message.threadId, ...(message.additionalThreadIds ?? [])]
+      .filter((id): id is string => typeof id === 'string'));
+    watchedThreads.set(socket, ids);
+    ephemeralChats.claim(message.additionalThreadIds ?? [], socket);
+    const replay = eventJournal.resume(message.epoch, message.after, ids);
+    for (const entry of replay.entries) socket.send(entry.payload);
+    send(socket, { type: 'server.request.snapshot', requests: codexBridge.getPendingServerRequests() });
+    send(socket, { type: 'sync.ready', epoch: replay.epoch, sequence: replay.sequence, resumed: replay.resumed });
+    synchronizedClients.add(socket);
     return;
   }
 
   if (message.type === 'rpc') {
     try {
-      const result = await codexBridge.request(message.method, message.params ?? {});
+      const result = await metadataReader.read(message.method, message.params ?? {});
+      if (message.method === 'project/create') metadataReader.clear('project/list');
       const params = message.params as { ephemeral?: boolean; threadId?: string;
         clientUserMessageId?: string; input?: unknown[]; expectedTurnId?: string } | undefined;
       if ((message.method === 'thread/start' || message.method === 'thread/fork') && params?.ephemeral) {
@@ -477,15 +510,17 @@ async function handleClientMessage(socket: WebSocket, raw: string): Promise<void
 }
 
 function broadcast(message: ServerMessage): void {
-  const threadId = message.type === 'event' && /^(item|turn)\//.test(message.method)
-    ? (message.params as { threadId?: string })?.threadId
-    : null;
+  const entry = eventJournal.append(message);
+  const threadId = entry.threadId;
   const recipients = [...clients].filter((client) =>
-    client.readyState === WebSocket.OPEN && (!threadId || watchedThreads.get(client)?.has(threadId))
+    client.readyState === WebSocket.OPEN && synchronizedClients.has(client) &&
+      (!threadId || watchedThreads.get(client)?.has(threadId))
   );
   if (recipients.length === 0) return;
-  const payload = JSON.stringify(message);
-  for (const client of recipients) client.send(payload);
+  for (const client of recipients) {
+    if (client.bufferedAmount > 2 * 1024 * 1024) client.close(1013, 'Connection congested; resume.');
+    else client.send(entry.payload);
+  }
 }
 
 function send(socket: WebSocket, message: ServerMessage): void {
@@ -501,6 +536,10 @@ codexBridge.on('server-request', ({ requestId, method, params }) => {
   broadcast({ type: 'server.request', requestId, method, params });
 });
 codexBridge.on('status', (status) => {
+  if (status !== 'ready') {
+    eventJournal.reset();
+    metadataReader.clear();
+  }
   broadcast({ type: 'bridge.status', status });
 });
 codexBridge.on('resolved', (requestId) => broadcast({ type: 'server.request.resolved', requestId }));
@@ -533,6 +572,10 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: message });
 });
 
+lanServer?.on('error', error => { console.error('[LAN]', error.message); });
+lanServer?.listen(config.lanPort, '0.0.0.0', () => {
+  console.log(`Codex Remote LAN: ${config.lanOrigins.join(', ')}`);
+});
 server.listen(config.port, config.host, () => {
   console.log(`Codex Remote listening on http://${config.host}:${config.port}`);
   console.log(`Codex binary: ${codexBridge.getBinary()}`);
@@ -550,6 +593,7 @@ function shutdown(): void {
   terminals.dispose();
   for (const client of clients) client.close();
   codexBridge.shutdown();
+  lanServer?.close();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000).unref();
 }

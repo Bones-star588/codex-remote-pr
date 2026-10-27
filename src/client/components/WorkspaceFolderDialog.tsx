@@ -1,5 +1,6 @@
 import { ArrowUp, Folder, FolderPlus, LoaderCircle, X, Check } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { v4 as randomUUID } from 'uuid';
 import type { RemoteState } from '../useRemote';
 import type { ProjectInfo } from '../types';
 
@@ -14,7 +15,7 @@ export function WorkspaceFolderDialog({ remote, onSelect, onClose }: {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const creationKey = useRef(crypto.randomUUID());
+  const creationKey = useRef(randomUUID());
   useEffect(() => { dialogRef.current?.showModal(); }, []);
   useEffect(() => {
     if (!current || !remote.connected) return;

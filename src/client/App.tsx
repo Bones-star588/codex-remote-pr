@@ -4,7 +4,8 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { api } from './api';
 import type { WorkspaceBootstrap } from './types';
 
-const Workspace = lazy(() => import('./Workspace').then((module) => ({ default: module.Workspace })));
+const loadWorkspace = () => import('./Workspace').then((module) => ({ default: module.Workspace }));
+const Workspace = lazy(loadWorkspace);
 
 interface AuthState {
   configured: boolean;
@@ -19,6 +20,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
 
   const refreshAuth = async () => {
+    void loadWorkspace().catch(() => undefined);
     try {
       setAuth(await api<AuthState>('/api/bootstrap', { cache: 'no-store' }));
       setError(null);
