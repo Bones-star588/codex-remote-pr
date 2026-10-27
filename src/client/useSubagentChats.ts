@@ -6,6 +6,7 @@ import { subagentSource, type Subagent } from './subagents';
 import type { Thread, ThreadHistoryPage } from './types';
 import { sideChatEvent, type SideChat } from './useSideChats';
 import { HistoryPrefetch, prepareHistoryPage } from './history-prefetch';
+import type { BeforeHistoryCommit } from './history-scroll';
 
 export interface SubagentChat extends SideChat {
   agent: Subagent;
@@ -56,7 +57,7 @@ export function useSubagentChats(transport: ChatTransport, connected: boolean, p
   const prefetch = useCallback(async (id: string) => {
     try { await prepareEarlier(id); } catch { /* Foreground paging can retry. */ }
   }, [prepareEarlier]);
-  const load = useCallback(async (id: string, earlier = false) => {
+  const load = useCallback(async (id: string, earlier = false, beforeCommit?: BeforeHistoryCommit) => {
     const chat = ref.current.find(entry => entry.id === id);
     if (!chat || (earlier && (!chat.cursor || chat.loadingHistory))) return;
     requests.current.get(id)?.abort();
@@ -71,6 +72,10 @@ export function useSubagentChats(transport: ChatTransport, connected: boolean, p
         ...(earlier ? { before: chat.cursor!, limit: '100' } : { mode: 'read' }) });
       const page: (ThreadHistoryPage & { result?: { thread: Thread } }) | null = earlier ? await prepareEarlier(id)
         : await api(`/api/thread/open?${query}`, { cache: 'no-store', signal: controller.signal });
+      if (earlier && beforeCommit && !await beforeCommit()) {
+        if (!controller.signal.aborted) patch(id, entry => ({ ...entry, loadingHistory: false }));
+        return;
+      }
       if (controller.signal.aborted || !page) return;
       if (earlier) earlierPages.current.get(id)?.clear();
       patch(id, entry => ({ ...entry, loading: false, loadingHistory: false,

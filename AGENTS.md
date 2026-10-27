@@ -48,8 +48,11 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   request. Restore before paint and on delayed layout changes, while updating
   the anchor when the reader scrolls during a request.
   Prefetch at most one older page in memory within two viewport heights of the
-  top; insert near the top without replacing the visible stream. Prepare native
-  timings before insertion, share speculative/foreground reads, and discard
+  top; insert within 64px of the top after the gesture and momentum have settled,
+  without replacing the visible stream. Recheck scroll idleness after network
+  completion and retain the prepared page if the reader has left the top.
+  Never prepend history or compensate its position during a drag.
+  Prepare native timings before insertion, share speculative/foreground reads, and discard
   abandoned pages. Preserve response/activity identities and expanded state
   across partial-turn boundaries. Do not estimate chat-block heights with
   content-visibility; reserve thumbnail geometry and reuse unchanged responses.
@@ -138,6 +141,9 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 
 ## Publication and Privacy
 
+- After completing and validating project changes, push the public repository
+  by default unless the user explicitly asks not to. Never push the separate
+  private deployment checkout or its runtime data.
 - Never commit `.env`, `data/`, tokens, private keys, session cookies, logs,
   real chat exports, local machine identifiers, or private screenshots.
 - Keep documentation examples generic. Use synthetic data for screenshots.

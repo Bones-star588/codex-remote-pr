@@ -26,6 +26,7 @@ import { loadedOutline, mergeOutlineTurns } from './thread-navigation';
 import type { ChatEventListener, ChatTransport } from './chat-transport';
 import { subagentSource } from './subagents';
 import { HistoryPrefetch, prepareHistoryPage } from './history-prefetch';
+import type { BeforeHistoryCommit } from './history-scroll';
 
 interface PendingRpc {
   resolve: (value: unknown) => void;
@@ -450,7 +451,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     try { await prepareEarlierHistory(); } catch { /* Retain the visible conversation. */ }
   }, [prepareEarlierHistory]);
 
-  const loadEarlierHistory = useCallback(async () => {
+  const loadEarlierHistory = useCallback(async (beforeCommit?: BeforeHistoryCommit) => {
     const threadId = activeThreadRef.current;
     const cursor = olderHistoryCursorRef.current;
     const version = selectionVersionRef.current;
@@ -460,6 +461,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
     try {
       const page = await prepareEarlierHistory();
       if (!page) return;
+      if (beforeCommit && !await beforeCommit()) return;
       if (threadId !== activeThreadRef.current || version !== selectionVersionRef.current) return;
       const olderItems = page.items.map((entry) => ({
         ...entry.item, turnId: entry.turnId,

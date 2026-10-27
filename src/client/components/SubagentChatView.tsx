@@ -4,9 +4,10 @@ import type { SubagentChat } from '../useSubagentChats';
 import { PreviewLinks } from './PreviewLinks';
 import { SubagentStatusIcon } from './Subagents';
 import { ThreadTimeline } from './ThreadTimeline';
+import type { BeforeHistoryCommit } from '../history-scroll';
 
 export function SubagentChatView({ chat, onLoadEarlier, onPrefetchEarlier, onRetry }: {
-  chat: SubagentChat; onLoadEarlier: () => Promise<void>; onRetry: () => Promise<void>;
+  chat: SubagentChat; onLoadEarlier: (beforeCommit?: BeforeHistoryCommit) => Promise<void>; onRetry: () => Promise<void>;
   onPrefetchEarlier: () => Promise<void>;
 }) {
   const name = chat.thread?.agentNickname || chat.agent.name;

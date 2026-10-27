@@ -36,6 +36,7 @@ import { captureReadingAnchor, restoreReadingAnchor, type ReadingAnchor } from '
 import { PreviewImage, PreviewLink } from './PreviewLinks';
 import { SubagentRows } from './Subagents';
 import { isSubagentItem } from '../subagents';
+import { HistoryScroll, type BeforeHistoryCommit } from '../history-scroll';
 
 interface ThreadTimelineProps {
   threadId: string;
@@ -45,7 +46,7 @@ interface ThreadTimelineProps {
   turnTimings: Record<string, TurnTiming>;
   hasMoreHistory: boolean;
   loadingHistory: boolean;
-  onLoadEarlier: () => Promise<void>;
+  onLoadEarlier: (beforeCommit?: BeforeHistoryCommit) => Promise<void>;
   onPrefetchEarlier?: () => Promise<void>;
   outlineTurns?: OutlineTurn[];
   outlineError?: string | null;
@@ -100,6 +101,12 @@ export function ThreadTimeline({
   const readingAnchorRef = useRef<ReadingAnchor | null>(null);
   const restoredScrollTopRef = useRef<number | null>(null);
   const touchYRef = useRef<number | null>(null);
+  const mountedRef = useRef(false);
+  const previousScrollTopRef = useRef(0);
+  const wantsEarlierRef = useRef(false);
+  const loadWhenIdleRef = useRef<() => void>(() => {});
+  const scrollActivityRef = useRef<HistoryScroll | null>(null);
+  if (!scrollActivityRef.current) scrollActivityRef.current = new HistoryScroll(() => loadWhenIdleRef.current());
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const previousSectionsRef = useRef<TimelineSection[]>([]);
   const entries = useMemo(() => buildTimelineEntries(items, activeTurnId,
@@ -176,7 +183,16 @@ export function ThreadTimeline({
     setAwayFromBottom(true);
     rememberReadingPosition();
     loadingEarlierRef.current = true;
-    void onLoadEarlier().finally(() => { loadingEarlierRef.current = false; });
+    void onLoadEarlier(async () => {
+      if (!mountedRef.current || !await scrollActivityRef.current!.waitForIdle()) return false;
+      if (!mountedRef.current || navigatingRef.current || navigationAnchorRef.current) return false;
+      if (!manual && (!wantsEarlierRef.current || (streamRef.current?.scrollTop ?? Infinity) > 64)) {
+        earlierAttemptRef.current = null;
+        return false;
+      }
+      rememberReadingPosition();
+      return true;
+    }).finally(() => { loadingEarlierRef.current = false; });
   }, [hasMoreHistory, onLoadEarlier, revealingHistory, threadId, items, rememberReadingPosition]);
   const prefetchEarlier = useCallback(() => {
     if (!navigator.onLine || !hasMoreHistory || !onPrefetchEarlier || revealingHistory || navigatingRef.current) return;
@@ -185,6 +201,20 @@ export function ThreadTimeline({
     prefetchAttemptRef.current = attempt;
     void onPrefetchEarlier();
   }, [hasMoreHistory, onPrefetchEarlier, revealingHistory, threadId, items]);
+  loadWhenIdleRef.current = () => {
+    const stream = streamRef.current;
+    if (stream && !wantsEarlierRef.current && !viewingHistory && !loadingEarlierRef.current &&
+      stream.scrollHeight - stream.scrollTop - stream.clientHeight <= 4) stickToBottomRef.current = true;
+    if (stream && wantsEarlierRef.current && stream.scrollTop <= 64) loadEarlier();
+  };
+
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      scrollActivityRef.current!.cancel();
+    };
+  }, [threadId]);
 
   useLayoutEffect(() => {
     if (navigatingRef.current || viewingHistory) { initialScrollReadyRef.current = true; return; }
@@ -193,7 +223,10 @@ export function ThreadTimeline({
     stickToBottomRef.current = true;
     readingAnchorRef.current = null;
     const stream = streamRef.current;
-    if (stream) stream.scrollTop = stream.scrollHeight;
+    if (stream) {
+      stream.scrollTop = stream.scrollHeight;
+      previousScrollTopRef.current = stream.scrollTop;
+    }
     initialScrollReadyRef.current = true;
   }, [loading, threadId, viewingHistory]);
 
@@ -239,11 +272,10 @@ export function ThreadTimeline({
       const stream = streamRef.current;
       if (!loading && !loadingHistory && stream && !navigationAnchorRef.current) {
         if (stream.scrollTop < stream.clientHeight * 2) prefetchEarlier();
-        if (stream.scrollTop > 0 && stream.scrollTop < Math.max(160, stream.clientHeight * .65)) loadEarlier();
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [items.length, loadEarlier, loading, loadingHistory, prefetchEarlier]);
+  }, [items.length, loading, loadingHistory, prefetchEarlier]);
 
   if (loading && items.length === 0) {
     return (
@@ -276,21 +308,32 @@ export function ThreadTimeline({
       aria-label="会话记录"
       onWheel={event => {
         navigationAnchorRef.current = null;
-        if (event.deltaY < 0 && event.currentTarget.scrollTop <= 1) loadEarlier();
+        wantsEarlierRef.current = event.deltaY < 0;
+        scrollActivityRef.current!.activity();
       }}
       onTouchStart={event => {
         navigationAnchorRef.current = null;
         touchYRef.current = event.touches[0]?.clientY ?? null;
+        scrollActivityRef.current!.startTouch();
+        stickToBottomRef.current = false;
+        rememberReadingPosition();
       }}
       onTouchMove={event => {
         const y = event.touches[0]?.clientY ?? null;
-        if (y !== null && touchYRef.current !== null && y > touchYRef.current + 2 && event.currentTarget.scrollTop <= 1) loadEarlier();
+        if (y !== null && touchYRef.current !== null && Math.abs(y - touchYRef.current) > 2) {
+          wantsEarlierRef.current = y > touchYRef.current;
+        }
         touchYRef.current = y;
       }}
+      onTouchEnd={() => { touchYRef.current = null; scrollActivityRef.current!.endTouch(); }}
+      onTouchCancel={() => { touchYRef.current = null; scrollActivityRef.current!.endTouch(); }}
       onPointerDownCapture={() => { navigationAnchorRef.current = null; }}
       onKeyDownCapture={event => {
         navigationAnchorRef.current = null;
-        if (['Home', 'PageUp', 'ArrowUp'].includes(event.key) && event.currentTarget.scrollTop <= 1) loadEarlier();
+        if (['Home', 'PageUp', 'ArrowUp', 'End', 'PageDown', 'ArrowDown'].includes(event.key)) {
+          wantsEarlierRef.current = ['Home', 'PageUp', 'ArrowUp'].includes(event.key);
+          scrollActivityRef.current!.activity();
+        }
       }}
       onLoadCapture={() => {
         if (navigationAnchorRef.current) { alignNavigationTarget(); return; }
@@ -304,13 +347,17 @@ export function ThreadTimeline({
         // Layout compensation emits scroll too; it must not replace the reader's anchor.
         const restored = restoredScrollTopRef.current;
         restoredScrollTopRef.current = null;
+        const delta = stream.scrollTop - previousScrollTopRef.current;
+        previousScrollTopRef.current = stream.scrollTop;
         if (restored !== null && Math.abs(stream.scrollTop - restored) < 1) return;
+        if (Math.abs(delta) > .5) wantsEarlierRef.current = delta < 0;
+        scrollActivityRef.current!.activity();
         stickToBottomRef.current =
-          !loadingEarlierRef.current && !viewingHistory && stream.scrollHeight - stream.scrollTop - stream.clientHeight < 140;
+          !loadingEarlierRef.current && !viewingHistory && !wantsEarlierRef.current &&
+          stream.scrollHeight - stream.scrollTop - stream.clientHeight <= 4;
         setAwayFromBottom(!stickToBottomRef.current);
         rememberReadingPosition();
         if (!navigationAnchorRef.current && stream.scrollTop < stream.clientHeight * 2) prefetchEarlier();
-        if (stream.scrollTop < Math.max(160, stream.clientHeight * .65)) loadEarlier();
       }}
     >
       <div className="message-stream-inner" ref={innerRef}>

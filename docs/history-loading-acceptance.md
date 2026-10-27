@@ -6,7 +6,10 @@ Date: 2026-10-27.
 
 - Keep one speculative older page in memory and share the request with
   foreground consumption. Prepare native timing metadata before insertion.
-- Prefetch within two viewport heights; insert near the top on upward intent.
+- Prefetch within two viewport heights. Automatic insertion requires upward
+  intent, a position within 64px of the top, no finger down, and 160ms without
+  scroll activity. Recheck these conditions after the network and timing reads.
+  Leaving the top keeps the prepared page for a later upward scroll.
   Short initial pages do not automatically consume the full history.
 - Cancel abandoned downloads on selection, jumps and close. Speculative
   failures remain silent; foreground retries remain available.
@@ -23,7 +26,7 @@ Date: 2026-10-27.
 
 ## Verification
 
-- 158 tests across 33 files pass; TypeScript and production build pass.
+- 162 tests across 34 files pass; TypeScript and production build pass.
 - Synthetic history acceptance covers 2560x1440, 1024x768, 402x874 at DPR 3,
   390x844, 320x568 and touch landscape 874x402.
 - Warm and cold paging, scrolling during a pending read, delayed images,
@@ -31,6 +34,24 @@ Date: 2026-10-27.
   were exercised. Measured anchor drift was at most 0.25 CSS pixels.
 - One older page is fetched once and not inserted prematurely. Expanded command
   and activity disclosures retain their DOM and open state.
+- A new Chromium touch probe with 4x CPU throttling reproduced the reported
+  mid-scroll failure before this fix: with the finger still down, approximately
+  430px from the top, an insertion changed scrollTop from 430 to 21931.75.
+  The old 65%-of-viewport insertion threshold caused this before reaching the top.
+  Final-anchor measurements alone had missed the intermediate disruption.
+- Touch drags at 402x874 DPR 3, 390x844, 320x568 and 874x402 show zero
+  mid-gesture insertions or scripted scroll corrections. A stationary held
+  finger blocks insertion at the top. Slow network completion during a new
+  touch also waits; after release, retained anchors drift at most 0.25px.
+- Three consecutive pages remain uncommitted during controlled post-release
+  scroll-event bursts. This exercises the quiet-period gate; it is not a
+  physical-device momentum measurement. CDP synthesized fling did not produce
+  usable inertia in this environment.
+- Supplemental Windows WebKit responsive checks use a synthetic touch lifecycle,
+  with measured CSS widths approximately 402, 320 and 874 after compensating
+  the local display scaling in the test harness. Anchors remain connected,
+  drift stays below 1px, and no horizontal overflow or page errors occur.
+  These are not iOS touch/compositor tests.
 - Child-view regression covers streaming, completion, archived paging,
   hide/reopen, reconnect, composed subscriptions and safe viewer close.
 - Side-chat acceptance covers five desktop/mobile sizes, including expanded
@@ -42,6 +63,8 @@ Date: 2026-10-27.
   Model actions in these tests use only the synthetic server.
 - Final deployed local/public browser checks read actual Windows native history
   at 402x874 DPR 3. Both retained the visible anchor with 0.25px drift.
+  Cursor progression to the next native page proves foreground consumption,
+  rather than treating a speculative HTTP request alone as successful insertion.
   The side-chat model menu displayed the host's four native models; the chosen
   model exposed three supported effort levels. Both health checks returned 200
   with Desktop transport. No real model instructions were sent.

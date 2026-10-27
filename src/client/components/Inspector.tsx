@@ -196,7 +196,7 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
         </div>)}
         {subagentChats.chats.map(chat => <div key={chat.id} hidden={tab !== `agent-${chat.id}`} className="side-chat-tab"
           role="tabpanel" id={`subagent-agent-${chat.id}`} aria-labelledby={`inspector-tab-agent-${chat.id}`}>
-          <SubagentChatView chat={chat} onLoadEarlier={() => subagentChats.load(chat.id, true)}
+          <SubagentChatView chat={chat} onLoadEarlier={beforeCommit => subagentChats.load(chat.id, true, beforeCommit)}
             onPrefetchEarlier={() => subagentChats.prefetch(chat.id)}
             onRetry={() => subagentChats.load(chat.id)} />
         </div>)}
