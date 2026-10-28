@@ -4,11 +4,10 @@ import react from '@vitejs/plugin-react';
 import { pwaPlugin } from './scripts/pwa';
 
 const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
-const build = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '.');
 
 export default defineConfig({
   define: {
-    'import.meta.env.VITE_APP_VERSION': JSON.stringify(`${version} \u00b7 ${build}`)
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(version)
   },
   plugins: [react(), pwaPlugin()],
   server: {

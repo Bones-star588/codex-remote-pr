@@ -544,9 +544,8 @@ displayed it.
 2. Close all Remote windows, including the home-screen app and same-origin browser tabs, then reopen.
 3. Let the new version verify the session successfully once. Later openings in the same browser/app storage can use the returning-device hint.
 
-The bottom of the Settings menu shows the loaded client's package version and
-UTC build identifier. Each build gets a new identifier, so cached and current
-pages can be distinguished without waiting for the connection.
+The sidebar shows the loaded client's package version beside Settings, even
+when the menu is closed. It is available without waiting for the connection.
 
 The hint does not sign in a new device or make expired sessions valid. First
 entry and browsers with unavailable storage still wait for server verification.
