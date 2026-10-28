@@ -95,6 +95,14 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   cancellation/restart on online/visibility recovery. A successful login POST
   establishes identity without another status round trip. Preserve HTTP-only
   authentication; local storage is never proof of access.
+  After verified login, store only a boolean returning-device hint to render
+  the empty Workspace before authentication finishes on repeat entry. Keep
+  useRemote unauthenticated until the server confirms access; do not create
+  sockets or start task reads from the hint. Preserve the mounted shell and
+  local UI state when verification succeeds or an unfinished check restarts.
+  Clear the hint and unmount private state on expiry/logout. Failed network
+  checks show a nonblocking retry banner in the returning shell. Never present
+  shell timing as faster authentication or chat readiness.
   Apply HTTP task/model/project snapshots independently of socket readiness.
   If bootstrap stalls for 1.5 seconds after mounting, start the task read directly.
   Page all tasks through authenticated /api/threads with native all-provider
@@ -110,7 +118,7 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   cached public shell immediately, keeping its modules and document together;
   install newer versions through the service-worker update lifecycle. Never
   overwrite the installed shell with a different network version.
-  Local User Timing marks remote:auth/bootstrap/tasks/chat/connected contain
+  Local User Timing marks remote:shell/auth/bootstrap/tasks/chat/connected contain
   timings only; do not export private content or add background telemetry.
 - Abort abandoned HTTP history and permission reads when their selection changes;
   coalesce identical pending reads. Bootstrap and WebSocket share model/project

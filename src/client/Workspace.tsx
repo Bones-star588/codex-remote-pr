@@ -9,6 +9,7 @@ import {
   Pencil,
   Archive,
   ArchiveRestore,
+  RefreshCw,
   Check,
   X
 } from 'lucide-react';
@@ -38,19 +39,25 @@ import { useSubagentChats } from './useSubagentChats';
 import { subagentChatStatus, type Subagent } from './subagents';
 import './subagents.css';
 import type { PreviewTarget } from '../shared/file-preview';
+import { markStartup } from './startup';
 
 interface WorkspaceProps {
+  authenticated: boolean;
   onAuthExpired: () => void;
   bootstrap: WorkspaceBootstrap | null;
   bootstrapRequest?: Promise<WorkspaceBootstrap | null> | undefined;
+  startupError?: string | null;
+  onStartupRetry?: () => void;
 }
 
 type LayoutMode = 'desktop' | 'mobile';
 
 const TerminalPanel = lazy(() => import('./components/TerminalPanel'));
 
-export function Workspace({ onAuthExpired, bootstrap, bootstrapRequest }: WorkspaceProps) {
-  const remote = useRemote({ authenticated: true, onAuthExpired, bootstrap, bootstrapRequest });
+export function Workspace({ authenticated, onAuthExpired, bootstrap, bootstrapRequest,
+  startupError, onStartupRetry }: WorkspaceProps) {
+  const remote = useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRequest });
+  useEffect(() => { markStartup('shell'); }, []);
   const layout = useResponsiveLayout();
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -393,6 +400,15 @@ export function Workspace({ onAuthExpired, bootstrap, bootstrapRequest }: Worksp
           </div>
         </header>
 
+        {startupError && (
+          <div className="error-banner" role="alert">
+            <CircleAlert size={16} aria-hidden="true" />
+            <span>{startupError}</span>
+            <button type="button" onClick={onStartupRetry} aria-label="重新连接">
+              <RefreshCw size={15} aria-hidden="true" />
+            </button>
+          </div>
+        )}
         {remote.lastError && (
           <div className="error-banner" role="alert">
             <CircleAlert size={16} aria-hidden="true" />

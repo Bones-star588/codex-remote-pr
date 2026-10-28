@@ -93,3 +93,33 @@ Windows WebKit is not a physical iPhone or installed iOS application.
 
 Physical iPhone Safari Add to Home Screen, real 5G/Wi-Fi tail latency and
 signed-in macOS Desktop integration remain separate live acceptance.
+
+## Returning Device Follow-Up
+
+The previous release still waited for a verified HTTP response before mounting
+Workspace. A successful verification now saves a boolean local device hint.
+On repeat entry, the empty public workspace mounts immediately while the same
+parallel status/bootstrap checks run. `useRemote` remains unauthenticated until
+server confirmation, so no task reads or sockets start from this hint.
+
+There is no credential, conversation or task cache in the hint. Expired sessions
+and logout clear it and remove the workspace. Unavailable browser storage falls
+back to verified entry. Network recovery preserves the mounted empty shell and
+local drawer state; failed checks show a retry banner without a full-screen
+replacement. The `remote:shell` mark distinguishes UI mounting from real
+`remote:auth` and `remote:tasks` completion.
+
+In a controlled Chromium probe at 402x874 CSS pixels / DPR 3, both authentication
+responses were delayed by 2.5 seconds. First entry mounted Workspace at 2.97s;
+returning entry mounted at 0.35s, with task data still arriving at about 2.8s.
+This is a display improvement, not a reduction in network round-trip time.
+Returning, expired, online-recovery and logout cases preserved the expected
+state. No sockets or additional private reads started before verification;
+no model actions or browser exceptions occurred. The unit suite passes
+185 tests / 38 files, including unavailable browser storage and hint removal.
+The same five cases passed in Windows WebKit: first entry mounted at 3.46s,
+returning entry at 0.87s, with task data at about 2.95s. These browser probes do
+not establish physical iPhone Safari or real mobile-network performance.
+A separate Chromium check held both authentication reads beyond their
+six-second deadlines: the empty shell retained a retry banner, and manual retry
+recovered the authenticated task list without replacing the shell.

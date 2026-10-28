@@ -4,7 +4,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNod
 import { api } from './api';
 import type { WorkspaceBootstrap } from './types';
 import { PanelBoundary } from './components/PanelBoundary';
-import { startSession } from './startup';
+import { isReturningDevice, rememberDevice, startSession } from './startup';
 
 const loadWorkspace = () => import('./Workspace').then((module) => ({ default: module.Workspace }));
 const Workspace = lazy(loadWorkspace);
@@ -20,6 +20,7 @@ interface AuthState {
 
 export function App() {
   const [auth, setAuth] = useState<AuthState | null>(null);
+  const [returningDevice, setReturningDevice] = useState(isReturningDevice);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const establishedRef = useRef(false);
@@ -28,7 +29,14 @@ export function App() {
     setAuth(null);
     setRevision(value => value + 1);
   }, []);
+  const expireAuth = useCallback(() => {
+    rememberDevice(false);
+    setReturningDevice(false);
+    refreshAuth();
+  }, [refreshAuth]);
   const signedIn = useCallback(() => {
+    rememberDevice(true);
+    setReturningDevice(true);
     establishedRef.current = true;
     setAuth(null);
     setRevision(value => value + 1);
@@ -49,6 +57,8 @@ export function App() {
         const state = await session.auth;
         if (controller.signal.aborted) return;
         verified = true;
+        rememberDevice(state.authenticated);
+        setReturningDevice(state.authenticated);
         const bootstrapRequest = state.authenticated ? session.workspace : undefined;
         setAuth({ ...state, workspace: null, ...(bootstrapRequest ? { bootstrapRequest } : {}) });
         setError(null);
@@ -75,19 +85,21 @@ export function App() {
     };
   }, [revision, refreshAuth]);
 
-  if (!auth) return <FullScreenLoader label={error ?? '正在检查登录状态'}
+  if (!auth && !returningDevice) return <FullScreenLoader label={error ?? '正在检查登录状态'}
     {...(error ? { onRetry: refreshAuth } : {})} />;
 
-  if (!auth.configured) {
+  if (auth && !auth.configured) {
     return <SetupPage setupAllowed={auth.setupAllowed} onDone={signedIn} />;
   }
 
-  if (!auth.authenticated) {
+  if (auth && !auth.authenticated) {
     return <LoginPage onDone={signedIn} />;
   }
 
   return <PanelBoundary><Suspense fallback={<FullScreenLoader label="正在打开工作区" />}>
-    <Workspace onAuthExpired={refreshAuth} bootstrap={auth.workspace} bootstrapRequest={auth.bootstrapRequest} />
+    <Workspace authenticated={auth?.authenticated ?? false} onAuthExpired={expireAuth}
+      bootstrap={auth?.workspace ?? null} bootstrapRequest={auth?.bootstrapRequest}
+      startupError={auth ? null : error} onStartupRetry={refreshAuth} />
   </Suspense></PanelBoundary>;
 }
 

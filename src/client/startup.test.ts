@@ -1,10 +1,38 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { startSession } from './startup';
+import { isReturningDevice, rememberDevice, startSession } from './startup';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 const state = { configured: true, authenticated: true, setupAllowed: false };
 const workspace = { threads: { data: [], nextCursor: null }, models: null, projects: null };
+
+describe('returning device shell hint', () => {
+  it('remembers successful verification and clears the hint on expiry or logout', () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key)
+    });
+    expect(isReturningDevice()).toBe(false);
+    rememberDevice(true);
+    expect(isReturningDevice()).toBe(true);
+    expect([...values.values()]).toEqual(['1']);
+    rememberDevice(false);
+    expect(isReturningDevice()).toBe(false);
+  });
+
+  it('falls back to verified entry when storage is unavailable', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => { throw new Error('Storage unavailable'); },
+      setItem: () => { throw new Error('Storage unavailable'); },
+      removeItem: () => { throw new Error('Storage unavailable'); }
+    });
+    expect(isReturningDevice()).toBe(false);
+    expect(() => rememberDevice(true)).not.toThrow();
+    expect(() => rememberDevice(false)).not.toThrow();
+  });
+});
 
 describe('independent startup reads', () => {
   it('starts both reads immediately and opens from bootstrap when status stalls', async () => {

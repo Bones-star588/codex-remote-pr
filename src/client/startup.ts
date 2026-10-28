@@ -12,6 +12,21 @@ interface BootstrapResponse extends SessionState {
   workspace: WorkspaceBootstrap | null;
 }
 
+const RETURNING_DEVICE = 'remote:returning-device';
+
+// This hint opens the empty public UI only. The server still verifies every read.
+export function isReturningDevice(): boolean {
+  try { return localStorage.getItem(RETURNING_DEVICE) === '1'; }
+  catch { return false; }
+}
+
+export function rememberDevice(authenticated: boolean): void {
+  try {
+    if (authenticated) localStorage.setItem(RETURNING_DEVICE, '1');
+    else localStorage.removeItem(RETURNING_DEVICE);
+  } catch { /* Storage can be unavailable in browser privacy modes. */ }
+}
+
 export function startSession(signal: AbortSignal, established = false) {
   const statusController = new AbortController();
   const abortStatus = () => statusController.abort();
