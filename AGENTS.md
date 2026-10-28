@@ -54,6 +54,10 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   top; insert within 64px of the top after the gesture and momentum have settled,
   without replacing the visible stream. Recheck scroll idleness after network
   completion and retain the prepared page if the reader has left the top.
+  After a page containing only folded activity, hidden reasoning or commentary,
+  retain upward intent at the restored reading anchor and continue one bounded
+  page at a time until a user message or final/legacy answer appears. Downward
+  movement, navigation and activity expansion stop this continuation.
   Never prepend history or compensate its position during a drag.
   Use a passive history sentinel, never a load-more button. A new upward
   gesture retries a failed foreground page; idle failures must not loop.

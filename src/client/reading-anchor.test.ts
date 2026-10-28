@@ -36,6 +36,21 @@ describe('reading position', () => {
     expect(r.stream.scrollTop).toBe(555);
   });
 
+  it('rounds fractional layout targets before a browser truncates scrollTop', () => {
+    let top = 100;
+    const stream = {
+      get scrollTop() { return top; },
+      set scrollTop(value: number) { top = Math.trunc(value); },
+      getBoundingClientRect: () => ({ top: 0 })
+    };
+    const node = { getBoundingClientRect: () => ({ top: 619.99998 - top }) };
+    const inner = { contains: () => true };
+    const anchor = { key: 'message', node, offset: 20, scrollTop: 100 } as ReadingAnchor;
+    expect(restoreReadingAnchor(stream as HTMLElement, inner as unknown as HTMLElement, anchor)).toBe(true);
+    expect(top).toBe(600);
+    expect(restoreReadingAnchor(stream as HTMLElement, inner as unknown as HTMLElement, anchor)).toBe(false);
+  });
+
   it('retains the blank space of a short page instead of clamping the anchor to the bottom', () => {
     let position = 20, top = 0, contentHeight = 100, tail = 0;
     const stream = {

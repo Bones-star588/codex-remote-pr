@@ -37,6 +37,7 @@ import { PreviewImage, PreviewLink } from './PreviewLinks';
 import { SubagentRows } from './Subagents';
 import { isSubagentItem } from '../subagents';
 import { HistoryScroll, type BeforeHistoryCommit } from '../history-scroll';
+import { isReadableHistoryItem } from '../history-prefetch';
 
 interface ThreadTimelineProps {
   threadId: string;
@@ -104,6 +105,8 @@ export function ThreadTimeline({
   const mountedRef = useRef(false);
   const previousScrollTopRef = useRef(0);
   const wantsEarlierRef = useRef(false);
+  const earlierBoundaryRef = useRef<string | null>(null);
+  const continuationTopRef = useRef<number | null>(null);
   const loadWhenIdleRef = useRef<() => void>(() => {});
   const scrollActivityRef = useRef<HistoryScroll | null>(null);
   if (!scrollActivityRef.current) scrollActivityRef.current = new HistoryScroll(() => loadWhenIdleRef.current());
@@ -122,6 +125,8 @@ export function ThreadTimeline({
     if (node) stream.scrollTop += node.getBoundingClientRect().top - stream.getBoundingClientRect().top - 24;
   }, []);
   const navigate = useCallback(async (target: NavigationTarget) => {
+    earlierBoundaryRef.current = null;
+    continuationTopRef.current = null;
     onCancelHistoryReveal?.();
     innerRef.current?.style.removeProperty('--reading-tail');
     const version = ++navigationVersionRef.current;
@@ -161,6 +166,9 @@ export function ThreadTimeline({
     }
   }, []);
   const preserveActivityPosition = useCallback(() => {
+    earlierBoundaryRef.current = null;
+    continuationTopRef.current = null;
+    wantsEarlierRef.current = false;
     navigationAnchorRef.current = null;
     readingAnchorRef.current = null;
     stickToBottomRef.current = false;
@@ -174,23 +182,28 @@ export function ThreadTimeline({
       rememberReadingPosition();
     });
   }, [rememberReadingPosition, viewingHistory]);
+  const atEarlierBoundary = () => {
+    const top = streamRef.current?.scrollTop ?? Infinity;
+    return top <= 64 || continuationTopRef.current !== null && top <= continuationTopRef.current + 1;
+  };
   const loadEarlier = useCallback(() => {
-    if (!navigator.onLine || !hasMoreHistory || loadingEarlierRef.current || navigatingRef.current || navigationAnchorRef.current || revealingHistory) return;
+    if (!navigator.onLine || document.visibilityState !== 'visible' || !hasMoreHistory || loadingEarlierRef.current || navigatingRef.current || navigationAnchorRef.current || revealingHistory) return;
     const attempt = JSON.stringify([threadId, items[0] ? itemKey(items[0]) : '', items.length]);
     if (earlierAttemptRef.current === attempt) return;
     earlierAttemptRef.current = attempt;
     stickToBottomRef.current = false;
     setAwayFromBottom(true);
-    rememberReadingPosition();
+    if (continuationTopRef.current === null) rememberReadingPosition();
+    earlierBoundaryRef.current = items[0] ? itemKey(items[0]) : null;
     loadingEarlierRef.current = true;
     void onLoadEarlier(async () => {
       if (!mountedRef.current || !await scrollActivityRef.current!.waitForIdle()) return false;
-      if (!mountedRef.current || navigatingRef.current || navigationAnchorRef.current) return false;
-      if (!wantsEarlierRef.current || (streamRef.current?.scrollTop ?? Infinity) > 64) {
+      if (!mountedRef.current || document.visibilityState !== 'visible' || navigatingRef.current || navigationAnchorRef.current) return false;
+      if (!wantsEarlierRef.current || !atEarlierBoundary()) {
         earlierAttemptRef.current = null;
         return false;
       }
-      rememberReadingPosition();
+      if (continuationTopRef.current === null) rememberReadingPosition();
       return true;
     }).finally(() => { loadingEarlierRef.current = false; });
   }, [hasMoreHistory, onLoadEarlier, revealingHistory, threadId, items, rememberReadingPosition]);
@@ -205,13 +218,15 @@ export function ThreadTimeline({
     const stream = streamRef.current;
     if (stream && !wantsEarlierRef.current && !viewingHistory && !loadingEarlierRef.current &&
       stream.scrollHeight - stream.scrollTop - stream.clientHeight <= 4) stickToBottomRef.current = true;
-    if (stream && wantsEarlierRef.current && stream.scrollTop <= 64) loadEarlier();
+    if (stream && wantsEarlierRef.current && atEarlierBoundary()) loadEarlier();
   };
 
   useLayoutEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      earlierBoundaryRef.current = null;
+      continuationTopRef.current = null;
       scrollActivityRef.current!.cancel();
     };
   }, [threadId]);
@@ -263,6 +278,22 @@ export function ThreadTimeline({
   // Correct before paint, then keep the same item fixed as skipped content and images acquire real heights.
   useLayoutEffect(restoreReadingPosition, [items, turnTimings, loadingHistory, restoreReadingPosition]);
 
+  useLayoutEffect(() => {
+    const boundary = earlierBoundaryRef.current;
+    if (!boundary) return;
+    const index = items.findIndex(item => itemKey(item) === boundary);
+    if (index <= 0) return;
+    earlierBoundaryRef.current = null;
+    if (items.slice(0, index).some(isReadableHistoryItem)) {
+      continuationTopRef.current = null;
+      wantsEarlierRef.current = false;
+    } else if (wantsEarlierRef.current && streamRef.current) {
+      // Folded/hidden records must not require another gesture just because
+      // restoring the reading anchor moved scrollTop away from the sentinel.
+      continuationTopRef.current = streamRef.current.scrollTop;
+    }
+  }, [items]);
+
   useEffect(() => {
     if (!loadingHistory) loadingEarlierRef.current = false;
   }, [loadingHistory]);
@@ -272,7 +303,7 @@ export function ThreadTimeline({
       const stream = streamRef.current;
       if (!loading && !loadingHistory && stream && !navigationAnchorRef.current) {
         if (stream.scrollTop < stream.clientHeight * 2) prefetchEarlier();
-        if (wantsEarlierRef.current && stream.scrollTop <= 64) scrollActivityRef.current!.activity();
+        if (wantsEarlierRef.current && atEarlierBoundary()) scrollActivityRef.current!.activity();
       }
     });
     return () => window.cancelAnimationFrame(frame);
@@ -310,6 +341,7 @@ export function ThreadTimeline({
       onWheel={event => {
         navigationAnchorRef.current = null;
         wantsEarlierRef.current = event.deltaY < 0;
+        if (!wantsEarlierRef.current) continuationTopRef.current = null;
         if (event.deltaY < 0 && !loadingEarlierRef.current) earlierAttemptRef.current = null;
         scrollActivityRef.current!.activity();
       }}
@@ -324,6 +356,7 @@ export function ThreadTimeline({
         const y = event.touches[0]?.clientY ?? null;
         if (y !== null && touchYRef.current !== null && Math.abs(y - touchYRef.current) > 2) {
           wantsEarlierRef.current = y > touchYRef.current;
+          if (!wantsEarlierRef.current) continuationTopRef.current = null;
           if (wantsEarlierRef.current && !loadingEarlierRef.current) earlierAttemptRef.current = null;
         }
         touchYRef.current = y;
@@ -335,6 +368,7 @@ export function ThreadTimeline({
         navigationAnchorRef.current = null;
         if (['Home', 'PageUp', 'ArrowUp', 'End', 'PageDown', 'ArrowDown'].includes(event.key)) {
           wantsEarlierRef.current = ['Home', 'PageUp', 'ArrowUp'].includes(event.key);
+          if (!wantsEarlierRef.current) continuationTopRef.current = null;
           if (wantsEarlierRef.current && !loadingEarlierRef.current) earlierAttemptRef.current = null;
           scrollActivityRef.current!.activity();
         }
@@ -356,6 +390,7 @@ export function ThreadTimeline({
         if (restored !== null && Math.abs(stream.scrollTop - restored) < 1) return;
         if (Math.abs(delta) > .5) {
           wantsEarlierRef.current = delta < 0;
+          if (!wantsEarlierRef.current) continuationTopRef.current = null;
           if (wantsEarlierRef.current && !loadingEarlierRef.current) earlierAttemptRef.current = null;
         }
         scrollActivityRef.current!.activity();
@@ -397,6 +432,9 @@ export function ThreadTimeline({
         aria-label="回到最新消息"
         title="回到最新消息"
         onClick={() => {
+          earlierBoundaryRef.current = null;
+          continuationTopRef.current = null;
+          wantsEarlierRef.current = false;
           navigationVersionRef.current += 1;
           innerRef.current?.style.removeProperty('--reading-tail');
           navigatingRef.current = false;

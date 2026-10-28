@@ -41,7 +41,8 @@ export function restoreReadingAnchor(stream: HTMLElement, inner: HTMLElement, an
   anchor.offset = offset;
   anchor.scrollTop = stream.scrollTop;
   if (Math.abs(delta) <= .5) return false;
-  const target = stream.scrollTop + delta;
+  // WebKit can truncate an almost-integer target and expose a second correction.
+  const target = Math.round(stream.scrollTop + delta);
   const missingSpace = target - (stream.scrollHeight - stream.clientHeight);
   // A short initial page has blank space below it. Keep that space while
   // prepending, otherwise the browser clamps the requested reading position.

@@ -1,6 +1,6 @@
 # History Loading and Side-Chat Acceptance
 
-Date: 2026-10-27.
+Updated: 2026-10-28. Earlier verification below retains its dated scope.
 
 ## Behavior
 
@@ -10,6 +10,10 @@ Date: 2026-10-27.
   intent, a position within 64px of the top, no finger down, and 160ms without
   scroll activity. Recheck these conditions after the network and timing reads.
   Leaving the top keeps the prepared page for a later upward scroll.
+  A tool/reasoning/commentary-only page retains the upward intent at the
+  restored anchor, even when compensation moves scrollTop beyond 64px.
+  Continue one bounded page at a time until a user message or final/legacy
+  answer appears. Downward movement, navigation and activity expansion stop it.
   Short initial pages do not automatically consume the full history.
 - Cancel abandoned downloads on selection, jumps and close. Speculative
   failures remain silent. A passive sentinel replaces the manual load button;
@@ -26,6 +30,34 @@ Date: 2026-10-27.
   mounting and asynchronous thread creation.
 
 ## Verification
+
+### 2026-10-28 Continuation
+
+- The current suite has 285 tests across 47 files; both TypeScript builds and
+  the production bundle pass. Readable-history cases include final/legacy
+  replies, image-only questions, blank messages and hidden/commentary records.
+- A synthetic chat places three 100-record execution-only pages before the
+  older user message and final answer. One upward gesture consumes those pages
+  without requiring another gesture after each restored anchor.
+- Chromium and Windows WebKit cover 2560x1440, 402x874 and 320x568, including
+  hidden reasoning, downward cancellation and a failed read followed by a new
+  upward gesture. Idle failures do not retry; all original anchors survive.
+  All 24 scenarios pass with at most 0.5 CSS pixels of measured anchor drift.
+  The next speculative page stays unconsumed after readable context appears.
+- Browser-level Chromium touch injection at 402x874 and 320x568, DPR 3 and
+  four-times CPU throttling blocks insertion while the finger is held.
+  Natural touch/momentum movement is measured separately from insertion drift.
+  Each insertion moves the anchor by at most 0.5 CSS pixels.
+- Anchor restoration rounds its target to avoid WebKit truncating
+  almost-integer scroll positions and applying a second correction.
+  These are host browser checks, not physical iPhone Safari acceptance.
+- Deployed local and public checks at 402x874 DPR 3 advance actual Windows
+  native history cursors after one gesture. Original message nodes survive
+  with 0.25px local and 0px public drift in these samples; no model actions or
+  page errors occur. Matching static files and authenticated SSE hello/pong
+  pass separately. These observations do not establish mobile-network latency.
+
+### Earlier Checkpoint
 
 - At the recorded acceptance checkpoint, 171 tests across 36 files passed;
   TypeScript and production build passed. See the README for the current suite.

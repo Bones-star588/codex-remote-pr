@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { HistoryPrefetch, prepareHistoryPage } from './history-prefetch';
+import { HistoryPrefetch, isReadableHistoryItem, prepareHistoryPage } from './history-prefetch';
 import type { ThreadHistoryPage } from './types';
 import type { TurnTiming } from '../shared/turn-timing';
 
@@ -11,6 +11,21 @@ const page: ThreadHistoryPage = {
 };
 
 describe('silent history preparation', () => {
+  it('continues past folded activity and commentary but stops for real conversation', () => {
+    expect(isReadableHistoryItem({ type: 'reasoning', id: 'r', summary: ['Hidden'], content: [] })).toBe(false);
+    expect(isReadableHistoryItem({ type: 'agentMessage', id: 'c', phase: 'commentary', text: 'Progress' })).toBe(false);
+    expect(isReadableHistoryItem({ type: 'agentMessage', id: 'p', phase: 'partial_answer', text: 'Progress' })).toBe(false);
+    expect(isReadableHistoryItem({ type: 'agentMessage', id: 'a', phase: 'final_answer', text: 'Answer' })).toBe(true);
+    expect(isReadableHistoryItem({ type: 'agentMessage', id: 'legacy', text: 'Legacy reply' })).toBe(true);
+  });
+
+  it('recognizes image-only questions without counting blank messages as new context', () => {
+    expect(isReadableHistoryItem({ type: 'userMessage', id: 'u', content: [{ type: 'text', text: '  ' }] })).toBe(false);
+    expect(isReadableHistoryItem({ type: 'agentMessage', id: 'a', text: '  ' })).toBe(false);
+    expect(isReadableHistoryItem({ type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'Question' }] })).toBe(true);
+    expect(isReadableHistoryItem({ type: 'userMessage', id: 'u', content: [{ type: 'localImage', path: '/question.png' }] })).toBe(true);
+  });
+
   it('shares the pending and completed speculative page with the reader', async () => {
     const buffer = new HistoryPrefetch();
     let finish!: (value: ThreadHistoryPage) => void;
