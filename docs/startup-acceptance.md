@@ -260,3 +260,55 @@ subagent/ephemeral sources. The 257 ordinary tasks, including normally unnamed
 chats, remain available. Child viewer history/subscriptions are preserved;
 the fix neither deletes nor archives children. Assistant prose hides internal
 citation IDs while retaining user text, inline/fenced code and real links.
+
+## HTTP Transport Follow-Up
+
+Date: 2026-10-28. This release requires matching server and client deployment.
+
+The preceding recovery work could still leave chat controls unavailable when a
+browser blocked WebSocket. Main-chat transport now tries WebSocket for three
+seconds, allows six seconds for synchronization, then falls back to authenticated
+HTTP EventSource and one-shot POSTs. Both paths use the same native RPC handler,
+watched threads and event replay journal. Successful HTTP use is remembered only
+as a tab-session route preference. It never grants authentication.
+
+HTTP connections and synchronization have separate 12-second deadlines. Events
+are flushed immediately, uncompressed, with no-store/no-transform headers.
+Peers are bound to the verified cookie session. POST receipt returns 202 before
+native work finishes; native results arrive over the event stream. Operations
+are never automatically retried, and a lost acknowledgement does not resubmit
+a model request. Large image bodies retain the existing transport allowance;
+heartbeats bypass the upload queue.
+
+Heartbeat replies allow 12 seconds instead of five. Hidden pages pause probes;
+foreground and pageshow start a fresh probe. Timers delayed by suspension do
+not immediately report a stale heartbeat timeout. Background Web Push is
+independent of the page connection; transient network/429/5xx delivery failures
+retry twice after one/four seconds, keeping the tag and respecting unsubscribe.
+
+The local suite passes 251 tests across 45 files, type checking and production
+build. Tests cover transport fallback, hidden-page recovery, delayed heartbeat,
+one-shot failed POSTs, actual SSE flushing, session/origin boundaries, large
+image input, native-work concurrency, disconnect cleanup and push retry limits.
+
+Public production acceptance at 402x874 CSS pixels / DPR 3 deliberately blocked
+all main-chat WebSockets. No model prompt or mutating model action was sent.
+
+| Scenario | Chromium | Windows WebKit |
+| --- | ---: | ---: |
+| Cold navigation to HTTP synchronization | 3355 ms | 3390 ms |
+| Reload to HTTP synchronization | 1601 ms | 1633 ms |
+| Cold chat selection to enabled controls | 4994 ms | 4582 ms |
+| Reload chat selection to enabled controls | 4461 ms | 4570 ms |
+| Three offline/online recoveries | 2699-2710 ms | 2154-2196 ms |
+
+Both engines completed native resume, retained drafts, passed 25 seconds of
+idle heartbeats and recorded zero page exceptions or channel errors before
+the deliberate offline cycles. These are host-browser public-route samples,
+not physical iPhone/5G timings. The longer chat-control timings remain visible
+here; the fallback resolves availability, not every native-read delay.
+
+The terminal still uses a separate WebSocket and has no HTTP fallback. Remote,
+its native Desktop connection and the public origin must remain available for
+notifications. Physical iPhone/iPad delivery, mobile suspension and real
+5G/Wi-Fi reliability remain separate acceptance. No DNS/proxy settings changed.

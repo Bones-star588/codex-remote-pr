@@ -134,8 +134,15 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   replaces a first-page read stalled for two seconds; old completions must not
   clear replacement state. Bound shared native snapshot/metadata reads to eight
   seconds so retries cannot remain attached to a 120-second native read.
-  Bound transport and sync.ready handshakes separately to six seconds; pongs do
-  not count as sync readiness. Visible socket retry starts at 250ms and caps at
+  Main-chat WebSocket attempts allow three seconds to connect and six seconds
+  for sync.ready. On failure, use authenticated HTTP EventSource plus one-shot
+  POSTs, with 12-second transport/sync deadlines. Both transports share native
+  RPC handling, watched threads and the replay journal. Bind HTTP peers to the
+  verified cookie session; flush uncompressed no-store events. Never retry an
+  uncertain action POST. Remember successful HTTP use in tab-session storage
+  as a route preference only, never authentication. Heartbeat replies allow
+  12 seconds; pause probes in hidden pages and start fresh on foreground/pageshow.
+  Pongs do not count as sync readiness. Visible retry starts at 250ms and caps at
   five seconds. Manual reconnect preserves the mounted workspace and drafts,
   cancels stale task/history reads, and never repeats uncertain model actions.
   Preload the Workspace module from the shell. Return the installed version's
@@ -200,7 +207,10 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   exclude children and ephemeral chats. Send generic status only, never prompt,
   reply, path or command content. Revoke the device subscription before logout;
   do not claim browser-session expiry revokes OS push. Test delivery acceptance
-  separately from actual iPhone/iPad notification display.
+  separately from actual iPhone/iPad notification display. Native push delivery
+  does not depend on a browser connection. Retry transient network/429/5xx
+  delivery twice at one/four seconds; retain the notification tag, stop on
+  unsubscribe, and remove expired endpoints without retrying them.
 - Strip internal citation IDs from assistant prose only. Preserve user text,
   inline/fenced code and real links; do not invent missing source destinations.
 - Main-chat queued submissions use native queue IDs and cursor pagination.

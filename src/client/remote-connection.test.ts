@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import type { ServerMessage } from '../shared/protocol';
-import { RemoteConnection } from './remote-connection';
+import { RemoteConnection, type RemoteChannel } from './remote-connection';
 import { hostNow, synchronizeHostClock } from './host-clock';
 
+class FakeEventSource extends EventTarget {
+  static instances: FakeEventSource[] = [];
+  constructor(readonly url: string) { super(); FakeEventSource.instances.push(this); }
+  close = vi.fn();
+  open() { this.dispatchEvent(new Event('open')); }
+  message(value: unknown) { this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(value) })); }
+}
 class FakeSocket extends EventTarget {
   static CONNECTING = 0;
   static OPEN = 1;
@@ -32,11 +39,12 @@ describe('Remote connection recovery', () => {
   let onDisconnect: Mock<(error: Error) => void>;
   let onMessage: Mock<(message: ServerMessage) => void>;
   let onOpen: Mock<() => void>;
-  let current: WebSocket | null;
+  let current: RemoteChannel | null;
 
   beforeEach(() => {
     vi.useFakeTimers();
     FakeSocket.instances = [];
+    FakeEventSource.instances = [];
     browser = Object.assign(new EventTarget(), { setTimeout, clearTimeout });
     documentTarget = Object.assign(new EventTarget(), { visibilityState: 'visible' });
     network = { onLine: true };
@@ -44,6 +52,9 @@ describe('Remote connection recovery', () => {
     vi.stubGlobal('document', documentTarget);
     vi.stubGlobal('navigator', network);
     vi.stubGlobal('WebSocket', FakeSocket);
+    vi.stubGlobal('EventSource', FakeEventSource);
+    vi.stubGlobal('sessionStorage', { getItem: () => null, setItem: vi.fn() });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => '' }));
     onDisconnect = vi.fn<(error: Error) => void>();
     onMessage = vi.fn<(message: ServerMessage) => void>();
     onOpen = vi.fn<() => void>();
@@ -69,7 +80,7 @@ describe('Remote connection recovery', () => {
     first.message({ type: 'pong', at: 'now' });
     vi.advanceTimersByTime(20_000);
     expect(first.sent).toHaveLength(2);
-    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(12_000);
     expect(onDisconnect).toHaveBeenCalledOnce();
     expect(current).toBeNull();
     vi.advanceTimersByTime(250);
@@ -118,7 +129,7 @@ describe('Remote connection recovery', () => {
     expect(first.sent).toHaveLength(1);
     documentTarget.visibilityState = 'visible';
     documentTarget.dispatchEvent(new Event('visibilitychange'));
-    vi.advanceTimersByTime(2500);
+    vi.advanceTimersByTime(9500);
     browser.dispatchEvent(new Event('focus'));
     expect(first.sent).toHaveLength(2);
     vi.advanceTimersByTime(2500);
@@ -235,5 +246,73 @@ describe('Remote connection recovery', () => {
     connection.dispose();
     connection.reconnect();
     expect(FakeSocket.instances).toHaveLength(2);
+  });
+
+  it('switches a rejected WebSocket to HTTP, completes sync and sends each action once', async () => {
+    connection.dispose();
+    connection = new RemoteConnection({
+      url: 'wss://remote.test/ws', httpFallback: '/api/connection', readyType: 'sync.ready',
+      onSocket: socket => { current = socket; },
+      onOpen: () => current!.send('{"type":"sync.resume"}'), onMessage, onDisconnect
+    });
+    connection.start();
+    FakeSocket.instances.at(-1)!.dispatchEvent(new Event('error'));
+    expect(FakeEventSource.instances).toHaveLength(1);
+    const stream = FakeEventSource.instances[0]!;
+    stream.open();
+    stream.message({ type: 'sync.ready', epoch: 'test', sequence: 0, resumed: false });
+    stream.message({ type: 'pong' });
+    current!.send('{"type":"rpc","method":"turn/start","id":"one"}');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => String(init?.body).includes('turn/start'))).toHaveLength(1);
+    expect(sessionStorage.setItem).toHaveBeenCalledWith('remote-http-transport', '1');
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'sync.ready' }));
+    connection.dispose();
+    expect(stream.close).toHaveBeenCalled();
+  });
+
+  it('tries HTTP after a three-second stuck WebSocket and never retries a failed action POST', async () => {
+    connection.dispose();
+    connection = new RemoteConnection({
+      url: 'wss://remote.test/ws', httpFallback: '/api/connection',
+      onSocket: socket => { current = socket; }, onOpen, onMessage, onDisconnect
+    });
+    connection.start();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    const stream = FakeEventSource.instances[0]!;
+    stream.open();
+    stream.message({ type: 'pong' });
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('Network lost'));
+    current!.send('{"type":"rpc","method":"turn/start","id":"one"}');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => String(init?.body).includes('turn/start'))).toHaveLength(1);
+    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(current!.readyState).toBe(0);
+  });
+
+  it('keeps a suspended phone connection and gives it a fresh heartbeat on return', () => {
+    const socket = FakeSocket.instances[0]!;
+    socket.open();
+    documentTarget.visibilityState = 'hidden';
+    documentTarget.dispatchEvent(new Event('visibilitychange'));
+    vi.advanceTimersByTime(120_000);
+    expect(onDisconnect).not.toHaveBeenCalled();
+    documentTarget.visibilityState = 'visible';
+    browser.dispatchEvent(new Event('pageshow'));
+    socket.message({ type: 'pong' });
+    vi.advanceTimersByTime(11_000);
+    expect(onDisconnect).not.toHaveBeenCalled();
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
+  it('does not disconnect for a seven-second mobile heartbeat round trip', () => {
+    const socket = FakeSocket.instances[0]!;
+    socket.open();
+    vi.advanceTimersByTime(7000);
+    socket.message({ type: 'pong' });
+    expect(onDisconnect).not.toHaveBeenCalled();
+    expect(current).toBe(socket);
   });
 });

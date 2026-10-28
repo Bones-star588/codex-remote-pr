@@ -136,7 +136,20 @@ export class PushNotifications {
   }
 
   private async notify(payload: NotificationPayload): Promise<void> {
-    await Promise.allSettled([...this.subscriptions.values()].map(subscription => this.send(subscription, payload)));
+    await Promise.allSettled([...this.subscriptions.values()].map(async subscription => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (!this.status(subscription.endpoint)) return;
+        try { await this.send(subscription, payload); return; }
+        catch (error) {
+          const status = (error as { statusCode?: number })?.statusCode;
+          if (attempt === 2 || status !== undefined && status !== 429 && status < 500) return;
+          await new Promise<void>(resolve => {
+            const timer = setTimeout(resolve, attempt === 0 ? 1000 : 4000);
+            timer.unref?.();
+          });
+        }
+      }
+    }));
   }
 
   async test(endpoint: string): Promise<'sent' | 'missing' | 'failed'> {

@@ -4,7 +4,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
-import { RemoteConnection } from '../remote-connection';
+import { RemoteConnection, type RemoteChannel } from '../remote-connection';
 import { copyText } from '../clipboard';
 import type { TerminalClientMessage, TerminalInfo, TerminalServerMessage } from '../../shared/terminal';
 import './terminal.css';
@@ -33,7 +33,7 @@ export default function TerminalPanel({ cwd, onClose }: { cwd: string | undefine
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(host);
-    let socket: WebSocket | null = null;
+    let socket: RemoteChannel | null = null;
     let attachedId: string | null = null;
     let ready = false;
     let disposed = false;

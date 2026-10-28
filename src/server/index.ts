@@ -36,6 +36,7 @@ import { filePreviewRouter } from './file-preview.js';
 import { LocalImages, imageExtensions } from './local-images.js';
 import { PushNotifications } from './push-notifications.js';
 import { isTaskThread } from '../shared/thread-source.js';
+import { httpConnections, type RemotePeer } from './http-connections.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -50,15 +51,15 @@ const wss = new WebSocketServer({
     concurrencyLimit: 4
   }
 });
-const clients = new Set<WebSocket>();
-const synchronizedClients = new Set<WebSocket>();
+const clients = new Set<RemotePeer>();
+const synchronizedClients = new Set<RemotePeer>();
 const eventJournal = new EventJournal();
 const localImages = new LocalImages(path.join(config.dataDir, 'image-attachments'));
 const metadataReader = new MetadataReader((method, params) => codexBridge.request(method, params));
 const workspaceSnapshots = new WorkspaceSnapshots((method, params) => codexBridge.request(method, params));
 const pushNotifications = new PushNotifications(config.dataDir, config.publicOrigin ?? 'https://example.com');
-const watchedThreads = new Map<WebSocket, Set<string>>();
-const ephemeralChats = new EphemeralChats<WebSocket>(threadId => codexBridge.request('thread/unsubscribe', { threadId }));
+const watchedThreads = new Map<RemotePeer, Set<string>>();
+const ephemeralChats = new EphemeralChats<RemotePeer>(threadId => codexBridge.request('thread/unsubscribe', { threadId }));
 const queueDispatcher = new QueueDispatcher(<T,>(method: import('../shared/protocol.js').ClientRpcMethod, params: unknown) =>
   codexBridge.request(method, params) as Promise<T>);
 const terminalWss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024 });
@@ -68,6 +69,15 @@ terminalWss.on('connection', (socket) => handleTerminalSocket(socket, terminals)
 app.set('trust proxy', config.trustProxy);
 app.disable('x-powered-by');
 app.use(compression());
+app.use('/api/connection', requireAuth, (req, _res, next) => {
+  assertTrustedOrigin(req);
+  next();
+}, express.json({ limit: '100mb' }), httpConnections({
+  session: req => readSessionCookie(req.headers.cookie)!.sid,
+  connect: connectClient,
+  disconnect: disconnectClient,
+  message: handleClientMessage
+}));
 app.use(express.json({ limit: '1mb' }));
 
 function isAuthenticated(req: Request): boolean {
@@ -436,6 +446,14 @@ server.on('upgrade', handleUpgrade);
 lanServer?.on('upgrade', handleUpgrade);
 
 wss.on('connection', (socket) => {
+  connectClient(socket);
+  socket.on('message', (data) => {
+    void handleClientMessage(socket, data.toString());
+  });
+  socket.on('close', () => disconnectClient(socket));
+});
+
+function connectClient(socket: RemotePeer): void {
   clients.add(socket);
   watchedThreads.set(socket, new Set());
   send(socket, {
@@ -453,18 +471,16 @@ wss.on('connection', (socket) => {
     requests: codexBridge.getPendingServerRequests()
   });
 
-  socket.on('message', (data) => {
-    void handleClientMessage(socket, data.toString());
-  });
-  socket.on('close', () => {
-    clients.delete(socket);
-    synchronizedClients.delete(socket);
-    watchedThreads.delete(socket);
-    ephemeralChats.disconnect(socket);
-  });
-});
+}
 
-async function handleClientMessage(socket: WebSocket, raw: string): Promise<void> {
+function disconnectClient(socket: RemotePeer): void {
+  clients.delete(socket);
+  synchronizedClients.delete(socket);
+  watchedThreads.delete(socket);
+  ephemeralChats.disconnect(socket);
+}
+
+async function handleClientMessage(socket: RemotePeer, raw: string): Promise<void> {
   let message: ClientMessage;
   try {
     message = JSON.parse(raw) as ClientMessage;
@@ -559,7 +575,7 @@ function broadcast(message: ServerMessage): void {
   }
 }
 
-function send(socket: WebSocket, message: ServerMessage): void {
+function send(socket: RemotePeer, message: ServerMessage): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 }
 

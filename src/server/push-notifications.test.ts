@@ -98,6 +98,41 @@ describe('private standard Web Push subscriptions', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it('retries transient background delivery without any browser connection', async () => {
+    vi.useFakeTimers();
+    const send = vi.spyOn(webPush, 'sendNotification')
+      .mockRejectedValueOnce({ statusCode: 503 }).mockResolvedValue(sent);
+    const { notifications } = create();
+    notifications.subscribe(subscription());
+    notifications.watch('main');
+    const delivery = notifications.notifyTurn({ threadId: 'main', turn: { id: 'turn', status: 'completed' } });
+    await vi.advanceTimersByTimeAsync(1000);
+    await delivery;
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[0]![1]).toBe(send.mock.calls[1]![1]);
+  });
+
+  it('bounds retries and stops if the device unsubscribes during a retry wait', async () => {
+    vi.useFakeTimers();
+    const send = vi.spyOn(webPush, 'sendNotification').mockRejectedValue({ statusCode: 503 });
+    const { notifications } = create();
+    const device = subscription();
+    notifications.subscribe(device);
+    notifications.watch('main');
+    const params = { threadId: 'main', turn: { id: 'turn', status: 'completed' } };
+    const failed = notifications.notifyTurn(params);
+    await vi.advanceTimersByTimeAsync(5000);
+    await failed;
+    expect(send).toHaveBeenCalledTimes(3);
+    const cancelled = notifications.notifyTurn(params);
+    await vi.advanceTimersByTimeAsync(0);
+    notifications.unsubscribe(device.endpoint);
+    await vi.advanceTimersByTimeAsync(1000);
+    await cancelled;
+    expect(send).toHaveBeenCalledTimes(4);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it.each([404, 410])('removes expired push endpoints after HTTP %s without rejecting the native event', async statusCode => {
     const send = vi.spyOn(webPush, 'sendNotification').mockRejectedValue({ statusCode });
     const { notifications, directory } = create();

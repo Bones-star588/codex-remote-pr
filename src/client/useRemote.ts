@@ -9,7 +9,7 @@ import { api, HttpError, isAbortedRequest, ReadRequests } from './api';
 import { beginForegroundRead, constrainedNetwork, prioritizeInteraction, yieldToInteraction } from './background-work';
 import { readDeviceWorkspace, saveDeviceWorkspace, readDeviceChat, saveDeviceChat, removeDeviceChat } from './device-snapshots';
 import { applyTaskPage, provisionalHistory, provisionalThread, type OpenThreadPage, type ThreadListPage } from './loading-snapshots';
-import { RemoteConnection } from './remote-connection';
+import { RemoteConnection, type RemoteChannel } from './remote-connection';
 import { itemKey, mergeLatestHistoryItems, mergeOlderHistoryItems, mergeOlderTurnTimings, mergeTurnTimings, reconcileThreadList, upsertItem } from './remote-state';
 import type {
   BridgeStatus,
@@ -96,7 +96,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   const [timedThreadId, setTimedThreadId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
+  const socketRef = useRef<RemoteChannel | null>(null);
   const pendingRef = useRef(new Map<string, PendingRpc>());
   const pendingServerResponsesRef = useRef(new Map<string, PendingServerResponse>());
   const refreshThreadsTimerRef = useRef<number | null>(null);
@@ -1186,6 +1186,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const connection = new RemoteConnection({
       url: `${protocol}//${window.location.host}/ws`,
+      httpFallback: '/api/connection',
       readyType: 'sync.ready',
       onSocket: (socket) => { socketRef.current = socket; },
       onOpen: () => {
@@ -1236,6 +1237,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         outlineRefreshRef.current?.();
       },
       onDisconnect: (error) => {
+        if ('status' in error && error.status === 401) { authExpiredRef.current?.(); return; }
         setConnected(false);
         setLastError(error.message);
         flushStreamingDeltas();
