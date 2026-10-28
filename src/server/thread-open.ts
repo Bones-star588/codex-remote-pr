@@ -1,5 +1,6 @@
 import type { ClientRpcMethod } from '../shared/protocol.js';
 import type { TurnTiming } from '../shared/turn-timing.js';
+import { userMessageText } from '../shared/user-message.js';
 
 type Request = (method: ClientRpcMethod, params: unknown) => Promise<unknown>;
 
@@ -8,6 +9,30 @@ interface HistoryEntry {
   item: unknown;
   startedAtMs: number | null;
   completedAtMs: number | null;
+}
+
+interface HistoryPage {
+  data: HistoryEntry[];
+  nextCursor: string | null;
+}
+
+function hasConversationContext(entries: HistoryEntry[]): boolean {
+  let user = false;
+  let answer = false;
+  for (const { item } of entries) {
+    const value = item as {
+      type?: string; text?: string; phase?: string | null;
+      content?: Array<{ type: string; text?: string; path?: string; url?: string }>;
+    };
+    if (value.type === 'userMessage') {
+      user ||= value.content?.some(part => part.type === 'text' ? Boolean(userMessageText(part.text ?? '').trim())
+        : (part.type === 'image' || part.type === 'localImage') && Boolean(part.path || part.url)) ?? false;
+    } else if (value.type === 'agentMessage' && value.phase !== 'commentary' && value.phase !== 'partial_answer') {
+      answer ||= Boolean(value.text?.trim());
+    }
+    if (user && answer) return true;
+  }
+  return false;
 }
 
 export async function readOpenThread(
@@ -20,11 +45,27 @@ export async function readOpenThread(
     mode === 'new'
       ? Promise.resolve({ data: [], nextCursor: null })
       : request('thread/items/list', { threadId, limit: 40, sortDirection: 'desc' })
-  ]) as [unknown, { data: HistoryEntry[]; nextCursor: string | null }];
+  ]) as [unknown, HistoryPage];
+  const entries = [...history.data];
+  let nextCursor = history.nextCursor;
+  const cursors = new Set<string>();
+  // A tool-heavy tail can contain no visible conversation at all.
+  for (let page = 0; page < 2 && nextCursor && !hasConversationContext(entries); page++) {
+    if (cursors.has(nextCursor)) break;
+    cursors.add(nextCursor);
+    let older: HistoryPage;
+    try {
+      older = await request('thread/items/list', {
+        threadId, limit: 100, sortDirection: 'desc', cursor: nextCursor
+      }) as HistoryPage;
+    } catch { break; }
+    entries.push(...older.data);
+    nextCursor = older.nextCursor;
+  }
   return {
     result,
-    items: [...history.data].reverse(),
-    nextCursor: history.nextCursor,
+    items: entries.reverse(),
+    nextCursor,
     activeTurnId: null,
     turns: [] as TurnTiming[],
     turnsCursor: null,

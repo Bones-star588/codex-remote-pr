@@ -112,7 +112,10 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   bootstrap, timeout fallback and reconnect; late metadata must not replace
   newer native results. Native model/project fallbacks wait at most 1.5 seconds
   after socket readiness. Open chats with one native-backed HTTP
-  read-only request: 40 latest records without waiting for resume or timings.
+  read-only request: start with 40 latest records without waiting for resume or
+  timings. If these lack a visible user message and final/legacy assistant
+  answer, follow at most two native 100-record pages, retaining the latest
+  items and remaining cursor. This bounded fill is separate from scroll paging.
   Read timings independently; gate sending/queues on native metadata, timings,
   resume and the socket. Older paging waits for the initial timing cursor.
   Task first pages contain 50 rows, then 200 per native cursor. Share pending
@@ -137,11 +140,19 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   clear replacement state. Bound shared native snapshot/metadata reads to eight
   seconds so retries cannot remain attached to a 120-second native read.
   Main-chat WebSocket attempts allow three seconds to connect and six seconds
-  for sync.ready. On failure, use authenticated HTTP EventSource plus one-shot
+  for sync.ready. After 500ms still connecting, warm authenticated HTTP
+  EventSource in parallel; the first open transport wins and the unused
+  candidate closes. Before sync, selecting a route is not a lost live session.
+  On failure, use authenticated HTTP EventSource plus one-shot
   POSTs, with 12-second transport/sync deadlines. Both transports share native
   RPC handling, watched threads and the replay journal. Bind HTTP peers to the
   verified cookie session; flush uncompressed no-store events. Never retry an
-  uncertain action POST. Remember successful HTTP use in tab-session storage
+  uncertain action POST. An isolated failed POST rejects only its matching RPC
+  or approval, preserving a healthy SSE stream; 401/409 or stream failure
+  invalidates the peer. Reads and pings bypass action acknowledgement waits.
+  Sync/watch controls have a separate ordered lane, with three safe attempts
+  at 0.5/1-second intervals; superseded watches stop. Never apply these retries
+  to model or approval actions. Remember successful HTTP use in tab-session storage
   as a route preference only, never authentication. Heartbeat replies allow
   12 seconds; pause probes in hidden pages and start fresh on foreground/pageshow.
   Ordinary focus/pageshow must not shorten or reset handshake deadlines. Pause
@@ -168,6 +179,7 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   expired authentication, permanent client errors or cancelled selections.
   Recover failed catalogs on real network/foreground recovery or manual retry.
   Replay reconnects fill incomplete chat reads without reopening healthy history.
+  Background task pagination is not evidence that the current chat is incomplete.
   Existing main-thread subscription resume may retry three times at 0.5/1s,
   stopping on selection or connection changes. Never generalize this to retry
   model actions or new-chat creation.

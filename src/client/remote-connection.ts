@@ -18,6 +18,8 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
   private stopped = true;
   private failures = 0;
   private reconnectTimer: number | undefined;
+  private fallbackTimer: number | undefined;
+  private fallbackSocket: RemoteChannel | null = null;
   private connectTimer: number | undefined;
   private heartbeatTimer: number | undefined;
   private pongTimer: number | undefined;
@@ -70,14 +72,38 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
     if (this.stopped || this.socket || !navigator.onLine) return;
     const socket: RemoteChannel = this.http && this.options.httpFallback
       ? new HttpChannel(this.options.httpFallback) : new WebSocket(this.options.url);
+    this.attach(socket);
+    if (!this.http && this.options.httpFallback) {
+      this.fallbackTimer = window.setTimeout(() => {
+        this.fallbackTimer = undefined;
+        if (this.stopped || this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+        const fallback = new HttpChannel(this.options.httpFallback!);
+        this.fallbackSocket = fallback;
+        fallback.addEventListener('open', () => {
+          if (this.fallbackSocket === fallback && this.socket === socket &&
+              socket.readyState === WebSocket.CONNECTING) {
+            this.disconnect(socket, 'Selecting the available Remote transport.');
+          }
+        });
+        fallback.addEventListener('error', () => {
+          if (this.fallbackSocket !== fallback) return;
+          this.fallbackSocket = null;
+          fallback.close();
+        });
+      }, 500);
+    }
+  };
+
+  private attach(socket: RemoteChannel): void {
     this.socket = socket;
     this.synchronized = false;
     this.suspended = document.visibilityState !== 'visible';
     this.options.onSocket(socket);
     this.armHandshake(socket);
 
-    socket.addEventListener('open', () => {
+    const opened = () => {
       if (this.socket !== socket || this.stopped) return;
+      this.clearFallback();
       window.clearTimeout(this.connectTimer);
       this.connectTimer = undefined;
       if (this.options.readyType) {
@@ -85,7 +111,8 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
       } else { this.failures = 0; this.synchronized = true; }
       this.options.onOpen();
       this.ping();
-    });
+    };
+    socket.addEventListener('open', opened);
     socket.addEventListener('message', (event) => {
       if (this.socket !== socket || this.stopped) return;
       let message: Message;
@@ -123,7 +150,8 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
       const error = (event as Event & { error?: Error }).error;
       this.disconnect(socket, error ?? 'Remote connection lost. Reconnecting...');
     });
-  };
+    if (socket.readyState === WebSocket.OPEN) opened();
+  }
 
   private armHandshake(socket: RemoteChannel): void {
     window.clearTimeout(this.connectTimer);
@@ -144,6 +172,15 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
     window.clearTimeout(this.connectTimer);
     this.connectTimer = undefined;
     this.clearHeartbeat();
+    this.clearFallback();
+  }
+
+  private clearFallback(): void {
+    window.clearTimeout(this.fallbackTimer);
+    this.fallbackTimer = undefined;
+    const fallback = this.fallbackSocket;
+    this.fallbackSocket = null;
+    fallback?.close();
   }
 
   private clearHeartbeat(): void {
@@ -155,10 +192,21 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
 
   private disconnect(socket: RemoteChannel, message: string | Error): void {
     if (this.socket !== socket) return;
+    const fallback = this.fallbackSocket;
+    this.fallbackSocket = null;
     this.clearSocketTimers();
     this.socket = null;
     this.options.onSocket(null);
     socket.close();
+    // Selecting a route before synchronization is not loss of a live session.
+    if (!this.synchronized && !this.http && this.options.httpFallback &&
+        !this.stopped && navigator.onLine) {
+      this.http = true;
+      if (fallback && fallback.readyState < 2) this.attach(fallback);
+      else this.connect();
+      return;
+    }
+    fallback?.close();
     this.options.onDisconnect(typeof message === 'string' ? new Error(message) : message);
     window.clearTimeout(this.reconnectTimer);
     if (!this.stopped && navigator.onLine) {

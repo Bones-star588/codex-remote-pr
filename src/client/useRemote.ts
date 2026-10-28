@@ -1293,7 +1293,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         } else recoverMetadata();
         if (listFailuresRef.current > 0) retryThreadsRef.current();
         const threadId = activeThreadRef.current;
-        if (threadId && (!message.resumed || !initializedRef.current ||
+        if (threadId && (!message.resumed ||
             verifiedThreadRef.current !== threadId || timedThreadRef.current !== threadId)) {
           void openThread(threadId, { silent: true, preserveHistory: true }).catch(() => undefined);
         }

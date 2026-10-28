@@ -356,7 +356,7 @@ describe('Remote connection recovery', () => {
     expect(stream.close).toHaveBeenCalled();
   });
 
-  it('tries HTTP after a three-second stuck WebSocket and never retries a failed action POST', async () => {
+  it('warms HTTP while WebSocket connects and isolates a failed action POST', async () => {
     connection.dispose();
     connection = new RemoteConnection({
       url: 'wss://remote.test/ws', httpFallback: '/api/connection',
@@ -372,8 +372,71 @@ describe('Remote connection recovery', () => {
     current!.send('{"type":"rpc","method":"turn/start","id":"one"}');
     await vi.advanceTimersByTimeAsync(1000);
     expect(vi.mocked(fetch).mock.calls.filter(([, init]) => String(init?.body).includes('turn/start'))).toHaveLength(1);
-    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(current!.readyState).toBe(1);
+    expect(onDisconnect).not.toHaveBeenCalled();
+    expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'rpc.error', id: 'one' }));
+  });
+
+  it('uses a warmed HTTP connection before the WebSocket deadline without reporting a disconnect', async () => {
+    connection.dispose();
+    connection = new RemoteConnection({
+      url: 'wss://remote.test/ws', httpFallback: '/api/connection', readyType: 'sync.ready',
+      onSocket: socket => { current = socket; },
+      onOpen: () => current!.send('{"type":"sync.resume"}'), onMessage, onDisconnect
+    });
+    connection.start();
+    const primary = FakeSocket.instances.at(-1)!;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    const stream = FakeEventSource.instances[0]!;
+    stream.open();
+    stream.message({ type: 'sync.ready', epoch: 'test', sequence: 0, resumed: false });
+    stream.message({ type: 'pong' });
+    expect(primary.readyState).toBe(3);
+    expect(current!.readyState).toBe(1);
+    expect(onDisconnect).not.toHaveBeenCalled();
+    primary.open();
+    primary.message({ type: 'event', method: 'stale', params: {} });
+    expect(onMessage).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'stale' }));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => String(init?.body).includes('sync.resume'))).toHaveLength(1);
+  });
+
+  it('keeps the WebSocket if it opens first and releases the unused warm HTTP peer', async () => {
+    connection.dispose();
+    connection = new RemoteConnection({
+      url: 'wss://remote.test/ws', httpFallback: '/api/connection',
+      onSocket: socket => { current = socket; }, onOpen, onMessage, onDisconnect
+    });
+    connection.start();
+    await vi.advanceTimersByTimeAsync(500);
+    const stream = FakeEventSource.instances[0]!;
+    const primary = FakeSocket.instances.at(-1)!;
+    primary.open();
+    primary.message({ type: 'pong' });
+    stream.open();
+    expect(current).toBe(primary);
+    expect(stream.close).toHaveBeenCalledOnce();
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onDisconnect).not.toHaveBeenCalled();
+  });
+
+  it('reuses the warm HTTP peer when WebSocket fails and closes both pending candidates on disposal', async () => {
+    connection.dispose();
+    connection = new RemoteConnection({
+      url: 'wss://remote.test/ws', httpFallback: '/api/connection',
+      onSocket: socket => { current = socket; }, onOpen, onMessage, onDisconnect
+    });
+    connection.start();
+    await vi.advanceTimersByTimeAsync(500);
+    FakeSocket.instances.at(-1)!.dispatchEvent(new Event('error'));
+    expect(FakeEventSource.instances).toHaveLength(1);
     expect(current!.readyState).toBe(0);
+    connection.dispose();
+    expect(FakeEventSource.instances[0]!.close).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(onDisconnect).not.toHaveBeenCalled();
   });
 
   it('keeps a suspended phone connection and gives it a fresh heartbeat on return', () => {

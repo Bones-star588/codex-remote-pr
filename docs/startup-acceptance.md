@@ -4,17 +4,19 @@ Date: 2026-10-28.
 
 ## Current Scope
 
-Application `41198b9` is the current verified implementation. Windows, macOS and
-Ubuntu CI run `40655896701` passed 262 tests in 46 files, type checking and
-production builds. Matching client/server artifacts were deployed; local and
-canonical public shell/service-worker checks matched the build, with ready
-Desktop transport. Documentation-only changes do not require redeployment.
+The current implementation adds
+[request isolation and initial context filling](#request-isolation-and-initial-context)
+to the preceding lifecycle fixes. Local validation passed 282 tests in 47 files
+and the TypeScript/production build. Matching client/server artifacts were
+deployed; local and canonical public shell/service-worker checks matched the
+build, with ready Desktop transport. Documentation-only changes do not require
+redeployment.
 
-The [lifecycle adversarial follow-up](#lifecycle-adversarial-follow-up) defines
-the latest connection and read-recovery behavior. Ordinary focus does not cancel
-healthy task reads or reset handshake deadlines. Missing catalogs load through
-independent authenticated HTTP, and initial chat/timing failures and existing
-subscription rejoin have bounded recovery. Model actions are never retried.
+Ordinary focus preserves healthy reads and handshake deadlines. Independent
+HTTP catalogs and bounded initial-read recovery remain. A failed action POST
+now affects only its request, and a slow connecting WebSocket warms HTTP after
+500ms. Healthy replayed chats stay intact even before task pagination finishes.
+Model actions are never automatically resubmitted.
 
 Older sections retain dated acceptance evidence. Their suite counts, timings
 and superseded recovery rules are historical, not additional current contracts.
@@ -30,9 +32,9 @@ readiness, and physical iPhone Safari / 5G/Wi-Fi remains unverified.
 
 ## Historical Startup Checkpoints
 
-The following sections through HTTP Transport Follow-Up describe earlier
-checkpoints. The lifecycle follow-up supersedes their focus/online recovery
-behavior. Earlier successful short probes missed the defects found there.
+The following sections through Lifecycle Adversarial Follow-Up describe earlier
+checkpoints. Later sections supersede their changed behavior. Earlier successful
+short probes missed defects subsequently found by user reports and fault injection.
 
 ### Parallel Startup Changes
 
@@ -395,3 +397,79 @@ uncompressed no-store/no-transform events with working hello/pong. Anonymous
 requests returned 401, invalid catalog kinds 400, and stale peers 409;
 wrong-origin requests were rejected. Existing data, Desktop and Tunnel were
 preserved; only Remote's changed backend was restarted.
+
+## Request Isolation and Initial Context
+
+Date: 2026-10-28. The earlier `41198b9` release passed its 262-test suite and
+CI `40655896701`; those results did not cover the following confirmed defects:
+
+- A single HTTP action/subscription POST failure closed a still-healthy SSE
+  connection, rejected unrelated requests and restarted synchronization.
+- Independent reads and subscriptions waited behind action acknowledgement
+  round trips. HTTP fallback also waited for WebSocket's connection deadline.
+- Forty latest raw items could contain only hidden reasoning and execution.
+  Opening such a chat showed no useful conversation until upward scrolling.
+- Replay reopened complete chat history if background task pagination was
+  unfinished. Chat completeness incorrectly depended on the task-list state.
+
+POST failures now reject their corresponding RPC or approval without closing a
+healthy stream. HTTP 401/409 and stream errors still invalidate the connection.
+Reads and pings bypass action receipt waits. Sync/watch controls use a separate
+ordered lane, with at most three safe attempts and cancellation of superseded
+watches. Model/approval actions are one-shot even when receipt is uncertain.
+
+If WebSocket is still CONNECTING at 500ms, HTTP warms in parallel. The first
+open candidate wins; the unused candidate closes. Selecting a route before
+synchronization is not reported as loss of an established session.
+
+Initial history starts with 40 items. Without both a visible user message and
+final/legacy answer, it follows at most two additional native pages of 100.
+Latest items and the remaining cursor stay intact. The 240-item ceiling still
+applies if an exceptionally long tail lacks context; older records remain
+available through automatic upward pagination. An extra-page failure preserves
+successful items and its retry cursor. Scroll insertion and gesture rules are
+unchanged. Healthy replay does not reopen history merely because task paging
+is unfinished.
+
+Production-build fault injection passed in Chromium and Windows WebKit at
+402x874 CSS pixels / DPR 3:
+
+| Scenario | Result |
+| --- | --- |
+| First subscription POST returns 503 | One healthy HTTP peer; native rejoin recovers |
+| Native result arrives; POST acknowledgement is lost for 12s | No disconnect, duplicate resume or lost draft/message DOM |
+| WebSocket upgrade delayed 7s | HTTP synchronized at .95s / 1.07s |
+| 142 execution records between user and final answer | Initial native paging includes conversation without a scroll |
+| Short replay while task pagination is unfinished | One open/timing read; original message DOM retained |
+
+The previous nine lifecycle scenarios also passed, with the replay regression
+reproduced before its fix. All fault probes recorded zero model actions and
+page exceptions. Cancellation of the unused WebSocket candidate produces its
+normal browser close/error event; this is not a live HTTP-stream failure.
+
+### Current Public Verification
+
+Canonical local/public shell, service worker and active asset bytes match.
+Authenticated model/project catalogs and uncompressed no-store SSE hello/pong
+pass. SSE hello took 14ms locally and 1046ms publicly in this host sample.
+
+A public Windows WebKit probe at 402x874 DPR 3 forced HTTP and injected one
+subscription POST 503. Initial sync took 3.739s. Three controlled offline/online
+recoveries took 1.738/1.759/1.743s, retaining drafts and message DOM with no error
+banner. During another 45s with repeated focus/online events, there were no
+additional opens, syncs or stream errors. No model actions or page exceptions
+occurred.
+
+Three unforced public Chromium desktop visits made fifteen native chat
+selections. Initial synchronization took 4.048s cold, then 1.900s and 2.095s.
+Selected chats reached enabled controls in 1.335-2.354s. Each visit retained one
+healthy HTTP stream after transport selection, with no connection-error banner
+and zero model actions. Tool-heavy sampled chats now included user context
+without scrolling. The unused/rejected WebSocket candidates emitted browser
+errors, while the selected HTTP stream stayed healthy; one auth-status request
+was normally cancelled when concurrent bootstrap verified the session.
+
+These are host-run probes against the actual public deployment, not physical
+iPhone measurements. Real Safari home-screen / 5G / Wi-Fi reliability and
+signed-in macOS acceptance remain pending. The reported intermittent 10-second
+delay is not claimed fully reproduced or eliminated by these samples.
