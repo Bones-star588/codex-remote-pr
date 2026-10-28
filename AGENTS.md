@@ -169,8 +169,12 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   Sync/watch controls have a separate ordered lane, with three safe attempts
   at 0.5/1-second intervals; superseded watches stop. Never apply these retries
   to model or approval actions. Remember successful HTTP use in tab-session storage
-  as a route preference only, never authentication. Heartbeat replies allow
-  12 seconds; pause probes in hidden pages and start fresh on foreground/pageshow.
+  as a route preference only, never authentication. Foreground heartbeats run
+  every five seconds. After two seconds without a reply on a synchronized main
+  channel, verify a new HTTP peer with a ping before retiring the original.
+  A late original pong cancels the candidate. Handover uses normal sync/replay
+  and rejects pending actions without resending them. Heartbeat replies still
+  allow 12 seconds; pause probes in hidden pages and start fresh on foreground/pageshow.
   Ordinary focus/pageshow must not shorten or reset handshake deadlines. Pause
   unfinished handshakes while hidden and give the current stage its full budget
   on actual foreground return. Redundant online events probe healthy channels
@@ -209,6 +213,14 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 - Permissions apply per chat. Do not rewrite global Codex config to change them.
 - Do not start a second backend that replaces an active Desktop relay.
 - Starting or stopping Remote must not terminate Codex Desktop.
+- Windows Tunnel tasks run the owned Node supervisor. Restart exited cloudflared
+  after one second, backing off repeated crashes to five seconds. Poll readiness
+  every two seconds and wake on native address/availability events. Rebuild only
+  after all edges remain unavailable for four seconds, eight seconds of startup
+  grace, a bounded TCP 7844 probe, and a final readiness recheck. Retain healthy
+  edges and a 15-second restart cooldown; network changes recheck the cooldown.
+  Stop disables tasks and terminates only this checkout's supervisor, watcher,
+  backend and token-file-matched Tunnel. Never revive an explicitly stopped task.
 - Desktop panel widths resize through captured pointer events and keyboard
   separators. Persist preferred widths only when interaction finishes, keep the
   conversation at least 320px wide, and retain separate mobile drawers. Desktop

@@ -66,6 +66,10 @@ $entryPoint = Join-Path $Root "dist-server\server\index.js"
 if (-not (Test-Path $entryPoint)) {
   throw "Build output is missing. Run npm run build first."
 }
+if ((Test-Path (Join-Path $Root "data\cloudflared-token")) -and
+    -not (Test-Path (Join-Path $Root "dist-server\server\cli\tunnel-supervisor.js"))) {
+  throw "Tunnel supervisor build is missing. Run npm run build first."
+}
 
 $node = Get-Command node -ErrorAction SilentlyContinue
 if (-not $node) {
@@ -94,8 +98,8 @@ if (Test-Path $tokenFile) {
 
   Register-CodexRemoteTask `
     -TaskName $TunnelTaskName `
-    -Executable $cloudflaredPath `
-    -Arguments "tunnel --protocol $TunnelProtocol --no-autoupdate --metrics 127.0.0.1:20241 --loglevel info --logfile `"$(Join-Path $Root 'data\cloudflared.log')`" run --token-file `"$tokenFile`"" `
+    -Executable $node.Source `
+    -Arguments "`"$(Join-Path $Root 'dist-server\server\cli\tunnel-supervisor.js')`" `"$cloudflaredPath`" $TunnelProtocol" `
     -Description "Codex Remote Cloudflare Tunnel"
 }
 

@@ -78,7 +78,7 @@ describe('Remote connection recovery', () => {
     const first = FakeSocket.instances[0]!;
     first.open();
     first.message({ type: 'pong', at: 'now' });
-    vi.advanceTimersByTime(20_000);
+    vi.advanceTimersByTime(5000);
     expect(first.sent).toHaveLength(2);
     vi.advanceTimersByTime(12_000);
     expect(onDisconnect).toHaveBeenCalledOnce();
@@ -203,7 +203,7 @@ describe('Remote connection recovery', () => {
     vi.advanceTimersByTime(6000);
     expect(current).toBe(second);
     expect(onDisconnect).toHaveBeenCalledOnce();
-    expect(second.sent).toEqual([JSON.stringify({ type: 'ping' })]);
+    expect(second.sent).toEqual([JSON.stringify({ type: 'ping' }), JSON.stringify({ type: 'ping' })]);
   });
 
   it('does not grow visible reconnect waits beyond five seconds or replay actions', () => {
@@ -461,5 +461,100 @@ describe('Remote connection recovery', () => {
     socket.message({ type: 'pong' });
     expect(onDisconnect).not.toHaveBeenCalled();
     expect(current).toBe(socket);
+  });
+
+  function startWithFallback() {
+    connection.dispose();
+    connection = new RemoteConnection({
+      url: 'wss://remote.test/ws', httpFallback: '/api/connection', readyType: 'sync.ready',
+      onSocket: socket => { current = socket; },
+      onOpen: () => current!.send('{"type":"sync.resume"}'), onMessage, onDisconnect
+    });
+    connection.start();
+    const socket = FakeSocket.instances.at(-1)!;
+    socket.open();
+    socket.message({ type: 'sync.ready', epoch: 'test', sequence: 0, resumed: false });
+    socket.message({ type: 'pong' });
+    return socket;
+  }
+
+  it('verifies a new route in parallel and resumes without replaying model actions', async () => {
+    const socket = startWithFallback();
+    current!.send('{"type":"rpc","method":"turn/start","id":"once"}');
+    await vi.advanceTimersByTimeAsync(7000);
+    const replacement = FakeEventSource.instances.at(-1)!;
+    expect(replacement).toBeDefined();
+    replacement.open();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(current).toBe(socket);
+    expect(onDisconnect).not.toHaveBeenCalled();
+    replacement.message({ type: 'pong' });
+    expect(socket.readyState).toBe(3);
+    expect(current!.readyState).toBe(1);
+    replacement.message({ type: 'sync.ready', epoch: 'test', sequence: 0, resumed: true });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(onDisconnect).toHaveBeenCalledOnce();
+    expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'sync.ready', resumed: true }));
+    expect(socket.sent.filter(raw => raw.includes('turn/start'))).toHaveLength(1);
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => String(init?.body).includes('turn/start'))).toBe(false);
+    expect(FakeEventSource.instances).toHaveLength(1);
+  });
+
+  it('keeps a slow original connection when its pong wins the recovery probe', async () => {
+    const socket = startWithFallback();
+    await vi.advanceTimersByTimeAsync(7000);
+    const replacement = FakeEventSource.instances.at(-1)!;
+    replacement.open();
+    socket.message({ type: 'pong' });
+    replacement.message({ type: 'pong' });
+    expect(replacement.close).toHaveBeenCalledOnce();
+    expect(current).toBe(socket);
+    expect(onDisconnect).not.toHaveBeenCalled();
+  });
+
+  it('does not let a failed replacement tear down the original or reset its deadline', async () => {
+    const socket = startWithFallback();
+    await vi.advanceTimersByTimeAsync(7000);
+    FakeEventSource.instances.at(-1)!.dispatchEvent(new Event('error'));
+    await vi.advanceTimersByTimeAsync(9000);
+    expect(current).toBe(socket);
+    expect(onDisconnect).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(onDisconnect).toHaveBeenCalledOnce();
+  });
+
+  it('cancels probes while hidden and releases their timers and peers on disposal', async () => {
+    startWithFallback();
+    await vi.advanceTimersByTimeAsync(7000);
+    const replacement = FakeEventSource.instances.at(-1)!;
+    documentTarget.visibilityState = 'hidden';
+    documentTarget.dispatchEvent(new Event('visibilitychange'));
+    expect(replacement.close).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(onDisconnect).not.toHaveBeenCalled();
+    connection.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('probes immediately on a browser connection change without replacing a healthy socket', () => {
+    connection.dispose();
+    const networkInfo = new EventTarget();
+    vi.stubGlobal('navigator', { onLine: true, connection: networkInfo });
+    connection = new RemoteConnection({
+      url: 'wss://remote.test/ws', onSocket: socket => { current = socket; },
+      onOpen, onMessage, onDisconnect
+    });
+    connection.start();
+    const socket = FakeSocket.instances.at(-1)!;
+    socket.open();
+    socket.message({ type: 'pong' });
+    networkInfo.dispatchEvent(new Event('change'));
+    expect(socket.sent).toHaveLength(2);
+    socket.message({ type: 'pong' });
+    expect(current).toBe(socket);
+    expect(onDisconnect).not.toHaveBeenCalled();
+    connection.dispose();
+    networkInfo.dispatchEvent(new Event('change'));
+    expect(socket.sent).toHaveLength(2);
   });
 });

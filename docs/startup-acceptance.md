@@ -6,7 +6,7 @@ Date: 2026-10-28.
 
 The current implementation adds bounded HTTP history/timing pagination and
 rendered-message continuation to the preceding connection fixes. Local
-validation passes 290 tests in 47 files. See
+validation for version 0.1.1 passes 305 tests in 48 files. See
 [history acceptance](history-loading-acceptance.md) for the current paging
 contract; the request-isolation and initial-context checkpoint below is
 historical.
@@ -26,6 +26,33 @@ connection shell/health requests succeeded. Dynamic health medians were
 460-615ms in those host samples. This does not establish phone/5G timings or
 continuous availability on a different network. The exclusions are a local
 operator configuration, not a setting silently imposed by the application.
+
+Version 0.1.1 adds five-second foreground heartbeats and a parallel authenticated
+HTTP probe after a main-channel pong has been missing for two seconds. The
+original stays active until the replacement replies; an original pong cancels
+the probe. Handover still runs normal synchronization/replay and never resends
+model actions. Hidden pages release probes. Windows network events and a
+two-second readiness poll feed the owned Tunnel supervisor, with a one-second
+process-exit retry, capped crash backoff, startup grace and restart cooldown.
+All-edge recovery requires outbound reachability and a final readiness recheck.
+The Windows installer installs this supervisor; independently managed macOS
+tunnels retain their existing service management.
+
+Controlled silent-channel failures at 2560x1440, 402x874 and 320x568 recovered
+in 5.55-6.08 seconds in Chromium and 5.39-5.76 seconds in Windows WebKit.
+Every case preserved the composer draft, original answer/scroll nodes and
+reading position (zero measured drift), with zero model actions/page errors.
+One live Windows cloudflared exit recovered readiness in 2.42 seconds.
+Disabling and stopping the Tunnel task left it off until explicitly started.
+TUN off/on retained the original tunnel
+process, with three then four ready edges; the operator's prior TUN state was
+restored. Backend and Desktop processes were preserved.
+
+Live testing also observed a DNS-related cloudflared exit and a later all-edge
+loss with HTTP 530 responses. The installed supervisor rebuilt the latter
+automatically; subsequent local/public authenticated task loading and sync
+passed on version 0.1.1. These are bounded observations, not a promise of
+continuous availability or physical-phone recovery times.
 
 Older sections retain dated acceptance evidence. Their suite counts, timings
 and superseded recovery rules are historical, not additional current contracts.

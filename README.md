@@ -518,7 +518,7 @@ displayed it.
 - The task first page contains up to 50 rows; remaining pages follow native cursors at up to 200 rows each. Bootstrap and fallback share native reads, including requests that outlive the bootstrap deadline. Selecting a chat pauses further background task pages until its initial text read completes.
 - Failed task reads retry automatically, independently of the live connection, after 0.5, 1, 2, 4, then at most 5 seconds. A first attempt has a four-second deadline; subsequent HTTP attempts allow 15 seconds. Returning after a real offline or hidden-page transition replaces an initial task read stalled for at least two seconds. Ordinary focus and redundant online events preserve pending reads. Shared native snapshot and model/project reads expire after eight seconds, so retries do not keep joining a stuck native read.
 - Main-chat WebSocket attempts wait three seconds to connect and six seconds to synchronize. If still connecting after 500ms, authenticated HTTP server-sent events warm in parallel; the first open transport wins and the unused candidate closes. Failure also switches to HTTP events plus POSTs for the same native actions, subscriptions and replay. The working HTTP route is remembered for that tab session; it grants no access. HTTP connection/synchronization deadlines are 12 seconds. A single failed POST affects that request, preserving a healthy event stream; expired authentication or a stale peer still closes it. Reads and pings bypass action acknowledgement waits. Only safe sync/watch/ping controls retry; model and approval actions are sent once, even if their acknowledgement is lost.
-- Heartbeat replies allow 12 seconds for mobile round trips. Probes pause in hidden pages, and foreground/pageshow starts a fresh probe instead of treating a suspended timer as a dead link. A successful heartbeat does not hide missing synchronization. Visible reconnect delays start at 250ms and cap at five seconds. The reconnect button replaces the connection and stale task/history downloads, preserving the workspace and draft without another login round trip. A completely unavailable origin still cannot synchronize. Interactive PTY terminals retain their separate WebSocket connection.
+- Foreground heartbeats run every five seconds and still allow 12 seconds for slow mobile replies. After two seconds without a main-channel pong, a new authenticated HTTP peer checks the route in parallel. Only a responding replacement retires the original; a late original pong cancels the candidate. Handover uses normal synchronization and event replay, preserving the workspace, draft and loaded history. Pending model actions are never resent. Probes pause in hidden pages, and foreground/pageshow starts a fresh probe instead of treating a suspended timer as a dead link. A successful heartbeat does not hide missing synchronization. Visible reconnect delays start at 250ms and cap at five seconds. A completely unavailable origin still cannot synchronize. Interactive PTY terminals retain their separate WebSocket connection.
 - Ordinary focus/pageshow does not change a pending handshake's deadline; redundant online events do not destroy healthy connections. Hidden pages pause unfinished handshakes and resume with the current stage's full budget.
 - Opening a chat starts with native metadata and the latest 40 items without waiting for resume or timing metadata. If this tool-heavy tail lacks a visible user message and final answer, it automatically reads up to two additional 100-item native pages, preserving the latest records and remaining cursor. Initial loading is bounded to 240 items; more distant history still loads on upward scrolling. Timings load separately; sending and queued actions wait for verified data, timings and native resume. Older history and missing timing pages use authenticated HTTP independently of realtime RPC. Failed initial timings do not disable upward paging; it can obtain its own initial timing cursor.
 - Initial chat/timing and missing catalog reads retry transient failures up to three attempts, with 0.5/1-second waits. The first chat/timing attempt allows six seconds; retries allow 15. Selection changes cancel reads and retry waits; expired authentication and permanent client errors do not retry. Replay reconnects fill incomplete reads while preserving already-loaded chat history.
@@ -606,6 +606,23 @@ Tunnel readiness/edge connection count, in addition to scheduled-task state.
 `Running` alone does not establish reachability. Request cancellation errors
 can accompany navigation; edge dial timeouts and zero ready connections indicate
 a different failure. Task crash recovery does not repair an unavailable uplink.
+
+From version 0.1.1, the Windows Tunnel task runs a lightweight Node supervisor.
+Re-run `npm run install-task:windows` after building to update an existing task.
+An exited cloudflared process restarts after one second, with repeated crashes
+backing off to five seconds. The supervisor polls local edge readiness every
+two seconds and wakes on Windows network address/availability events; polling
+also covers proxy changes that emit no event. It preserves every surviving
+edge connection. When all edges remain unavailable for four seconds, after an
+eight-second startup grace, it confirms outbound TCP 7844 reachability and
+rechecks readiness before rebuilding the Tunnel. Restarts have a 15-second
+cooldown, rechecked when the network changes. Stop disables the task and stops
+its owned children; it remains off until Start. Recovery does not change proxy
+settings or restart Desktop/the web backend. Logs stay in private
+`data/tunnel-supervisor.log`. The outbound check targets Cloudflare's two edge
+region hostnames; a network allowing only UDP may rely on cloudflared's own
+recovery instead. This supervisor is installed by the Windows controls; macOS
+continues to manage its independently installed tunnel separately.
 
 ## Security and Privacy
 

@@ -23,10 +23,14 @@ function Get-RemoteTask {
 function Get-RemoteProcesses {
   $entry = Join-Path $Root "dist-server\server\index.js"
   $token = Join-Path $Root "data\cloudflared-token"
-  Get-CimInstance Win32_Process -Filter "Name = 'node.exe' OR Name = 'cloudflared.exe'" |
+  $supervisor = Join-Path $Root "dist-server\server\cli\tunnel-supervisor.js"
+  $watcher = Join-Path $Root "scripts\watch-network-windows.ps1"
+  Get-CimInstance Win32_Process -Filter "Name = 'node.exe' OR Name = 'cloudflared.exe' OR Name = 'powershell.exe'" |
     Where-Object {
-      ($_.Name -eq "node.exe" -and $_.CommandLine.Contains($entry)) -or
-      ($_.Name -eq "cloudflared.exe" -and $_.CommandLine.Contains($token))
+      $_.CommandLine -and (
+      ($_.Name -eq "node.exe" -and ($_.CommandLine.Contains($entry) -or $_.CommandLine.Contains($supervisor))) -or
+      ($_.Name -eq "powershell.exe" -and $_.CommandLine.Contains($watcher)) -or
+      ($_.Name -eq "cloudflared.exe" -and $_.CommandLine.Contains($token)))
     }
 }
 
@@ -93,6 +97,8 @@ if ($Action -eq "Stop") {
       Stop-ScheduledTask -TaskName $name
     }
   }
+  # A task termination can leave its child alive on some Task Scheduler versions.
+  Get-RemoteProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }
   $deadline = [DateTime]::UtcNow.AddSeconds(15)
   do {
     $remaining = @(Get-RemoteProcesses)

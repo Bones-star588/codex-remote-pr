@@ -23,10 +23,14 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
   private connectTimer: number | undefined;
   private heartbeatTimer: number | undefined;
   private pongTimer: number | undefined;
+  private probeTimer: number | undefined;
+  private probeDeadline: number | undefined;
+  private probeSocket: RemoteChannel | null = null;
   private pingSentAtMs: number | undefined;
   private http = false;
   private suspended = false;
   private synchronized = false;
+  private readonly networkInfo = (navigator as Navigator & { connection?: EventTarget }).connection;
 
   constructor(private readonly options: ConnectionOptions<Message>) {
     if (options.httpFallback) {
@@ -42,6 +46,7 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
     window.addEventListener('focus', this.recover);
     window.addEventListener('pageshow', this.recover);
     document.addEventListener('visibilitychange', this.recover);
+    this.networkInfo?.addEventListener('change', this.networkChanged);
     this.connect();
   }
 
@@ -59,6 +64,7 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
     window.removeEventListener('focus', this.recover);
     window.removeEventListener('pageshow', this.recover);
     document.removeEventListener('visibilitychange', this.recover);
+    this.networkInfo?.removeEventListener('change', this.networkChanged);
     window.clearTimeout(this.reconnectTimer);
     this.clearSocketTimers();
     const socket = this.socket;
@@ -131,6 +137,7 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
         }
       }
       if (message.type === 'pong') {
+        this.clearProbe();
         if (this.pingSentAtMs !== undefined && 'at' in message && typeof message.at === 'string') {
           const serverTimeMs = Date.parse(message.at);
           if (Number.isFinite(serverTimeMs)) synchronizeHostClock(serverTimeMs, this.pingSentAtMs, Date.now());
@@ -139,7 +146,7 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
         window.clearTimeout(this.pongTimer);
         this.pongTimer = undefined;
         window.clearTimeout(this.heartbeatTimer);
-        this.heartbeatTimer = window.setTimeout(this.ping, 20_000);
+        this.heartbeatTimer = window.setTimeout(this.ping, 5000);
       }
       this.options.onMessage(message);
     });
@@ -188,10 +195,13 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
     window.clearTimeout(this.pongTimer);
     this.pongTimer = undefined;
     this.pingSentAtMs = undefined;
+    this.clearProbe();
   }
 
   private disconnect(socket: RemoteChannel, message: string | Error): void {
     if (this.socket !== socket) return;
+    const probe = this.probeSocket;
+    this.probeSocket = null;
     const fallback = this.fallbackSocket;
     this.fallbackSocket = null;
     this.clearSocketTimers();
@@ -210,6 +220,11 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
     this.options.onDisconnect(typeof message === 'string' ? new Error(message) : message);
     window.clearTimeout(this.reconnectTimer);
     if (!this.stopped && navigator.onLine) {
+      if (probe && probe.readyState < 2) {
+        this.http = true;
+        this.attach(probe);
+        return;
+      }
       if (!this.http && this.options.httpFallback) {
         this.http = true;
         this.connect();
@@ -219,13 +234,53 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
       const delay = Math.min(250 * 2 ** Math.min(this.failures++, 6), ceiling);
       this.reconnectTimer = window.setTimeout(this.connect, delay);
     }
+    probe?.close();
   }
+
+  private clearProbe(): void {
+    window.clearTimeout(this.probeTimer);
+    window.clearTimeout(this.probeDeadline);
+    this.probeTimer = this.probeDeadline = undefined;
+    const probe = this.probeSocket;
+    this.probeSocket = null;
+    probe?.close();
+  }
+
+  private probe = (): void => {
+    this.probeTimer = undefined;
+    const original = this.socket;
+    if (!this.options.httpFallback || !this.synchronized || this.probeSocket ||
+        !original || this.pongTimer === undefined || document.visibilityState !== 'visible') return;
+    const probe = new HttpChannel(this.options.httpFallback);
+    this.probeSocket = probe;
+    const metadata: Message[] = [];
+    this.probeDeadline = window.setTimeout(() => this.clearProbe(), 6000);
+    probe.addEventListener('open', () => {
+      if (this.probeSocket === probe) probe.send(JSON.stringify({ type: 'ping' }));
+    });
+    probe.addEventListener('error', () => {
+      if (this.probeSocket === probe) this.clearProbe();
+    });
+    probe.addEventListener('message', event => {
+      if (this.probeSocket !== probe || this.socket !== original || this.stopped) return;
+      let message: Message;
+      try { message = JSON.parse(String((event as MessageEvent).data)) as Message; }
+      catch { return; }
+      if (message.type === 'hello' || message.type === 'bridge.status') metadata.push(message);
+      if (message.type !== 'pong') return;
+      // Only a responding replacement may retire the old channel. Actions stay on
+      // the original until this handover; normal sync/replay gates sending again.
+      this.disconnect(original, 'Restoring the Remote connection...');
+      for (const item of metadata) this.options.onMessage(item);
+    });
+  };
 
   private ping = (): void => {
     const socket = this.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN || this.pongTimer !== undefined ||
         document.visibilityState !== 'visible') return;
     window.clearTimeout(this.heartbeatTimer);
+    this.probeTimer = window.setTimeout(this.probe, 2000);
     this.pongTimer = window.setTimeout(() => {
       if (document.visibilityState !== 'visible') { this.clearHeartbeat(); return; }
       // A suspended event loop must get a fresh probe instead of an expired timeout.
@@ -246,6 +301,12 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
 
   private online = (): void => {
     this.failures = 0;
+    this.recover();
+  };
+
+  private networkChanged = (): void => {
+    this.failures = 0;
+    this.clearHeartbeat();
     this.recover();
   };
 
