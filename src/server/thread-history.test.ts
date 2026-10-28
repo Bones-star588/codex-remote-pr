@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readThreadHistoryAround, readThreadHistoryPage, readThreadOutline } from './thread-history.js';
+import { readConversationHistoryPage, readThreadHistoryAround, readThreadHistoryPage, readThreadOutline } from './thread-history.js';
 
 describe('native history paging', () => {
   it('uses the owning server for fresh history and only reports an active turn', async () => {
@@ -31,6 +31,57 @@ describe('native history paging', () => {
     const page = await readThreadHistoryPage(request, 'thread', null, 40);
     expect(page).toMatchObject({ turns: [turn], turnsCursor: 'turns:older', activeTurnId: 'active' });
     expect(Object.keys(page.turns[0]!)).toEqual(['id', 'status', 'startedAt', 'completedAt', 'durationMs']);
+  });
+
+  it('coalesces invisible pages into one response until readable context, retaining every record', async () => {
+    const request = vi.fn().mockResolvedValueOnce({
+      data: [{ turnId: 't', item: { type: 'commandExecution', id: 'command' } }], nextCursor: 'middle'
+    }).mockResolvedValueOnce({
+      data: [{ turnId: 't', item: { type: 'reasoning', id: 'reasoning' } }], nextCursor: 'older'
+    }).mockResolvedValueOnce({
+      data: [{ turnId: 't', item: { type: 'userMessage', id: 'user', content: [{ type: 'text', text: 'Question' }] } }],
+      nextCursor: 'before-question'
+    });
+    const page = await readConversationHistoryPage(request, 'thread', 'newest');
+    expect(page.items.map(entry => (entry.item as { id: string }).id)).toEqual(['user', 'reasoning', 'command']);
+    expect(page.nextCursor).toBe('before-question');
+    expect(request.mock.calls.map(([, params]) => params.cursor)).toEqual(['newest', 'middle', 'older']);
+  });
+
+  it('bounds coalescing to four native pages and stops on an answer or image question', async () => {
+    const request = vi.fn(async (_method: string, params: unknown) => ({
+      data: [{ turnId: 't', item: { type: 'agentMessage', phase: 'commentary', text: 'Working' } }],
+      nextCursor: `${(params as { cursor: string }).cursor}:older`
+    }));
+    const page = await readConversationHistoryPage(request, 'thread', 'start');
+    expect(request).toHaveBeenCalledTimes(4);
+    expect(page.items).toHaveLength(4);
+    expect(page.nextCursor).toBe('start:older:older:older:older');
+    for (const item of [
+      { type: 'agentMessage', phase: 'final_answer', text: 'Answer' },
+      { type: 'userMessage', content: [{ type: 'localImage', path: '/question.png' }] }
+    ]) {
+      const read = vi.fn().mockResolvedValue({ data: [{ turnId: 't', item }], nextCursor: 'older' });
+      await readConversationHistoryPage(read, 'thread', 'start');
+      expect(read).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('preserves a successful page and retry cursor when the next native page fails', async () => {
+    const request = vi.fn().mockResolvedValueOnce({
+      data: [{ turnId: 't', item: { type: 'reasoning', id: 'reasoning' } }], nextCursor: 'retry'
+    }).mockRejectedValueOnce(new Error('bridge unavailable'));
+    const page = await readConversationHistoryPage(request, 'thread', 'start');
+    expect(page.items).toHaveLength(1);
+    expect(page.nextCursor).toBe('retry');
+  });
+
+  it('stops repeated native cursors without duplicating the same page', async () => {
+    const request = vi.fn().mockResolvedValue({
+      data: [{ turnId: 't', item: { type: 'reasoning', id: 'reasoning' } }], nextCursor: 'start'
+    });
+    expect((await readConversationHistoryPage(request, 'thread', 'start')).items).toHaveLength(1);
+    expect(request).toHaveBeenCalledOnce();
   });
 });
 

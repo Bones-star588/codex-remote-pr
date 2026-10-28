@@ -4,19 +4,28 @@ Date: 2026-10-28.
 
 ## Current Scope
 
-The current implementation adds
-[request isolation and initial context filling](#request-isolation-and-initial-context)
-to the preceding lifecycle fixes. Local validation passed 282 tests in 47 files
-and the TypeScript/production build. Matching client/server artifacts were
-deployed; local and canonical public shell/service-worker checks matched the
-build, with ready Desktop transport. Documentation-only changes do not require
-redeployment.
+The current implementation adds bounded HTTP history/timing pagination and
+rendered-message continuation to the preceding connection fixes. Local
+validation passes 290 tests in 47 files. See
+[history acceptance](history-loading-acceptance.md) for the current paging
+contract; the request-isolation and initial-context checkpoint below is
+historical.
 
 Ordinary focus preserves healthy reads and handshake deadlines. Independent
 HTTP catalogs and bounded initial-read recovery remain. A failed action POST
 now affects only its request, and a slow connecting WebSocket warms HTTP after
 500ms. Healthy replayed chats stay intact even before task pagination finishes.
 Model actions are never automatically resubmitted.
+
+Host egress acceptance is separate from browser readiness. On one Windows
+installation, fake-IP resolution reduced cloudflared's requested four edge
+connections to two. After verifying direct TCP 7844, real edge DNS and
+tunnel-only TUN route exclusions restored four connections. Four TUN
+off/on transitions retained four connections at each check; all 40 reused-
+connection shell/health requests succeeded. Dynamic health medians were
+460-615ms in those host samples. This does not establish phone/5G timings or
+continuous availability on a different network. The exclusions are a local
+operator configuration, not a setting silently imposed by the application.
 
 Older sections retain dated acceptance evidence. Their suite counts, timings
 and superseded recovery rules are historical, not additional current contracts.

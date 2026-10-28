@@ -6,14 +6,20 @@ Updated: 2026-10-28. Earlier verification below retains its dated scope.
 
 - Keep one speculative older page in memory and share the request with
   foreground consumption. Prepare native timing metadata before insertion.
+  Older items and timing cursors use bounded authenticated HTTP, independently
+  of the realtime channel. A failed initial timing read does not disable paging.
+  The host coalesces at most four 100-record execution-only native pages per
+  HTTP response, retaining every record and native cursor.
 - Prefetch within two viewport heights. Automatic insertion requires upward
   intent, a position within 64px of the top, no finger down, and 160ms without
   scroll activity. Recheck these conditions after the network and timing reads.
   Leaving the top keeps the prepared page for a later upward scroll.
   A tool/reasoning/commentary-only page retains the upward intent at the
   restored anchor, even when compensation moves scrollTop beyond 64px.
-  Continue one bounded page at a time until a user message or final/legacy
-  answer appears. Downward movement, navigation and activity expansion stop it.
+   Continue one bounded page at a time until a user message or final/legacy
+   answer is actually rendered outside a process fold. An older final answer
+   folded into the current response does not stop continuation.
+   Downward movement, navigation and activity expansion stop it.
   Short initial pages do not automatically consume the full history.
 - Cancel abandoned downloads on selection, jumps and close. Speculative
   failures remain silent. A passive sentinel replaces the manual load button;
@@ -30,6 +36,28 @@ Updated: 2026-10-28. Earlier verification below retains its dated scope.
   mounting and asynchronous thread creation.
 
 ## Verification
+
+### 2026-10-28 HTTP Paging and Folded Answers
+
+- 290 tests across 47 files pass, including bounded host coalescing, partial
+  failure/cursor retention and native timing cursor forwarding.
+- A synthetic partial response with an earlier final answer in the same turn
+  reproduced the old premature stop: only pages 0 and 1 were requested and
+  no older user message was mounted. Chromium and Windows WebKit now continue
+  through page 3 from one gesture and mount the older conversation.
+- Both engines read missing older timing pages through HTTP with zero
+  `thread/turns/list` realtime requests. A failed initial timing path can be
+  recovered by paging without reconnecting or resubmitting model actions.
+- The 24 existing continuation scenarios still pass across 2560x1440,
+  402x874 and 320x568, with at most 0.5 CSS pixels of anchor drift.
+  These are host browser checks, not physical iPhone Safari acceptance.
+- Deployed Chromium at 402x874/DPR3 opens real local/public Windows history:
+  one upward gesture mounts earlier readable messages, retains original nodes
+  and advances native cursors, with 0.5px maximum drift and no model actions.
+  Windows WebKit repeats these local/public checks with 0.3px maximum drift.
+- A reused-connection public sample loaded the same 200 native records and
+  remaining cursor in one coalesced request (656ms), versus two ordinary
+  requests (1132ms). This measures host-origin access, not a physical phone.
 
 ### 2026-10-28 Continuation
 

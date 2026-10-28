@@ -143,6 +143,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   const provisionalListRef = useRef(new Map<string, Thread>());
   const verifiedThreadRef = useRef<string | null>(null);
   const timedThreadRef = useRef<string | null>(null);
+  const timingErrorRef = useRef<string | null>(null);
   const lastRecoveryRef = useRef(0);
   const additionalThreadsRef = useRef<string[]>([]);
   const threadWatchersRef = useRef(new Map<string, string[]>());
@@ -354,6 +355,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   const fetchHistoryPage = useCallback(async (threadId: string, before: string | null = null, direction: 'before' | 'after' = 'before') => {
     const query = new URLSearchParams({ threadId, limit: before === null ? '40' : '100' });
     if (before !== null) query.set(direction, before);
+    if (before !== null && direction === 'before') query.set('conversation', '1');
     return historyRequestsRef.current.get<ThreadHistoryPage>(`/api/thread/history?${query.toString()}`);
   }, []);
 
@@ -478,6 +480,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         setVerifiedThreadId(null);
         verifiedThreadRef.current = null;
         setTimedThreadId(null);
+        timedThreadRef.current = null;
+        timingErrorRef.current = null;
         setItems(cachedItems);
         const timings = { ...(sameThread ? turnTimingsRef.current : {}),
           ...Object.fromEntries((cached?.turns ?? []).map((turn) => [turn.id, turn])) };
@@ -506,7 +510,9 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         const projected = baseline;
         setItems(current => mergeLatestHistoryItems(projected,
           current.filter(item => previousBaseline.get(itemKey(item)) !== item)));
-        if (!nativeTimingArrived) setTurnTimings(Object.fromEntries(display.turns.map(turn => [turn.id, turn])));
+        if (!nativeTimingArrived && timedThreadRef.current !== threadId) {
+          setTurnTimings(Object.fromEntries(display.turns.map(turn => [turn.id, turn])));
+        }
         setLoadingThread(false);
         markStartup('chat-snapshot');
       };
@@ -534,22 +540,30 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         page.snapshot?.stale ? historyRequestsRef.current.get<TimingPage>(`${timingPath}&fresh=1`, 6000, 3) : page);
       void timings.then(page => {
         if (!currentSelection()) return;
+        const firstTimingPage = timedThreadRef.current !== threadId;
         nativeTimingArrived = true;
         setTurnTimings(current => {
           const next = mergeTurnTimings(current, page.turns, timingBaseline);
           turnTimingsRef.current = next;
           return next;
         });
-        if (turnRevisionRef.current === turnRevision) {
+        if (turnRevisionRef.current === turnRevision && (firstTimingPage || options.silent)) {
           activeTurnIdRef.current = page.activeTurnId;
           setActiveTurnId(page.activeTurnId);
         }
-        turnsCursorRef.current = page.turnsCursor;
+        if (firstTimingPage) turnsCursorRef.current = page.turnsCursor;
+        timedThreadRef.current = threadId;
         setTimedThreadId(threadId);
+        const previousError = timingErrorRef.current;
+        timingErrorRef.current = null;
+        if (previousError) setLastError(current => current === previousError ? null : current);
       }).catch(error => {
         if (error instanceof HttpError && error.status === 401) authExpiredRef.current?.();
-        else if (!isAbortedRequest(error) && currentSelection()) setLastError(
-          error instanceof Error ? error.message : String(error));
+        else if (!isAbortedRequest(error) && currentSelection() && timedThreadRef.current !== threadId) {
+          const message = error instanceof Error ? error.message : String(error);
+          timingErrorRef.current = message;
+          setLastError(message);
+        }
       });
       try {
         let response = await historyRequestsRef.current.get<OpenThreadPage & {
@@ -670,13 +684,47 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     const threadId = activeThreadRef.current;
     const cursor = olderHistoryCursorRef.current;
     const version = selectionVersionRef.current;
-    if (!threadId || cursor === null || timedThreadId !== threadId) return null;
-    return earlierPageRef.current.read(JSON.stringify([version, threadId, cursor]), signal => prepareHistoryPage(
-      () => fetchHistoryPage(threadId, cursor),
-      turnsCursor => rpc('thread/turns/list', { threadId, limit: 100, itemsView: 'notLoaded', cursor: turnsCursor }),
-      turnTimingsRef.current, turnsCursorRef.current, signal
-    ));
-  }, [fetchHistoryPage, rpc, timedThreadId]);
+    if (!threadId || cursor === null) return null;
+    return earlierPageRef.current.read(JSON.stringify([version, threadId, cursor]), async signal => {
+      const turnRevision = turnRevisionRef.current;
+      const [page, initialTimings] = await Promise.all([
+        fetchHistoryPage(threadId, cursor),
+        timedThreadRef.current === threadId ? Promise.resolve(null)
+          : historyRequestsRef.current.get<Pick<ThreadHistoryPage, 'turns' | 'turnsCursor' | 'activeTurnId'>>(
+            `/api/thread/timings?${new URLSearchParams({ threadId, fresh: '1' })}`, 6000, 3)
+      ]);
+      signal.throwIfAborted();
+      if (initialTimings && timedThreadRef.current !== threadId &&
+          version === selectionVersionRef.current && activeThreadRef.current === threadId) {
+        setTurnTimings(current => {
+          const next = mergeOlderTurnTimings(current, initialTimings.turns);
+          turnTimingsRef.current = next;
+          return next;
+        });
+        if (turnRevisionRef.current === turnRevision) {
+          activeTurnIdRef.current = initialTimings.activeTurnId;
+          setActiveTurnId(initialTimings.activeTurnId);
+        }
+        turnsCursorRef.current = initialTimings.turnsCursor;
+        timedThreadRef.current = threadId;
+        setTimedThreadId(threadId);
+        const previousError = timingErrorRef.current;
+        timingErrorRef.current = null;
+        if (previousError) setLastError(current => current === previousError ? null : current);
+      }
+      const prepared = await prepareHistoryPage(
+        async () => page,
+        async turnsCursor => {
+          const result = await historyRequestsRef.current.get<Pick<ThreadHistoryPage, 'turns' | 'turnsCursor'>>(
+            `/api/thread/timings?${new URLSearchParams({ threadId, cursor: turnsCursor })}`, 6000, 3);
+          return { data: result.turns, nextCursor: result.turnsCursor };
+        },
+        { ...turnTimingsRef.current, ...Object.fromEntries(initialTimings?.turns.map(turn => [turn.id, turn]) ?? []) },
+        initialTimings ? initialTimings.turnsCursor : turnsCursorRef.current, signal
+      );
+      return initialTimings ? { ...prepared, turns: [...initialTimings.turns, ...prepared.turns] } : prepared;
+    });
+  }, [fetchHistoryPage]);
 
   const prefetchEarlierHistory = useCallback(async () => {
     if (loadingHistoryRef.current) return;
@@ -1695,7 +1743,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     items,
     turnTimings,
     contextUsage: activeThreadId ? tokenUsage[activeThreadId] : undefined,
-    hasMoreHistory: hasMoreHistory && timedThreadId === activeThreadId,
+    hasMoreHistory,
     loadingHistory,
     hasNewerHistory,
     viewingHistory,

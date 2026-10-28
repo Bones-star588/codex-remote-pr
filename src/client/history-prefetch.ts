@@ -1,14 +1,6 @@
 import type { TurnTiming } from '../shared/turn-timing';
-import type { ThreadHistoryPage, ThreadItem } from './types';
-import { userMessageText } from '../shared/user-message';
-
-export function isReadableHistoryItem(item: ThreadItem): boolean {
-  if (item.type === 'userMessage') return item.content.some(part => part.type === 'text'
-    ? Boolean(userMessageText(part.text ?? '').trim())
-    : (part.type === 'image' || part.type === 'localImage') && Boolean(part.path || part.url));
-  return item.type === 'agentMessage' && item.phase !== 'commentary' &&
-    item.phase !== 'partial_answer' && Boolean(item.text.trim());
-}
+import type { ThreadHistoryPage } from './types';
+export { isReadableHistoryItem } from '../shared/history-context';
 
 /** One speculative page, shared with the foreground reader and never persisted. */
 export class HistoryPrefetch {

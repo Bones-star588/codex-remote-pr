@@ -1,8 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readOpenThread } from './thread-open.js';
+import { readOpenThread, readThreadTimings } from './thread-open.js';
 
 const entry = (id: string, type: string, fields = {}) => ({
   turnId: 'turn', item: { id, type, ...fields }, startedAtMs: null, completedAtMs: null
+});
+
+describe('HTTP timing pagination', () => {
+  it('reads opaque older cursors independently of the browser realtime connection', async () => {
+    const request = vi.fn().mockResolvedValue({
+      data: [{ id: 'old', status: 'completed', startedAt: 1, completedAt: 2, durationMs: 1000, items: ['private'] }],
+      nextCursor: 'next:native'
+    });
+    const page = await readThreadTimings(request, 'thread', 'opaque:native');
+    expect(request).toHaveBeenCalledWith('thread/turns/list', {
+      threadId: 'thread', cursor: 'opaque:native', limit: 100, itemsView: 'notLoaded'
+    });
+    expect(page.turnsCursor).toBe('next:native');
+    expect(page.turns[0]).not.toHaveProperty('items');
+  });
 });
 const user = () => entry('user', 'userMessage', { content: [{ type: 'text', text: 'Question' }] });
 const answer = () => entry('answer', 'agentMessage', { text: 'Answer', phase: 'final_answer' });

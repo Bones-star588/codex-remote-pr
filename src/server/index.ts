@@ -24,8 +24,9 @@ import {
 import { codexBridge } from './codex-bridge.js';
 import { config } from './config.js';
 import { desktopBridge } from './desktop-bridge.js';
-import { readThreadHistoryAround, readThreadHistoryPage, readThreadOutline } from './thread-history.js';
-import { MetadataReader, readWorkspaceBootstrap } from './bootstrap.js';
+import { readConversationHistoryPage, readThreadHistoryAround, readThreadHistoryPage, readThreadOutline } from './thread-history.js';
+import { readThreadTimings } from './thread-open.js';
+import { MetadataReader, readWorkspaceBootstrap, withReadDeadline } from './bootstrap.js';
 import { WorkspaceSnapshots } from './workspace-snapshots.js';
 import { TerminalManager } from './terminal-manager.js';
 import { handleTerminalSocket } from './terminal-socket.js';
@@ -316,7 +317,10 @@ app.get(
 app.get('/api/thread/timings', requireAuth, asyncRoute(async (req, res) => {
   const threadId = typeof req.query.threadId === 'string' ? req.query.threadId.trim() : '';
   if (!threadId) { res.status(400).json({ error: 'threadId is required.' }); return; }
-  res.json(await workspaceSnapshots.readTimings(threadId, req.query.fresh === '1'));
+  const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : null;
+  res.json(await (cursor ? withReadDeadline(readThreadTimings(
+    (method, params) => codexBridge.request(method, params), threadId, cursor
+  )) : workspaceSnapshots.readTimings(threadId, req.query.fresh === '1')));
 }));
 
 app.get(
@@ -334,9 +338,10 @@ app.get(
       typeof req.query.limit === 'string' ? Number.parseInt(req.query.limit, 10) : 200;
     const limit = Number.isFinite(limitValue) ? Math.min(400, Math.max(1, limitValue)) : 200;
     res.setHeader('Cache-Control', 'no-store');
-    const result = await readThreadHistoryPage(
-      (method, params) => codexBridge.request(method, params), threadId, cursor, limit, direction
-    );
+    const request = (method: import('../shared/protocol.js').ClientRpcMethod, params: unknown) => codexBridge.request(method, params);
+    const result = await withReadDeadline(cursor && direction === 'desc' && req.query.conversation === '1'
+      ? readConversationHistoryPage(request, threadId, cursor, Math.min(limit, 100))
+      : readThreadHistoryPage(request, threadId, cursor, limit, direction));
     for (const entry of result.items) void localImages.remember(entry.item).catch(reportImageFailure);
     res.json(result);
   })

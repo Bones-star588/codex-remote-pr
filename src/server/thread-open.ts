@@ -1,6 +1,6 @@
 import type { ClientRpcMethod } from '../shared/protocol.js';
 import type { TurnTiming } from '../shared/turn-timing.js';
-import { userMessageText } from '../shared/user-message.js';
+import { isReadableHistoryItem } from '../shared/history-context.js';
 
 type Request = (method: ClientRpcMethod, params: unknown) => Promise<unknown>;
 
@@ -20,16 +20,9 @@ function hasConversationContext(entries: HistoryEntry[]): boolean {
   let user = false;
   let answer = false;
   for (const { item } of entries) {
-    const value = item as {
-      type?: string; text?: string; phase?: string | null;
-      content?: Array<{ type: string; text?: string; path?: string; url?: string }>;
-    };
-    if (value.type === 'userMessage') {
-      user ||= value.content?.some(part => part.type === 'text' ? Boolean(userMessageText(part.text ?? '').trim())
-        : (part.type === 'image' || part.type === 'localImage') && Boolean(part.path || part.url)) ?? false;
-    } else if (value.type === 'agentMessage' && value.phase !== 'commentary' && value.phase !== 'partial_answer') {
-      answer ||= Boolean(value.text?.trim());
-    }
+    if (!isReadableHistoryItem(item)) continue;
+    if ((item as { type: string }).type === 'userMessage') user = true;
+    else answer = true;
     if (user && answer) return true;
   }
   return false;
@@ -73,9 +66,9 @@ export async function readOpenThread(
   };
 }
 
-export async function readThreadTimings(request: Request, threadId: string) {
+export async function readThreadTimings(request: Request, threadId: string, cursor: string | null = null) {
   const result = await request('thread/turns/list', {
-    threadId, limit: 40, itemsView: 'notLoaded'
+    threadId, limit: cursor ? 100 : 40, itemsView: 'notLoaded', ...(cursor ? { cursor } : {})
   }) as { data: TurnTiming[]; nextCursor?: string | null };
   return {
     turns: result.data.map(({ id, status, startedAt, completedAt, durationMs }) =>

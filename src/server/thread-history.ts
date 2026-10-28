@@ -1,6 +1,7 @@
 import type { ClientRpcMethod } from '../shared/protocol.js';
 import type { TurnTiming } from '../shared/turn-timing.js';
 import { outlineMessages, type OutlineItem, type OutlineTurn } from '../shared/thread-outline.js';
+import { isReadableHistoryItem } from '../shared/history-context.js';
 
 type Request = (method: ClientRpcMethod, params: unknown) => Promise<unknown>;
 interface Entry {
@@ -38,6 +39,24 @@ export async function readThreadOutline(request: Request, threadId: string, curs
   const turns: OutlineTurn[] = [...result.data].reverse().map(({ id, status, startedAt, completedAt, durationMs, items }) =>
     ({ id, status, startedAt, completedAt, durationMs, messages: outlineMessages(items) }));
   return { turns, nextCursor: result.nextCursor };
+}
+
+export async function readConversationHistoryPage(request: Request, threadId: string, cursor: string, limit = 100) {
+  const page = await readThreadHistoryPage(request, threadId, cursor, limit);
+  const cursors = new Set([cursor]);
+  // Coalesce folded activity on the host instead of paying a mobile round trip
+  // for every invisible page. Retain every record and its native cursor.
+  for (let count = 1; count < 4 && page.nextCursor && !page.items.some(entry => isReadableHistoryItem(entry.item)); count++) {
+    if (cursors.has(page.nextCursor)) break;
+    cursors.add(page.nextCursor);
+    let older: Awaited<ReturnType<typeof readThreadHistoryPage>>;
+    try {
+      older = await readThreadHistoryPage(request, threadId, page.nextCursor, limit);
+    } catch { break; }
+    page.items.unshift(...older.items);
+    page.nextCursor = older.nextCursor;
+  }
+  return page;
 }
 
 export async function readThreadHistoryAround(request: Request, threadId: string, turnId: string, itemId: string) {

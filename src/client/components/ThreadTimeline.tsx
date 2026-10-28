@@ -284,7 +284,10 @@ export function ThreadTimeline({
     const index = items.findIndex(item => itemKey(item) === boundary);
     if (index <= 0) return;
     earlierBoundaryRef.current = null;
-    if (items.slice(0, index).some(isReadableHistoryItem)) {
+    const readableKeys = new Set(items.slice(0, index).filter(isReadableHistoryItem).map(itemKey));
+    const revealed = [...(innerRef.current?.querySelectorAll<HTMLElement>('.message[data-scroll-anchor]') ?? [])]
+      .some(node => readableKeys.has(node.dataset.scrollAnchor!));
+    if (revealed) {
       continuationTopRef.current = null;
       wantsEarlierRef.current = false;
     } else if (wantsEarlierRef.current && streamRef.current) {

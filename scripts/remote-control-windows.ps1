@@ -63,6 +63,25 @@ if ($Action -eq "Status") {
     else { Write-Host "$name : not installed" }
   }
   Get-RemoteProcesses | Select-Object Name, ProcessId
+  try {
+    $health = Invoke-RestMethod -Uri "$localUrl/health" -TimeoutSec 2
+    Write-Host "Backend: $($health.codex); transport: $($health.transport)."
+  } catch {
+    Write-Warning "The local backend is not reachable: $localUrl/health"
+  }
+  if (Test-Path -LiteralPath (Join-Path $Root "data\cloudflared-token")) {
+    try {
+      Invoke-WebRequest -Uri "http://127.0.0.1:20241/ready" -UseBasicParsing -TimeoutSec 2 | Out-Null
+      $metrics = Invoke-WebRequest -Uri "http://127.0.0.1:20241/metrics" -UseBasicParsing -TimeoutSec 2
+      if ($metrics.Content -match '(?m)^cloudflared_tunnel_ha_connections\s+(\d+)') {
+        Write-Host "Tunnel: ready; edge connections: $($Matches[1])."
+      } else {
+        Write-Host "Tunnel: ready."
+      }
+    } catch {
+      Write-Warning "The tunnel has no ready edge connection. Check data\cloudflared.log."
+    }
+  }
   return
 }
 

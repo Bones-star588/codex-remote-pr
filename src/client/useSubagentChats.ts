@@ -48,12 +48,17 @@ export function useSubagentChats(transport: ChatTransport, connected: boolean, p
     if (!buffer) { buffer = new HistoryPrefetch(); earlierPages.current.set(id, buffer); }
     return buffer.read(chat.cursor, signal => prepareHistoryPage(
       () => api<ThreadHistoryPage>(`/api/thread/history?${new URLSearchParams({
-        threadId: id, before: chat.cursor!, limit: '100'
-      })}`, { cache: 'no-store', signal }),
-      cursor => transport.rpc('thread/turns/list', { threadId: id, cursor, limit: 100, itemsView: 'notLoaded' }),
+        threadId: id, before: chat.cursor!, limit: '100', conversation: '1'
+      })}`, { cache: 'no-store', signal, timeoutMs: 15000 }),
+      async cursor => {
+        const page = await api<Pick<ThreadHistoryPage, 'turns' | 'turnsCursor'>>(
+          `/api/thread/timings?${new URLSearchParams({ threadId: id, cursor })}`,
+          { cache: 'no-store', signal, timeoutMs: 15000 });
+        return { data: page.turns, nextCursor: page.turnsCursor };
+      },
       chat.timings, chat.turnsCursor, signal
     ));
-  }, [transport]);
+  }, []);
   const prefetch = useCallback(async (id: string) => {
     try { await prepareEarlier(id); } catch { /* Foreground paging can retry. */ }
   }, [prepareEarlier]);

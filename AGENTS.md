@@ -58,6 +58,10 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   retain upward intent at the restored reading anchor and continue one bounded
   page at a time until a user message or final/legacy answer appears. Downward
   movement, navigation and activity expansion stop this continuation.
+  Count only messages actually mounted outside process folds; an older answer
+  folded into the existing response is not newly revealed conversation.
+  Coalesce up to four 100-record native pages per older-history HTTP response
+  on the host, stopping at readable context and retaining every record/cursor.
   Never prepend history or compensate its position during a drag.
   Use a passive history sentinel, never a load-more button. A new upward
   gesture retries a failed foreground page; idle failures must not loop.
@@ -121,7 +125,10 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   answer, follow at most two native 100-record pages, retaining the latest
   items and remaining cursor. This bounded fill is separate from scroll paging.
   Read timings independently; gate sending/queues on native metadata, timings,
-  resume and the socket. Older paging waits for the initial timing cursor.
+  resume and the socket. Older paging obtains missing initial timing cursors
+  and older timing pages through bounded authenticated HTTP, independently of
+  realtime RPC. A failed initial timing read must not hide the history sentinel.
+  Late initial timings must not rewind a cursor already advanced by paging.
   Task first pages contain 50 rows, then 200 per native cursor. Share pending
   native task reads across bootstrap/fallback, including bootstrap timeout.
   Pause background task pages during the selected chat's foreground read.
