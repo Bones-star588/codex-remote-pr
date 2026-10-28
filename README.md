@@ -252,7 +252,7 @@ Commands call the owning App Server or open the corresponding UI. A failed comma
 ```text
 Phone / computer browser
         |
-        | HTTPS + WebSocket
+        | HTTPS + WebSocket / HTTP events
         v
 Cloudflare Tunnel (optional)
         |
@@ -614,7 +614,7 @@ npm test
 npm run build
 ```
 
-The suite has **251 tests across 45 test files**, including native read coalescing and timeout recovery, bounded host/device snapshots, foreground request priority, parallel session startup, returning-device hints, static-shell caching, native timing, activity folding, gesture-aware history insertion, bounded HTTP reads, preview canvas sizing, local attachment retention, conversation navigation, side-chat event isolation and recovery, child-task filtering, assistant citation display, device push registration/routing/retries, HTTP realtime fallback, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
+The suite has **262 tests across 46 test files**, including native read coalescing and timeout recovery, bounded host/device snapshots, foreground request priority, parallel session startup, returning-device hints, static-shell caching, native timing, activity folding, gesture-aware history insertion, bounded HTTP reads, preview canvas sizing, local attachment retention, conversation navigation, side-chat event isolation and recovery, child-task filtering, assistant citation display, device push registration/routing/retries, HTTP realtime fallback, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
 
 ```text
 src/client/       React workspace, composer, history, approvals, reconnect
@@ -644,7 +644,7 @@ the startup record and the implementation.
 - Remote terminals do not attach to Desktop-owned shells. The inspector derives review and file information from loaded chat history, not an unrestricted project explorer.
 - Live command approval is verified. File-change, user-input, and persistent command/network-policy approvals have helpers and tests but still need dedicated live acceptance.
 - Browser dictation requires browser support and microphone permission; actual spoken input has not been accepted in the release verification.
-- Heartbeats recover stale connections, but cannot guarantee network uptime. Interrupted requests are not replayed automatically.
+- Heartbeats recover stale connections, but cannot guarantee network uptime. Uncertain model actions are not replayed automatically; selected read-only requests have bounded retries.
 - Physical iPhone Safari / Add to Home Screen behavior and real 5G/Wi-Fi tail latency still need device testing. Chromium and Windows WebKit emulation do not establish iOS performance.
 - Windows is the live-tested deployment. macOS has build, unit-test, shell, and LaunchAgent CI coverage, but live desktop sync, login persistence, and the legacy tunnel still require acceptance on a signed-in Mac.
 

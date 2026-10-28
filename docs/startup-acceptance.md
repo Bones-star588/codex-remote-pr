@@ -4,19 +4,23 @@ Date: 2026-10-28.
 
 ## Current Scope
 
-The connection-recovery follow-up below supersedes the prior retry behavior.
-The data-loading follow-up supersedes the prior task/chat startup path.
-The earlier returning-shell implementation was public commit `2f2f02c`, verified by
-Windows/macOS/Ubuntu CI run `40623756335`: 185 tests across 38 files, type
-checking and production builds passed. The data-loading follow-up changes both
-backend and frontend and requires deploying matching artifacts.
+Application `41198b9` is the current verified implementation. Windows, macOS and
+Ubuntu CI run `40655896701` passed 262 tests in 46 files, type checking and
+production builds. Matching client/server artifacts were deployed; local and
+canonical public shell/service-worker checks matched the build, with ready
+Desktop transport. Documentation-only changes do not require redeployment.
 
-The parallel-startup comparison below was captured at `900e2a9`; the returning
-device follow-up covers `2f2f02c`. Treat their timings and older suite counts as
-dated observations. The deployed local and canonical public shell/service worker
-were checked against the current build on 2026-10-28, with ready Desktop
-transport. A manually set hint opened only an empty shell and was rejected by
-the unauthenticated server; no socket or private task data was exposed.
+The [lifecycle adversarial follow-up](#lifecycle-adversarial-follow-up) defines
+the latest connection and read-recovery behavior. Ordinary focus does not cancel
+healthy task reads or reset handshake deadlines. Missing catalogs load through
+independent authenticated HTTP, and initial chat/timing failures and existing
+subscription rejoin have bounded recovery. Model actions are never retried.
+
+Older sections retain dated acceptance evidence. Their suite counts, timings
+and superseded recovery rules are historical, not additional current contracts.
+The parallel-startup comparison covers `900e2a9`; the returning-device checkpoint
+covers `2f2f02c`. Controlled browser tests do not establish physical iPhone or
+signed-in macOS acceptance.
 
 To activate a waiting PWA update, open Remote online, close every Remote app
 window and same-origin browser tab, then reopen. One successful verification in
@@ -24,10 +28,13 @@ the new version saves the device hint. First entry and unavailable storage still
 use verified entry. Early shell readiness is not authenticated task/chat
 readiness, and physical iPhone Safari / 5G/Wi-Fi remains unverified.
 
-## Changes
+## Historical Startup Checkpoints
 
-The following sections retain their original startup checkpoints. Current
-task/chat loading adds the data-loading follow-up at the end of this record.
+The following sections through HTTP Transport Follow-Up describe earlier
+checkpoints. The lifecycle follow-up supersedes their focus/online recovery
+behavior. Earlier successful short probes missed the defects found there.
+
+### Parallel Startup Changes
 
 - Authentication status and bootstrap start concurrently. Either successful
   server response can end the login check. A bootstrap response cancels the
@@ -367,3 +374,24 @@ in 46 files, type checking and the production build. The synthetic origin
 never connects to Desktop or private data. These results demonstrate recovery
 under the injected conditions, not physical iPhone or mobile-network acceptance.
 No DNS/proxy setting or unrelated UI behavior changed.
+
+### Public Deployment Verification
+
+The deployed application passed a Chromium probe at 402x874 CSS pixels / DPR 3
+with simulated 900ms network latency, 250000 B/s download and 100000 B/s upload.
+Tasks appeared at 4.561s. Four native chat selections, including a longer
+workspace chat, reached readable history and enabled controls in 1.664-1.829s.
+Initial history pages contained 6/40/16/40 items, respecting the 40-item bound.
+
+A further 90-second observation included repeated focus and redundant online
+events. It retained one connection and one synchronization, received fourteen
+pongs, and recorded zero connection closures, channel errors, error banners,
+page exceptions or model actions. This is one host-run weak-network sample;
+it is not an iPhone reliability guarantee.
+
+Local/public HTTP checks also verified matching application references and
+service-worker bytes, independently available project/model catalogs, and
+uncompressed no-store/no-transform events with working hello/pong. Anonymous
+requests returned 401, invalid catalog kinds 400, and stale peers 409;
+wrong-origin requests were rejected. Existing data, Desktop and Tunnel were
+preserved; only Remote's changed backend was restarted.
