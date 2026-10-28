@@ -27,6 +27,39 @@ describe('bounded native workspace snapshots', () => {
     expect(await fallback).toMatchObject({ data: [{ id: 'chat' }], snapshot: { stale: false } });
   });
 
+  it('expires a hung task read so retries do not rejoin it or accept its late result', async () => {
+    vi.useFakeTimers();
+    let finish!: (value: unknown) => void;
+    const request = native();
+    request.mockImplementationOnce(async () => new Promise(resolve => { finish = resolve; }));
+    const snapshots = new WorkspaceSnapshots(request);
+    const first = snapshots.list().catch(error => error);
+    const fallback = snapshots.list().catch(error => error);
+    expect(request).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(await first).toHaveProperty('message', 'Native read timed out. Please retry.');
+    expect(await fallback).toBe(await first);
+    request.mockResolvedValueOnce({ data: [{ id: 'current' }], nextCursor: 'current-cursor' });
+    expect(await snapshots.list()).toMatchObject({ data: [{ id: 'current' }], nextCursor: 'current-cursor' });
+    finish({ data: [{ id: 'obsolete' }], nextCursor: 'obsolete-cursor' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await snapshots.list()).toMatchObject({ data: [{ id: 'current' }], nextCursor: 'current-cursor' });
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('bounds uncached cursor pages and allows the same cursor to be retried', async () => {
+    vi.useFakeTimers();
+    const request = native();
+    request.mockImplementationOnce(async () => new Promise(() => {}));
+    const snapshots = new WorkspaceSnapshots(request);
+    const first = snapshots.list('older-cursor').catch(error => error);
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(await first).toHaveProperty('message', 'Native read timed out. Please retry.');
+    expect(await snapshots.list('older-cursor')).toEqual({ data: [], nextCursor: null });
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it('uses fifty initial tasks and two hundred on subsequent native cursor pages', async () => {
     const request = native();
     const snapshots = new WorkspaceSnapshots(request);

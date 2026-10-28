@@ -5,6 +5,7 @@ import { RemoteConnection } from './remote-connection';
 import { hostNow, synchronizeHostClock } from './host-clock';
 
 class FakeSocket extends EventTarget {
+  static CONNECTING = 0;
   static OPEN = 1;
   static instances: FakeSocket[] = [];
   readyState = 0;
@@ -68,10 +69,10 @@ describe('Remote connection recovery', () => {
     first.message({ type: 'pong', at: 'now' });
     vi.advanceTimersByTime(20_000);
     expect(first.sent).toHaveLength(2);
-    vi.advanceTimersByTime(10_000);
+    vi.advanceTimersByTime(5000);
     expect(onDisconnect).toHaveBeenCalledOnce();
     expect(current).toBeNull();
-    vi.advanceTimersByTime(1500);
+    vi.advanceTimersByTime(250);
     expect(FakeSocket.instances).toHaveLength(2);
     expect(first.readyState).toBe(3);
   });
@@ -96,7 +97,7 @@ describe('Remote connection recovery', () => {
 
   it('times out a stalled handshake and ignores late events from it', () => {
     const first = FakeSocket.instances[0]!;
-    vi.advanceTimersByTime(16_500);
+    vi.advanceTimersByTime(6250);
     const second = FakeSocket.instances[1]!;
     second.open();
     first.open();
@@ -117,10 +118,10 @@ describe('Remote connection recovery', () => {
     expect(first.sent).toHaveLength(1);
     documentTarget.visibilityState = 'visible';
     documentTarget.dispatchEvent(new Event('visibilitychange'));
-    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(2500);
     browser.dispatchEvent(new Event('focus'));
     expect(first.sent).toHaveLength(2);
-    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(2500);
     expect(onDisconnect).toHaveBeenCalledOnce();
   });
 
@@ -155,5 +156,84 @@ describe('Remote connection recovery', () => {
     expect(current).toBeNull();
     expect(onMessage).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('retries a stalled transport within six seconds without a manual reconnect', () => {
+    const first = FakeSocket.instances[0]!;
+    vi.advanceTimersByTime(5999);
+    expect(FakeSocket.instances).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(onDisconnect).toHaveBeenCalledOnce();
+    expect(first.readyState).toBe(3);
+    vi.advanceTimersByTime(249);
+    expect(FakeSocket.instances).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(FakeSocket.instances).toHaveLength(2);
+  });
+
+  it('bounds synchronization separately from the browser opening the socket', () => {
+    connection.dispose();
+    connection = new RemoteConnection({
+      url: 'wss://remote.test/ws', readyType: 'sync.ready',
+      onSocket: socket => { current = socket; }, onOpen, onMessage, onDisconnect
+    });
+    connection.start();
+    const first = FakeSocket.instances.at(-1)!;
+    first.open();
+    first.message({ type: 'pong', at: 'now' });
+    vi.advanceTimersByTime(6000);
+    expect(onDisconnect).toHaveBeenCalledOnce();
+    expect(onDisconnect.mock.calls[0]![0].message).toContain('synchronization');
+    vi.advanceTimersByTime(250);
+    const second = FakeSocket.instances.at(-1)!;
+    second.open();
+    second.message({ type: 'sync.ready', epoch: 'test', sequence: 0, resumed: false });
+    second.message({ type: 'pong', at: 'now' });
+    vi.advanceTimersByTime(6000);
+    expect(current).toBe(second);
+    expect(onDisconnect).toHaveBeenCalledOnce();
+    expect(second.sent).toEqual([JSON.stringify({ type: 'ping' })]);
+  });
+
+  it('does not grow visible reconnect waits beyond five seconds or replay actions', () => {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const socket = FakeSocket.instances.at(-1)!;
+      socket.dispatchEvent(new Event('error'));
+      vi.advanceTimersByTime(Math.min(250 * 2 ** attempt, 5000));
+      expect(FakeSocket.instances).toHaveLength(attempt + 2);
+    }
+    const socket = FakeSocket.instances.at(-1)!;
+    socket.open();
+    expect(socket.sent).toEqual([JSON.stringify({ type: 'ping' })]);
+    expect(FakeSocket.instances.slice(0, -1).every(socket => socket.sent.length === 0)).toBe(true);
+  });
+
+  it('replaces an overdue connecting socket immediately on foreground return', () => {
+    const first = FakeSocket.instances[0]!;
+    documentTarget.visibilityState = 'hidden';
+    vi.setSystemTime(Date.now() + 2000);
+    documentTarget.visibilityState = 'visible';
+    documentTarget.dispatchEvent(new Event('visibilitychange'));
+    expect(first.readyState).toBe(3);
+    expect(FakeSocket.instances).toHaveLength(2);
+    vi.advanceTimersByTime(250);
+    expect(FakeSocket.instances).toHaveLength(2);
+  });
+
+  it('keeps a new handshake during early focus and manually reconnects without waiting or replay', () => {
+    browser.dispatchEvent(new Event('focus'));
+    vi.advanceTimersByTime(1999);
+    browser.dispatchEvent(new Event('focus'));
+    expect(FakeSocket.instances).toHaveLength(1);
+    connection.reconnect();
+    expect(FakeSocket.instances).toHaveLength(2);
+    const second = FakeSocket.instances[1]!;
+    second.open();
+    expect(second.sent).toEqual([JSON.stringify({ type: 'ping' })]);
+    vi.advanceTimersByTime(250);
+    expect(FakeSocket.instances).toHaveLength(2);
+    connection.dispose();
+    connection.reconnect();
+    expect(FakeSocket.instances).toHaveLength(2);
   });
 });

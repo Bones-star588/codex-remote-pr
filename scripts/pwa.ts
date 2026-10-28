@@ -39,6 +39,32 @@ self.addEventListener('fetch', event => {
     return response;
   })());
 });
+self.addEventListener('push', event => {
+  const payload = event.data ? event.data.json() : {};
+  event.waitUntil(self.registration.showNotification(payload.title || 'Codex', {
+    body: payload.body || 'Codex',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    tag: payload.tag || 'codex-notification',
+    data: { url: payload.url || '/' }
+  }));
+});
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    let url = new URL(event.notification.data?.url || '/', self.location.origin);
+    if (url.origin !== self.location.origin) url = new URL('/', self.location.origin);
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of clients) {
+      if (new URL(client.url).origin !== self.location.origin) continue;
+      await client.focus();
+      const threadId = url.searchParams.get('thread');
+      if (threadId) client.postMessage({ type: 'notification.open', threadId });
+      return;
+    }
+    await self.clients.openWindow(url.href);
+  })());
+});
 `;
 }
 

@@ -19,6 +19,23 @@ it. It is not an offline authentication mechanism. Operators on shared devices
 should sign out or clear site data. Host memory snapshots remain behind the
 existing authenticated HTTP endpoints; neither cache replays model actions.
 
+## Device Notifications
+
+Web Push is opt-in per device. Authenticated same-origin endpoints manage
+subscriptions. VAPID private keys, push endpoints and watched chat identifiers
+live in the private runtime file `data/web-push.json`; retain it during updates
+and never publish it. Notifications cover ordinary chats opened or created
+through Remote, excluding subagent and ephemeral chats.
+
+Encrypted push payloads pass through Apple or the browser vendor's push service.
+They contain a generic status and chat identifier, without prompts, replies,
+file names or command output. Remote and its native Desktop connection must
+remain running. Closing the page does not cancel notifications. Successful
+logout removes this device's subscription first; session expiry alone does not
+revoke OS push. Disable device notifications or revoke the site's notification
+permission when access should end. Push-service acceptance does not prove
+delivery or display on a physical device.
+
 ## Deployment
 
 - Use HTTPS and a strong access password.

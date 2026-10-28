@@ -1,5 +1,5 @@
 import type { ClientRpcMethod } from '../shared/protocol.js';
-import { readThreadListPage } from './bootstrap.js';
+import { readThreadListPage, withReadDeadline } from './bootstrap.js';
 import { readOpenThread, readThreadTimings } from './thread-open.js';
 
 type Request = (method: ClientRpcMethod, params: unknown) => Promise<unknown>;
@@ -43,7 +43,7 @@ class SnapshotCache<T extends object> {
   private load(key: string, entry: Entry<T>, load: () => Promise<T>): Promise<T & { snapshot: Snapshot }> {
     if (entry.pending) return entry.pending;
     const revision = entry.revision;
-    entry.pending = load().then(value => {
+    entry.pending = withReadDeadline(load()).then(value => {
       if (entry.removed) throw new Error('This snapshot is no longer available.');
       const savedAt = Date.now();
       const stale = entry.revision !== revision;
@@ -101,13 +101,13 @@ export class WorkspaceSnapshots {
   constructor(private request: Request) {}
 
   list(cursor: string | null = null, archived = false, fresh = false) {
-    if (cursor) return readThreadListPage(this.request, cursor, archived);
+    if (cursor) return withReadDeadline(readThreadListPage(this.request, cursor, archived));
     return this.lists.read(String(archived),
       () => readThreadListPage(this.request, null, archived) as Promise<ThreadPage>, fresh);
   }
 
   open(threadId: string, mode: 'resume' | 'read' | 'new', fresh = false) {
-    if (mode === 'new') return readOpenThread(this.request, threadId, mode);
+    if (mode === 'new') return withReadDeadline(readOpenThread(this.request, threadId, mode));
     return this.chats.read(threadId, () => readOpenThread(this.request, threadId, mode), fresh);
   }
 

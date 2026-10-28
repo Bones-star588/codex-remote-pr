@@ -4,7 +4,8 @@ Date: 2026-10-28.
 
 ## Current Scope
 
-The data-loading follow-up below supersedes the prior task/chat startup path.
+The connection-recovery follow-up below supersedes the prior retry behavior.
+The data-loading follow-up supersedes the prior task/chat startup path.
 The earlier returning-shell implementation was public commit `2f2f02c`, verified by
 Windows/macOS/Ubuntu CI run `40623756335`: 185 tests across 38 files, type
 checking and production builds passed. The data-loading follow-up changes both
@@ -201,3 +202,61 @@ model actions or page exceptions occurred. Chromium also passed 320x568 and
 Windows WebKit reported a visual viewport smaller than its configured screen
 before input focus; it is not a physical iPhone compositor test. Physical
 iPhone Safari/PWA, actual 5G/Wi-Fi and signed-in macOS remain pending.
+
+## Connection Recovery Follow-Up
+
+Date: 2026-10-28. Matching client and server deployment is required.
+
+Confirmed failure paths:
+
+- A failed initial task HTTP request did not schedule its own retry; an empty
+  list could remain until the five-minute calibration refresh.
+- Reconnect could join a stalled HTTP/native read. Native metadata/snapshot
+  requests now expire after eight seconds; a retry creates a fresh read, and
+  late old results cannot replace it.
+- A socket could be OPEN without `sync.ready`. Transport and application
+  handshakes now have independent six-second deadlines; pongs cannot satisfy
+  application readiness. Visible retry starts at 250 ms and caps at five seconds.
+- On Windows WebKit, aborting fetch with a TimeoutError rejects with AbortError.
+  The HTTP helper now preserves its own timeout reason so task recovery does
+  not mistake a deadline for deliberate cancellation.
+
+The first task attempt has a four-second deadline. Failures retry independently
+of WebSocket state at 0.5/1/2/4 seconds, capped at five seconds; later HTTP
+attempts retain a 15-second deadline. Foreground/online recovery replaces an
+initial read stalled for two seconds. Manual reconnect cancels pending
+task/history reads, rebuilds the socket and preserves the workspace/draft.
+No uncertain model action is replayed.
+
+Production-build probes at 402x874 CSS pixels / DPR 3 used an isolated synthetic
+server with all 257 ordinary tasks:
+
+| Scenario | Chromium | Windows WebKit |
+| --- | ---: | ---: |
+| Hung first task request, automatic recovery | 5280 ms | 5280 ms |
+| First task request returns 503 | 981 ms | 1092 ms |
+| Online event replaces pending HTTP | 29 ms | 96 ms |
+| Missing sync.ready triggers reconnect | 6684 ms | 6904 ms |
+| Manual reconnect | 45 ms | 193 ms |
+| Online event recovers socket | 23 ms | 111 ms |
+
+These are controlled recovery times, not promises about physical iPhone
+networks. Both engines retained drafts, loaded all tasks and recorded zero
+model actions or page exceptions. Existing host-route samples still showed
+roughly one second for public HTTP and tens of milliseconds locally; no
+DNS/proxy changes were made.
+
+The complete local suite passes 241 tests in 44 files, type checking and the
+production build. Additional Chromium/WebKit acceptance covers notification
+settings at 320, 402, 768 and 2560 CSS-pixel widths: no horizontal overflow,
+44px action buttons, server registration before enabled state, server removal
+before browser unsubscribe, denied-permission and iOS home-screen guidance.
+Startup makes no notification API requests. Push/click tests cover existing
+and new window routing without adding private payloads to static caches.
+Physical iPhone/iPad delivery has not been verified.
+
+Task bootstrap, native paging and unknown-thread status refresh all exclude
+subagent/ephemeral sources. The 257 ordinary tasks, including normally unnamed
+chats, remain available. Child viewer history/subscriptions are preserved;
+the fix neither deletes nor archives children. Assistant prose hides internal
+citation IDs while retaining user text, inline/fenced code and real links.

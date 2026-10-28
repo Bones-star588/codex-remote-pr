@@ -40,6 +40,7 @@ import { subagentChatStatus, type Subagent } from './subagents';
 import './subagents.css';
 import type { PreviewTarget } from '../shared/file-preview';
 import { markStartup } from './startup';
+import { unlinkDeviceNotifications } from './push-notifications';
 
 interface WorkspaceProps {
   authenticated: boolean;
@@ -77,6 +78,28 @@ export function Workspace({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [sideChatRequest, setSideChatRequest] = useState<{ id: number; input?: ChatInput } | null>(null);
   const [previewRequest, setPreviewRequest] = useState<{ id: number; target: PreviewTarget } | null>(null);
+  const [notificationThreadId, setNotificationThreadId] = useState(() =>
+    new URLSearchParams(location.search).get('thread'));
+  useEffect(() => {
+    const openNotification = (event: MessageEvent) => {
+      if (event.data?.type === 'notification.open' && typeof event.data.threadId === 'string') {
+        setNotificationThreadId(event.data.threadId);
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', openNotification);
+    return () => navigator.serviceWorker?.removeEventListener('message', openNotification);
+  }, []);
+  useEffect(() => {
+    if (!authenticated || !notificationThreadId) return;
+    const threadId = notificationThreadId;
+    setNotificationThreadId(null);
+    const url = new URL(location.href);
+    url.searchParams.delete('thread');
+    history.replaceState(history.state, '', url);
+    setSidebarOpen(false);
+    void remote.openThread(threadId).catch(error => remote.setLastError(
+      error instanceof Error ? error.message : String(error)));
+  }, [authenticated, notificationThreadId, remote.openThread]);
   const subagentChats = useSubagentChats(remote.chatTransport, remote.connected, remote.activeThread?.id);
   const [selectedSubagent, setSelectedSubagent] = useState<{ id: number; threadId: string } | null>(null);
   const openSubagent = useCallback((agent: Subagent) => {
@@ -283,9 +306,11 @@ export function Workspace({ authenticated, onAuthExpired, bootstrap, bootstrapRe
 
   async function logout() {
     try {
-      await api('/api/auth/logout', { method: 'POST' });
-    } finally {
+      await unlinkDeviceNotifications();
+      await api('/api/auth/logout', { method: 'POST', timeoutMs: 8000 });
       onAuthExpired();
+    } catch (error) {
+      showError(error);
     }
   }
 
@@ -413,6 +438,9 @@ export function Workspace({ authenticated, onAuthExpired, bootstrap, bootstrapRe
           <div className="error-banner" role="alert">
             <CircleAlert size={16} aria-hidden="true" />
             <span>{remote.lastError}</span>
+            <button type="button" onClick={remote.reconnect} aria-label="重新连接">
+              <RefreshCw size={15} aria-hidden="true" />
+            </button>
             <button type="button" onClick={() => remote.setLastError(null)} aria-label="关闭错误提示">
               <X size={15} aria-hidden="true" />
             </button>

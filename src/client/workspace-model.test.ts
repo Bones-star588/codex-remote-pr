@@ -77,6 +77,17 @@ describe('workspace model', () => {
     expect(groups.standalone.map((entry) => entry.id)).toEqual(['standalone']);
   });
 
+  it('keeps viewed child chats out of task groups without hiding ordinary unnamed chats', () => {
+    const groups = buildSidebarGroups([
+      thread({ id: 'ordinary', name: null }),
+      thread({ id: 'spawned', name: null, source: { subAgent: { thread_spawn: { parent_thread_id: 'ordinary' } } } }),
+      thread({ id: 'review', source: { subAgent: 'review' } }),
+      thread({ id: 'temporary', ephemeral: true })
+    ], [project], '', 'all');
+    expect(groups.total).toBe(1);
+    expect(groups.projects[0]?.threads.map(entry => entry.id)).toEqual(['ordinary']);
+  });
+
   it('falls back to the model default reasoning effort', () => {
     const model: ModelInfo = {
       id: 'model-a',

@@ -34,6 +34,8 @@ import { QueueDispatcher } from './queue-dispatcher.js';
 import { EventJournal } from './event-journal.js';
 import { filePreviewRouter } from './file-preview.js';
 import { LocalImages, imageExtensions } from './local-images.js';
+import { PushNotifications } from './push-notifications.js';
+import { isTaskThread } from '../shared/thread-source.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -54,6 +56,7 @@ const eventJournal = new EventJournal();
 const localImages = new LocalImages(path.join(config.dataDir, 'image-attachments'));
 const metadataReader = new MetadataReader((method, params) => codexBridge.request(method, params));
 const workspaceSnapshots = new WorkspaceSnapshots((method, params) => codexBridge.request(method, params));
+const pushNotifications = new PushNotifications(config.dataDir, config.publicOrigin ?? 'https://example.com');
 const watchedThreads = new Map<WebSocket, Set<string>>();
 const ephemeralChats = new EphemeralChats<WebSocket>(threadId => codexBridge.request('thread/unsubscribe', { threadId }));
 const queueDispatcher = new QueueDispatcher(<T,>(method: import('../shared/protocol.js').ClientRpcMethod, params: unknown) =>
@@ -249,6 +252,11 @@ app.get('/api/threads', requireAuth, asyncRoute(async (req, res) => {
   res.json(await workspaceSnapshots.list(cursor, req.query.archived === 'true', req.query.fresh === '1'));
 }));
 
+app.use('/api/notifications', requireAuth, (req, _res, next) => {
+  assertTrustedOrigin(req);
+  next();
+}, pushNotifications.router());
+
 app.get('/api/connections', requireAuth, (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({ publicOrigin: config.publicOrigin, lanOrigins: lanServer?.listening ? config.lanOrigins : [] });
@@ -285,6 +293,8 @@ app.get(
     const mode = req.query.mode === 'new' || req.query.mode === 'read' ? req.query.mode : 'resume';
     res.setHeader('Cache-Control', 'no-store');
     const result = await workspaceSnapshots.open(threadId, mode, req.query.fresh === '1');
+    const thread = (result.result as { thread?: { id: string; source?: unknown; ephemeral?: boolean } }).thread;
+    if (thread && isTaskThread(thread)) pushNotifications.watch(thread.id);
     for (const entry of result.items) void localImages.remember(entry.item).catch(reportImageFailure);
     if (!res.destroyed) res.json(result);
   })
@@ -499,6 +509,10 @@ async function handleClientMessage(socket: WebSocket, raw: string): Promise<void
         ephemeralChats.add(id, socket);
         if (socket.readyState !== WebSocket.OPEN) ephemeralChats.disconnect(socket);
       }
+      if (/^thread\/(?:start|fork|resume|read)$/.test(message.method) && !params?.ephemeral) {
+        const thread = (result as { thread?: { id: string; source?: unknown; ephemeral?: boolean } }).thread;
+        if (thread && isTaskThread(thread)) pushNotifications.watch(thread.id);
+      }
       if (message.method === 'thread/unsubscribe' && params?.threadId) ephemeralChats.remove(params.threadId);
       if ((message.method === 'turn/start' || message.method === 'turn/steer') &&
           params?.threadId && params.clientUserMessageId && params.input) {
@@ -556,6 +570,7 @@ codexBridge.on('event', ({ method, params }) => {
   }
   if (method === 'turn/completed') {
     for (const item of params?.turn?.items ?? []) void localImages.remember(item).catch(reportImageFailure);
+    void pushNotifications.notifyTurn(params ?? {});
   }
   ephemeralChats.record(method, params ?? {});
   broadcast({ type: 'event', method, params });
@@ -567,6 +582,7 @@ function reportImageFailure(): void {
 }
 codexBridge.on('server-request', ({ requestId, method, params }) => {
   broadcast({ type: 'server.request', requestId, method, params });
+  void pushNotifications.notifyApproval(params ?? {});
 });
 codexBridge.on('status', (status) => {
   if (status !== 'ready') {

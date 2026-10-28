@@ -49,6 +49,48 @@ describe('metadata bootstrap handoff', () => {
     await reader.read('model/list', { limit: 100 });
     expect(native).toHaveBeenCalledTimes(8);
   });
+
+  it('expires a hung metadata read and does not let its late result replace a retry', async () => {
+    vi.useFakeTimers();
+    try {
+      let finish!: (value: unknown) => void;
+      const native = vi.fn()
+        .mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+        .mockResolvedValue({ data: [{ id: 'current' }] });
+      const reader = new MetadataReader(native);
+      const params = { limit: 100, includeHidden: false };
+      const first = reader.read('model/list', params).catch(error => error);
+      const joined = reader.read('model/list', params).catch(error => error);
+      expect(native).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(await first).toHaveProperty('message', 'Native read timed out. Please retry.');
+      expect(await joined).toBe(await first);
+      expect(await reader.read('model/list', params)).toEqual({ data: [{ id: 'current' }] });
+      finish({ data: [{ id: 'obsolete' }] });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await reader.read('model/list', params)).toEqual({ data: [{ id: 'current' }] });
+      expect(native).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('leaves model actions on their native lifetime rather than the read deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      let finish!: (value: unknown) => void;
+      const reader = new MetadataReader(() => new Promise(resolve => { finish = resolve; }));
+      let completed = false;
+      const action = reader.read('turn/start', { threadId: 'chat' }).then(result => {
+        completed = true;
+        return result;
+      });
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(completed).toBe(false);
+      finish({ turn: { id: 'turn' } });
+      expect(await action).toEqual({ turn: { id: 'turn' } });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
 });
 
 describe('initial workspace request', () => {

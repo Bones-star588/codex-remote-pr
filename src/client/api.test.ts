@@ -4,6 +4,18 @@ import { api, HttpError, isAbortedRequest, ReadRequests } from './api';
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('bounded connection checks', () => {
+  it('preserves timeouts when WebKit reports an aborted fetch as AbortError', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((_path: string, options: RequestInit) =>
+      new Promise((_resolve, reject) => options.signal!.addEventListener('abort',
+        () => reject(new DOMException('Fetch aborted', 'AbortError'))))));
+    const reads = new ReadRequests();
+    const failure = reads.get('/api/threads', 4000).catch(error => error);
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(await failure).toHaveProperty('name', 'TimeoutError');
+    expect(isAbortedRequest(await failure)).toBe(false);
+    expect(reads.has('/api/threads')).toBe(false);
+  });
   it('aborts a stalled download and permits a new request', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn((_path: string, options: RequestInit) =>

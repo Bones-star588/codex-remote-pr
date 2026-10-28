@@ -30,7 +30,7 @@ import { userMessageText } from '../../shared/user-message';
 import type { OutlineTurn } from '../../shared/thread-outline';
 import { ThreadNavigation, type NavigationTarget } from './ThreadNavigation';
 import { ImagePreview } from './ImagePreview';
-import { markdownBlocks } from '../markdown-blocks';
+import { markdownBlocks, remarkAssistantSources } from '../markdown-blocks';
 import { copyText } from '../clipboard';
 import { captureReadingAnchor, restoreReadingAnchor, type ReadingAnchor } from '../reading-anchor';
 import { PreviewImage, PreviewLink } from './PreviewLinks';
@@ -569,7 +569,7 @@ const MessageItem = memo(function MessageItem({ item }: { item: ThreadItem }) {
       <article className={`message message--agent${item.phase === 'commentary' ? ' message--commentary' : ''}`}
         data-scroll-anchor={itemKey(item)}>
         <div className="agent-message-body markdown">
-          <MarkdownText text={item.text} />
+          <MarkdownText text={item.text} assistant />
         </div>
       </article>
     );
@@ -701,7 +701,7 @@ const ActivityItem = memo(function ActivityItem({ item, running }: { item: Threa
   const detailProps = { ...anchorProps,
     onToggle: (event: React.SyntheticEvent<HTMLDetailsElement>) => setOpen(event.currentTarget.open) };
   if (item.type === 'agentMessage') {
-    return <div className="activity-commentary markdown" {...anchorProps}><MarkdownText text={item.text} /></div>;
+    return <div className="activity-commentary markdown" {...anchorProps}><MarkdownText text={item.text} assistant /></div>;
   }
   if (item.type === 'reasoning') {
     return (
@@ -857,15 +857,15 @@ const ActivityItem = memo(function ActivityItem({ item, running }: { item: Threa
   return null;
 });
 
-export const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
+export const MarkdownText = memo(function MarkdownText({ text, assistant = false }: { text: string; assistant?: boolean }) {
   const blocks = useMemo(() => markdownBlocks(text), [text]);
-  return <>{blocks.map(block => <MarkdownBlock key={block.offset} text={block.text} />)}</>;
+  return <>{blocks.map(block => <MarkdownBlock key={block.offset} text={block.text} assistant={assistant} />)}</>;
 });
 
-const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
+const MarkdownBlock = memo(function MarkdownBlock({ text, assistant }: { text: string; assistant: boolean }) {
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={assistant ? [remarkGfm, remarkAssistantSources] : [remarkGfm]}
       urlTransform={(url) =>
         /^(?:file:\/\/|[a-z]:[\\/])/i.test(url) || localImageSource(url).startsWith('/api/local-image?') ? url : defaultUrlTransform(url)
       }

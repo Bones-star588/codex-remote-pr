@@ -1,5 +1,5 @@
 import {
-  Archive, ArchiveRestore, ChevronDown, ChevronRight, CircleAlert, CircleHelp, FolderOpen, FolderPlus,
+  Archive, ArchiveRestore, Bell, ChevronDown, ChevronRight, CircleAlert, CircleHelp, FolderOpen, FolderPlus,
   LoaderCircle, LogOut, MessageSquare, Plus, RefreshCw, Search, Wrench, X
 } from 'lucide-react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
@@ -9,6 +9,7 @@ import type { Thread } from '../types';
 import { buildSidebarGroups, connectionLabel } from '../workspace-model';
 import { WorkspaceFolderDialog } from './WorkspaceFolderDialog';
 import { api } from '../api';
+import { NotificationSettings } from './NotificationSettings';
 
 interface SidebarProps {
   remote: RemoteState;
@@ -34,6 +35,7 @@ export function Sidebar({
   const [connections, setConnections] = useState<{ publicOrigin: string | null; lanOrigins: string[] } | null>(null);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [expansion, setExpansion] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(localStorage.getItem('sidebar-project-expansion') ?? '{}') as Record<string, boolean>; }
     catch { return {}; }
@@ -86,6 +88,7 @@ export function Sidebar({
       aria-label="项目与任务" aria-hidden={(layout === 'mobile' && !open) || isCollapsed}
       inert={(layout === 'mobile' && !open) || isCollapsed}
       onKeyDown={(event) => {
+        if (event.defaultPrevented || event.target instanceof Element && event.target.closest('dialog[open]')) return;
         if (event.key === 'Escape') {
           setAccountOpen(false); setSearchOpen(false);
           if (layout === 'mobile') onClose();
@@ -176,6 +179,9 @@ export function Sidebar({
             {connections?.lanOrigins.filter(origin => origin !== location.origin).map(origin =>
               <a className="connection-link" href={origin} key={origin}>局域网 · {new URL(origin).host}</a>)}
             <div className="account-menu-separator" />
+            <button type="button" role="menuitem" onClick={() => {
+              setAccountOpen(false); setNotificationsOpen(true);
+            }}><Bell size={15} /><span>消息通知</span></button>
             <button type="button" role="menuitem" onClick={onLogout}><LogOut size={15} /><span>退出登录</span></button>
           </div>
         )}
@@ -202,6 +208,7 @@ export function Sidebar({
         </dialog>
       )}
       {folderDialogOpen && <WorkspaceFolderDialog remote={remote} onSelect={onNewTask} onClose={() => setFolderDialogOpen(false)} />}
+      {notificationsOpen && <NotificationSettings onClose={() => setNotificationsOpen(false)} />}
     </aside>
   );
 }

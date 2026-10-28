@@ -1,4 +1,5 @@
 import type { ModelInfo, ProjectInfo, Thread } from './types';
+import { isTaskThread } from '../shared/thread-source';
 
 export function layoutForViewport(width: number, height: number, coarsePointer = false): 'mobile' | 'desktop' {
   return width < 720 || (width < 980 && width / height < 1.18) ||
@@ -52,6 +53,7 @@ export function buildSidebarGroups(
 ): SidebarGroups {
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleThreads = dedupeThreads(threads).filter((thread) => {
+    if (!isTaskThread(thread)) return false;
     if (!matchesFilter(thread, filter)) return false;
     if (!normalizedQuery) return true;
     return [thread.name, thread.preview, thread.cwd]

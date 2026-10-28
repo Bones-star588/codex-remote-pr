@@ -10,11 +10,14 @@ export class HttpError extends Error {
 export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const { timeoutMs, signal, ...request } = options;
   const controller = timeoutMs ? new AbortController() : null;
+  let timeoutError: DOMException | undefined;
   const abort = () => controller?.abort(signal?.reason);
   if (signal?.aborted) abort();
   else signal?.addEventListener('abort', abort, { once: true });
-  const timer = timeoutMs ? setTimeout(() => controller!.abort(
-    new DOMException('Connection timed out. Please retry.', 'TimeoutError')), timeoutMs) : undefined;
+  const timer = timeoutMs ? setTimeout(() => {
+    timeoutError = new DOMException('Connection timed out. Please retry.', 'TimeoutError');
+    controller!.abort(timeoutError);
+  }, timeoutMs) : undefined;
   try {
     const response = await fetch(path, {
       ...request,
@@ -43,6 +46,9 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     }
 
     return body as T;
+  } catch (error) {
+    // WebKit can reject fetch with AbortError even when abort used TimeoutError.
+    throw timeoutError ?? error;
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', abort);
@@ -60,11 +66,11 @@ export class ReadRequests {
     return this.pending.has(path);
   }
 
-  get<T>(path: string): Promise<T> {
+  get<T>(path: string, timeoutMs = 15000): Promise<T> {
     const existing = this.pending.get(path);
     if (existing) return existing.promise as Promise<T>;
     const controller = new AbortController();
-    const promise = api<T>(path, { cache: 'no-store', signal: controller.signal, timeoutMs: 15000 }).finally(() => {
+    const promise = api<T>(path, { cache: 'no-store', signal: controller.signal, timeoutMs }).finally(() => {
       if (this.pending.get(path)?.controller === controller) this.pending.delete(path);
     });
     this.pending.set(path, { controller, promise });

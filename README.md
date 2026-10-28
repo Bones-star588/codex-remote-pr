@@ -43,6 +43,7 @@ The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when 
 - **Workspace terminals.** Open an interactive shell in the current chat/project directory, with terminal tabs, Ctrl+C, preserved sessions, and reconnectable output.
 - **Responsive light UI.** Drag the desktop sidebar and review dividers to resize all three columns; widths are remembered in the current browser, and double-clicking restores defaults. Phones use navigation drawers, with a compact composer and system typography.
 - **Connection recovery.** Heartbeat deadlines, handshake timeouts, network/foreground recovery, and drafts stored per chat in the browser.
+- **Device notifications.** Opt into encrypted Web Push for completed tasks and approvals, test delivery, and turn off this device from Settings.
 - **Faster repeat entry.** Previously verified devices can open the empty workspace while login is checked in the background; tasks and chats still require server authentication.
 - **Self-hosted access.** Password login, signed HTTP-only sessions, local-only initial setup, and optional Cloudflare Tunnel.
 - **Windows and macOS controls.** Double-click `.cmd` files on Windows or `.command` files on macOS to start and stop Remote.
@@ -480,16 +481,43 @@ Codex CLI detection checks Windows app packages, local standalone installations,
 - Main-chat drafts live in browser `sessionStorage`. They survive switching chats and reconnecting, but do not synchronize with the Desktop composer or other devices. Temporary side-chat drafts remain in memory only.
 - Uploads are sent to the local Codex workflow. The remote UI does not implement a separate hosted model service.
 
+## Device Notifications
+
+Open **Settings → Message notifications** to enable website notifications, send
+a test, or disable this device. iPhone and iPad require iOS/iPadOS 16.4 or later:
+open the HTTPS site in Safari, add it to the Home Screen, launch that icon, and
+tap Enable to grant system permission. Other browsers must support Web Push.
+Plain LAN HTTP does not support this; localhost is a browser development exception.
+
+Push comes from the Remote server and can arrive while its page is closed.
+Remote and its native Desktop connection must stay running. Notifications cover
+ordinary chats opened or created through Remote, including completed, failed or
+stopped turns and approval requests. Child-agent and temporary chats are excluded.
+Tapping a notification focuses the workspace and opens its chat.
+
+VAPID keys, device subscriptions and notification chat scope are private runtime
+data in `data/web-push.json`. Keep that file across updates and out of Git.
+Browser push services, including Apple or the browser vendor, deliver encrypted
+messages. Payloads contain a generic status and chat identifier, without prompts,
+reply text, filenames or command output. Disable affects this device; successful
+logout also removes its subscription. Expiring browser login alone does not
+revoke an existing OS push subscription; use Disable or remove the site's
+notification permission. Delivery depends on system settings, Focus modes and
+the push service. A test accepted by the service is not proof that a real phone
+displayed it.
+
 ## Loading and Mobile Networks
 
 - Authentication status and authenticated bootstrap requests start together. Either verified response can open the workspace, so a stalled status request does not hold up a successful bootstrap. Both reads have six-second deadlines; total failure retries after 1, 2, 4, then at most 8 seconds. Network recovery or returning to the foreground can cancel an unfinished check and start again. A successful password login enters directly without an extra status round trip.
 - Tasks, models and projects appear as HTTP bootstrap data arrives, independently of WebSocket readiness. If bootstrap stalls for 1.5 seconds after verified authentication enables task loading, tasks load through their own authenticated HTTP endpoint. Subsequent task pages follow native cursors over HTTP, yielding to typing and selection; all tasks remain accessible. Native model/project reads remain a fallback when the socket is ready. Chat history can load while the real-time connection is still being established; sending messages and native actions require that connection.
 - The task first page contains up to 50 rows; remaining pages follow native cursors at up to 200 rows each. Bootstrap and fallback share native reads, including requests that outlive the bootstrap deadline. Selecting a chat pauses further background task pages until its initial text read completes.
+- Failed task reads retry automatically, independently of the live connection, after 0.5, 1, 2, 4, then at most 5 seconds. A first attempt has a four-second deadline; subsequent HTTP attempts allow 15 seconds. Returning online or to the foreground replaces an initial task read stalled for at least two seconds. Shared native snapshot and model/project reads expire after eight seconds, so retries do not keep joining a stuck native read.
+- Socket transport and workspace synchronization each have a six-second deadline. A successful heartbeat does not hide missing synchronization. Visible reconnect delays start at 250ms and cap at five seconds; heartbeat replies have a five-second deadline. The reconnect button replaces the connection and stale task/history downloads directly, preserving the workspace and draft without another login round trip. Model actions are never replayed.
 - Opening a chat reads native metadata and the latest 40 items without waiting for resume or timing metadata. Timings load separately; sending and queued actions wait for verified data, timings and native resume. Older pages wait for the initial timing cursor, then load up to 100 items at a time.
 - Host memory retains task first pages and five recent chats for up to five minutes, with a two-second freshness window. Native events invalidate snapshots; stale display is followed by a shared fresh read. Authenticated endpoints still use `no-store`; snapshots never authorize actions.
 - After server authentication, a fixed device can display its IndexedDB snapshot while refreshing. This stores up to 1000 task summaries and three recent chats of up to 40 items, for 24 hours and at most 1 MiB total. Only text and lightweight finished activity records persist: no image bodies, reasoning, tool output, file diffs, permissions, temporary side chats or subagent chats. Running state and paging cursors are not restored. Logout or detected session expiry clears it; clearing site data removes it too. This is private local storage, separate from the public service-worker cache.
 - Scrolling toward older messages prepares one page and its timing metadata in memory before reaching the top. Older pages load automatically without a load-more button. Insertion waits until the reader is within 64px of the top, the finger is released, and scrolling has been quiet for 160ms. A response arriving during a new gesture waits again; leaving the top retains the prepared page for a later upward scroll. Insertion preserves the visible message and expanded process details. Subagent viewers use the same mechanism. Speculative failures remain silent; after a failed foreground read, another upward gesture retries without an idle retry loop. Full history pages are not persisted; only the bounded device snapshot described above is saved locally.
-- Switching chats, jumping to another history window or closing a chat aborts abandoned HTTP history downloads. Duplicate pending reads share one request. Pooled task, history and permission reads time out after 15 seconds; expired authentication on task/chat opening returns to sign-in. Permission reads follow the selected directory. Cancellation does not interrupt model turns or undo native operations already dispatched.
+- Switching chats, jumping to another history window or closing a chat aborts abandoned HTTP history downloads. Duplicate pending reads share one request. History and permission reads have 15-second HTTP deadlines; task deadlines and automatic recovery are described above. Expired authentication on task/chat opening returns to sign-in. Permission reads follow the selected directory. Cancellation does not interrupt model turns or undo native operations already dispatched.
 - Bootstrap and WebSocket initialization share pending model/project lookups. Completed metadata is reused for five seconds to cover transit between the two connections; project creation and bridge disconnection invalidate the relevant entries. Conversations and model actions do not use this metadata cache.
 - HTTP responses and supported WebSocket messages use compression. Fingerprinted assets have immutable caching; authenticated bootstrap and history responses use `no-store`.
 - Native events update individual task rows; completion refreshes only the latest outline page. Full list/history calibration runs at most once every five minutes. Background pagination pauses in hidden tabs and yields on constrained connections. Streaming updates batch at 60ms, 100ms on constrained networks, and 250ms in hidden tabs. Markdown reuses completed blocks and unchanged responses retain their components. Conversation blocks use their actual layout heights; image thumbnails reserve a stable contain-fit area while originals remain available in the viewer.
@@ -577,7 +605,7 @@ npm test
 npm run build
 ```
 
-The suite has **206 tests across 42 test files**, including native read coalescing, bounded host/device snapshots, foreground request priority, parallel session startup, returning-device hints, static-shell caching, native timing, activity folding, gesture-aware history insertion, bounded HTTP reads, preview canvas sizing, local attachment retention, conversation navigation, side-chat event isolation and recovery, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
+The suite has **241 tests across 44 test files**, including native read coalescing and timeout recovery, bounded host/device snapshots, foreground request priority, parallel session startup, returning-device hints, static-shell caching, native timing, activity folding, gesture-aware history insertion, bounded HTTP reads, preview canvas sizing, local attachment retention, conversation navigation, side-chat event isolation and recovery, child-task filtering, assistant citation display, device push registration and routing, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
 
 ```text
 src/client/       React workspace, composer, history, approvals, reconnect

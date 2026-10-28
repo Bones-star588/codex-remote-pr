@@ -129,6 +129,15 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   Preserve newer native rows/live messages over every late snapshot; remove
   obsolete snapshot rows during final native reconciliation.
   Bound pooled HTTP reads to 15 seconds and surface expired authentication.
+  Task first attempts use four seconds, then retry independently of WebSocket
+  state at 0.5/1/2/4 seconds, capped at five seconds. Online/foreground recovery
+  replaces a first-page read stalled for two seconds; old completions must not
+  clear replacement state. Bound shared native snapshot/metadata reads to eight
+  seconds so retries cannot remain attached to a 120-second native read.
+  Bound transport and sync.ready handshakes separately to six seconds; pongs do
+  not count as sync readiness. Visible socket retry starts at 250ms and caps at
+  five seconds. Manual reconnect preserves the mounted workspace and drafts,
+  cancels stale task/history reads, and never repeats uncertain model actions.
   Preload the Workspace module from the shell. Return the installed version's
   cached public shell immediately, keeping its modules and document together;
   install newer versions through the service-worker update lifecycle. Never
@@ -182,7 +191,18 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   Read bounded child history first; rejoin active children without config
   overrides. Closing a child viewer must never interrupt or unsubscribe its
   native thread. Compose watcher owners so side chats and children remain live
-  together. Do not insert spawned child threads as ordinary top-level tasks.
+  together. Exclude subagent sources and ephemeral chats from bootstrap, paged
+  task results, thread/started and incremental thread/read refreshes. Remove
+  previously admitted child rows without archiving or deleting native chats.
+- Device Web Push is opt-in, uses authenticated same-origin routes, and adds no
+  notification reads to startup. Persist VAPID keys and subscriptions only in
+  private runtime data. Watch ordinary chats opened/created through Remote;
+  exclude children and ephemeral chats. Send generic status only, never prompt,
+  reply, path or command content. Revoke the device subscription before logout;
+  do not claim browser-session expiry revokes OS push. Test delivery acceptance
+  separately from actual iPhone/iPad notification display.
+- Strip internal citation IDs from assistant prose only. Preserve user text,
+  inline/fenced code and real links; do not invent missing source destinations.
 - Main-chat queued submissions use native queue IDs and cursor pagination.
   Dispatch through native queue/start; steering uses expectedTurnId then removes
   the queued submission. Preserve image and skill inputs when editing text.

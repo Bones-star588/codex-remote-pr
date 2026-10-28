@@ -2,6 +2,20 @@ import type { ClientRpcMethod } from '../shared/protocol.js';
 
 type Request = (method: ClientRpcMethod, params: unknown) => Promise<unknown>;
 
+export async function withReadDeadline<T>(read: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      read,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Native read timed out. Please retry.')), 8000);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
 export function readThreadListPage(request: Request, cursor: string | null = null, archived = false) {
   return request('thread/list', {
     limit: cursor ? 200 : 50, sortKey: 'updated_at', sortDirection: 'desc',
@@ -22,7 +36,7 @@ export class MetadataReader {
     if (previous && (previous.completedAt === null || Date.now() - previous.completedAt < 5000)) {
       return previous.promise;
     }
-    const entry = { promise: this.request(method, params), completedAt: null as number | null };
+    const entry = { promise: withReadDeadline(this.request(method, params)), completedAt: null as number | null };
     this.entries.set(key, entry);
     // Bridge the bootstrap-to-WebSocket gap, including responses that finish
     // while the browser is still receiving the first task page.
