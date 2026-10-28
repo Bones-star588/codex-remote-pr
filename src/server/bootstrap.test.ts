@@ -80,7 +80,7 @@ describe('initial workspace request', () => {
     const result = await readWorkspaceBootstrap(request);
     expect(request.mock.calls.map(([method]) => method)).toEqual(['thread/list', 'model/list', 'project/list']);
     expect(request).toHaveBeenCalledWith('thread/list', {
-      limit: 200, sortKey: 'updated_at', sortDirection: 'desc',
+      limit: 50, sortKey: 'updated_at', sortDirection: 'desc',
       useStateDbOnly: true, modelProviders: [], archived: false
     });
     expect(result.threads).toEqual({ data: [{ id: 'thread/list' }], nextCursor: 'next-page' });

@@ -112,8 +112,22 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   bootstrap, timeout fallback and reconnect; late metadata must not replace
   newer native results. Native model/project fallbacks wait at most 1.5 seconds
   after socket readiness. Open chats with one native-backed HTTP
-  request: 40 latest records, then older pages of up to 100. Keep the five-chat
-  cache in memory only and replace stale snapshots with fresh native results.
+  read-only request: 40 latest records without waiting for resume or timings.
+  Read timings independently; gate sending/queues on native metadata, timings,
+  resume and the socket. Older paging waits for the initial timing cursor.
+  Task first pages contain 50 rows, then 200 per native cursor. Share pending
+  native task reads across bootstrap/fallback, including bootstrap timeout.
+  Pause background task pages during the selected chat's foreground read.
+  Host snapshots keep task first pages and five chats with a two-second fresh
+  window and five-minute retention; native events/actions invalidate them.
+  Display stale data provisionally, then join a fresh read before using cursors.
+  After server authentication only, read the bounded private IndexedDB snapshot:
+  1000 task summaries, three chats of 40 items, 24 hours, 1 MiB total.
+  Persist text/finished activity only; exclude image bodies, reasoning, tool
+  output, diffs, permissions, running turns, ephemeral and subagent chats.
+  Logout/expired authentication clears it and blocks prior asynchronous saves.
+  Preserve newer native rows/live messages over every late snapshot; remove
+  obsolete snapshot rows during final native reconciliation.
   Bound pooled HTTP reads to 15 seconds and surface expired authentication.
   Preload the Workspace module from the shell. Return the installed version's
   cached public shell immediately, keeping its modules and document together;

@@ -6,7 +6,9 @@ import type { TurnTiming } from '../shared/turn-timing';
 import type { OutlineTurn } from '../shared/thread-outline';
 import { permissionProfileId, permissionProfileUpdate, type PermissionProfile, type PermissionSettings } from '../shared/permissions';
 import { api, HttpError, isAbortedRequest, ReadRequests } from './api';
-import { constrainedNetwork, prioritizeInteraction, yieldToInteraction } from './background-work';
+import { beginForegroundRead, constrainedNetwork, prioritizeInteraction, yieldToInteraction } from './background-work';
+import { readDeviceWorkspace, saveDeviceWorkspace, readDeviceChat, saveDeviceChat, removeDeviceChat } from './device-snapshots';
+import { applyTaskPage, provisionalHistory, provisionalThread, type OpenThreadPage, type ThreadListPage } from './loading-snapshots';
 import { RemoteConnection } from './remote-connection';
 import { itemKey, mergeLatestHistoryItems, mergeOlderHistoryItems, mergeOlderTurnTimings, mergeTurnTimings, reconcileThreadList, upsertItem } from './remote-state';
 import type {
@@ -89,6 +91,9 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   const [outlineError, setOutlineError] = useState<string | null>(null);
   const [serverRequests, setServerRequests] = useState<ServerRequest[]>([]);
   const [loadingThread, setLoadingThread] = useState(false);
+  const [threadReady, setThreadReady] = useState(false);
+  const [verifiedThreadId, setVerifiedThreadId] = useState<string | null>(null);
+  const [timedThreadId, setTimedThreadId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
@@ -121,6 +126,10 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   const authExpiredRef = useRef(onAuthExpired);
   const initializedRef = useRef(false);
   const historyCacheRef = useRef(new Map<string, ThreadHistoryPage>());
+  const nativeListSeenRef = useRef(false);
+  const nativeProjectsSeenRef = useRef(false);
+  const provisionalListRef = useRef(new Map<string, Thread>());
+  const verifiedThreadRef = useRef<string | null>(null);
   const lastRecoveryRef = useRef(0);
   const additionalThreadsRef = useRef<string[]>([]);
   const threadWatchersRef = useRef(new Map<string, string[]>());
@@ -138,6 +147,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   itemsRef.current = items;
   turnTimingsRef.current = turnTimings;
   activeTurnIdRef.current = activeTurnId;
+  verifiedThreadRef.current = verifiedThreadId;
   authExpiredRef.current = onAuthExpired;
 
   const rpc = useCallback(<T,>(method: ClientRpcMethod, params: unknown = {}): Promise<T> => {
@@ -196,10 +206,28 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         if (controller.signal.aborted) throw controller.signal.reason;
         const query = new URLSearchParams({ archived: String(archived) });
         if (cursor) query.set('cursor', cursor);
-        const result: { data: Thread[]; nextCursor: string | null } = firstPage && cursor === null ? firstPage
+        let result: ThreadListPage = firstPage && cursor === null ? firstPage
           : await listRequestsRef.current.get(`/api/threads?${query}`);
+        if (result.snapshot?.stale) {
+          if (archived === archivedRef.current) {
+            const preview = result.data.map(provisionalThread);
+            setThreads(current => {
+              const additions = preview.filter(thread => !current.some(entry => entry.id === thread.id));
+              additions.forEach(thread => provisionalListRef.current.set(thread.id, thread));
+              return dedupeThreads([...additions, ...current]);
+            });
+            markStartup('tasks-snapshot');
+          }
+          query.set('fresh', '1');
+          result = await listRequestsRef.current.get(`/api/threads?${query}`);
+        }
+        if (controller.signal.aborted) throw controller.signal.reason;
+        nativeListSeenRef.current = true;
         const page = (result.data ?? []).filter(thread => !thread.ephemeral).map((thread) => ({ ...thread, archived }));
         collected.push(...page);
+        for (const thread of provisionalListRef.current.values()) {
+          if (!knownIds.has(thread.id)) { knownIds.add(thread.id); baseline.push(thread); }
+        }
         const additions = page.filter(thread => !knownIds.has(thread.id));
         for (const thread of additions) {
           knownIds.add(thread.id);
@@ -209,7 +237,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
           if (cursor === null) markStartup('tasks');
           setThreads((current) => {
             // Existing rows reconcile once at the end, preserving live changes between pages.
-            const partial = dedupeThreads([...additions, ...current]);
+            const partial = dedupeThreads([...additions, ...applyTaskPage(current, page, provisionalListRef.current)]);
             return current.length === partial.length && partial.every((thread, index) => thread === current[index]) ? current : partial;
           });
         }
@@ -236,6 +264,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
 
   const refreshProjects = useCallback(async () => {
     const result = await rpc<{ data: ProjectInfo[] }>('project/list', { limit: 200 });
+    nativeProjectsSeenRef.current = true;
     setProjects(result.data ?? []);
   }, [rpc]);
 
@@ -337,7 +366,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         threadId, mode: isNew ? 'new' : archived ? 'read' : 'resume'
       });
       const path = `/api/thread/open?${query}`;
-      const cached = historyCacheRef.current.get(threadId);
+      const cachedPage = historyCacheRef.current.get(threadId);
+      const cached = cachedPage ? provisionalHistory(cachedPage) : undefined;
       const cachedItems = cached ? cached.items.map((entry) => ({
         ...entry.item, turnId: entry.turnId,
         startedAtMs: entry.startedAtMs, completedAtMs: entry.completedAtMs
@@ -359,7 +389,12 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         activeThreadRef.current = threadId;
         watchThread(threadId);
         setActiveThreadId(threadId);
-        setActiveThread(threadsRef.current.find((thread) => thread.id === threadId) ?? null);
+        const listed = threadsRef.current.find((thread) => thread.id === threadId);
+        setActiveThread(listed ? provisionalThread(listed) : null);
+        setThreadReady(false);
+        setVerifiedThreadId(null);
+        verifiedThreadRef.current = null;
+        setTimedThreadId(null);
         setItems(cachedItems);
         const timings = { ...(sameThread ? turnTimingsRef.current : {}),
           ...Object.fromEntries((cached?.turns ?? []).map((turn) => [turn.id, turn])) };
@@ -372,21 +407,78 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         activeTurnIdRef.current = null;
       }
       const version = selectionVersionRef.current;
-      const baseline = options.silent ? itemsRef.current : cachedItems;
+      let baseline = options.silent ? itemsRef.current : cachedItems;
       const timingBaseline = turnTimingsRef.current;
       const turnRevision = turnRevisionRef.current;
+      let nativeArrived = false;
+      let nativeTimingArrived = false;
+      const currentSelection = () => version === selectionVersionRef.current && activeThreadRef.current === threadId;
+      const preview = (thread: Thread, page: ThreadHistoryPage) => {
+        if (!currentSelection() || options.silent || nativeArrived) return;
+        const display = provisionalHistory(page);
+        const previousBaseline = new Map(baseline.map(item => [itemKey(item), item]));
+        baseline = display.items.map(entry => ({ ...entry.item, turnId: entry.turnId,
+          startedAtMs: entry.startedAtMs, completedAtMs: entry.completedAtMs }));
+        setActiveThread(provisionalThread(thread));
+        const projected = baseline;
+        setItems(current => mergeLatestHistoryItems(projected,
+          current.filter(item => previousBaseline.get(itemKey(item)) !== item)));
+        if (!nativeTimingArrived) setTurnTimings(Object.fromEntries(display.turns.map(turn => [turn.id, turn])));
+        setLoadingThread(false);
+        markStartup('chat-snapshot');
+      };
       if (options.silent) flushStreamingDeltas();
       else clearStreamingDeltas();
       if (!options.silent) {
         loadingHistoryRef.current = false;
         setLoadingHistory(false);
       }
-      if (!options.silent) setLoadingThread(true);
+      if (!options.silent) {
+        setLoadingThread(cachedItems.length === 0);
+        void readDeviceChat(threadId).then(saved => {
+          if (saved && !cached) preview(saved.thread, saved.page);
+        });
+      }
       setLastError(null);
+      const endForeground = options.silent ? () => {} : beginForegroundRead();
+      type TimingPage = Pick<ThreadHistoryPage, 'turns' | 'turnsCursor' | 'activeTurnId'> & {
+        snapshot?: { stale: boolean; savedAt: number }
+      };
+      const timingPath = `/api/thread/timings?${new URLSearchParams({ threadId })}`;
+      const timings: Promise<TimingPage> = isNew ? Promise.resolve({
+        turns: [], turnsCursor: null, activeTurnId: null
+      }) : historyRequestsRef.current.get<TimingPage>(timingPath).then(page =>
+        page.snapshot?.stale ? historyRequestsRef.current.get<TimingPage>(`${timingPath}&fresh=1`) : page);
+      void timings.then(page => {
+        if (!currentSelection()) return;
+        nativeTimingArrived = true;
+        setTurnTimings(current => {
+          const next = mergeTurnTimings(current, page.turns, timingBaseline);
+          turnTimingsRef.current = next;
+          return next;
+        });
+        if (turnRevisionRef.current === turnRevision) {
+          activeTurnIdRef.current = page.activeTurnId;
+          setActiveTurnId(page.activeTurnId);
+        }
+        turnsCursorRef.current = page.turnsCursor;
+        setTimedThreadId(threadId);
+      }).catch(error => {
+        if (error instanceof HttpError && error.status === 401) authExpiredRef.current?.();
+        else if (!isAbortedRequest(error) && currentSelection()) setLastError(
+          error instanceof Error ? error.message : String(error));
+      });
       try {
-        const { result, ...page } = await historyRequestsRef.current.get<ThreadHistoryPage & {
-          result: { thread: Thread; collaborationMode?: CollaborationMode } & PermissionSettings;
+        let response = await historyRequestsRef.current.get<OpenThreadPage & {
+          result: { thread: Thread; collaborationMode?: CollaborationMode } & PermissionSettings
         }>(path);
+        if (response.snapshot?.stale) {
+          preview(response.result.thread, response);
+          response = await historyRequestsRef.current.get(`${path}&fresh=1`);
+        }
+        if (!currentSelection()) return;
+        nativeArrived = true;
+        const { result, ...page } = response;
         const thread = {
           ...result.thread, permissionProfile: permissionProfileId(result), archived: Boolean(archived),
           ...(result.collaborationMode ? { collaborationMode: result.collaborationMode } : {})
@@ -405,7 +497,9 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
           Boolean(options.preserveHistory) && baseline.some((item) => historyKeys.has(itemKey(item)));
         setActiveThreadId(threadId);
         setActiveThread(thread);
-        if (turnRevisionRef.current === turnRevision) {
+        setVerifiedThreadId(threadId);
+        verifiedThreadRef.current = threadId;
+        if (!page.timingsPending && turnRevisionRef.current === turnRevision) {
           activeTurnIdRef.current = page.activeTurnId;
           setActiveTurnId(page.activeTurnId);
         }
@@ -414,12 +508,17 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
           turnTimingsRef.current = timings;
           return timings;
         });
-        if (!options.preserveHistory) turnsCursorRef.current = page.turnsCursor;
+        if (!page.timingsPending && !options.preserveHistory) turnsCursorRef.current = page.turnsCursor;
         setItems((current) => {
           if (preserveHistory) return mergeLatestHistoryItems(current, historyItems, baseline);
           const baselineById = new Map(baseline.map((item) => [itemKey(item), item]));
           const liveItems = current.filter((item) => baselineById.get(itemKey(item)) !== item);
-          return mergeLatestHistoryItems(historyItems, liveItems);
+          const currentById = new Map(current.map(item => [itemKey(item), item]));
+          const stable = historyItems.map(item => {
+            const previous = currentById.get(itemKey(item));
+            return previous && JSON.stringify(previous) === JSON.stringify(item) ? previous : item;
+          });
+          return mergeLatestHistoryItems(stable, liveItems);
         });
         markStartup('chat');
         if (!preserveHistory) {
@@ -435,6 +534,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         if (version === selectionVersionRef.current) setLastError(error instanceof Error ? error.message : String(error));
         throw error;
       } finally {
+        endForeground();
         if (version === selectionVersionRef.current) {
           if (!options.silent) setLoadingHistory(false);
           if (!options.silent) setLoadingThread(false);
@@ -444,17 +544,37 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     [clearStreamingDeltas, flushStreamingDeltas, watchThread]
   );
 
+  useEffect(() => {
+    if (!authenticated || !connected || !verifiedThreadId || verifiedThreadId !== activeThreadId || showArchived) {
+      setThreadReady(false);
+      return;
+    }
+    if (newThreadsRef.current.has(verifiedThreadId)) { setThreadReady(true); return; }
+    let stopped = false;
+    setThreadReady(false);
+    void rpc<{ thread: Thread } & PermissionSettings>('thread/resume', {
+      threadId: verifiedThreadId, excludeTurns: true
+    }).then(result => {
+      if (stopped) return;
+      setActiveThread(current => current?.id === verifiedThreadId
+        ? { ...current, ...result.thread, permissionProfile: permissionProfileId(result) } : current);
+      setThreadReady(true);
+      markStartup('chat-interactive');
+    }).catch(error => { if (!stopped) setLastError(error instanceof Error ? error.message : String(error)); });
+    return () => { stopped = true; };
+  }, [authenticated, connected, verifiedThreadId, activeThreadId, showArchived, rpc]);
+
   const prepareEarlierHistory = useCallback(() => {
     const threadId = activeThreadRef.current;
     const cursor = olderHistoryCursorRef.current;
     const version = selectionVersionRef.current;
-    if (!threadId || cursor === null) return null;
+    if (!threadId || cursor === null || timedThreadId !== threadId) return null;
     return earlierPageRef.current.read(JSON.stringify([version, threadId, cursor]), signal => prepareHistoryPage(
       () => fetchHistoryPage(threadId, cursor),
       turnsCursor => rpc('thread/turns/list', { threadId, limit: 100, itemsView: 'notLoaded', cursor: turnsCursor }),
       turnTimingsRef.current, turnsCursorRef.current, signal
     ));
-  }, [fetchHistoryPage, rpc]);
+  }, [fetchHistoryPage, rpc, timedThreadId]);
 
   const prefetchEarlierHistory = useCallback(async () => {
     if (loadingHistoryRef.current) return;
@@ -591,6 +711,45 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   }, [openThread]);
 
   useEffect(() => {
+    if (!authenticated) return;
+    let stopped = false;
+    void readDeviceWorkspace().then(saved => {
+      if (stopped || !saved) return;
+      if (!nativeListSeenRef.current) {
+        setThreads(current => {
+          if (current.length) return current;
+          saved.threads.forEach(thread => provisionalListRef.current.set(thread.id, thread));
+          return saved.threads;
+        });
+        markStartup('tasks-device');
+      }
+      if (!nativeProjectsSeenRef.current) setProjects(current => current.length ? current : saved.projects);
+    });
+    return () => { stopped = true; };
+  }, [authenticated]);
+
+  useEffect(() => {
+    if (!authenticated || showArchived || !nativeListSeenRef.current) return;
+    const timer = window.setTimeout(() => { void saveDeviceWorkspace(threadsRef.current, projects); }, 700);
+    return () => window.clearTimeout(timer);
+  }, [authenticated, showArchived, threads, projects]);
+
+  useEffect(() => {
+    if (!authenticated || !activeThread || activeThread.id !== verifiedThreadId ||
+      activeThread.id !== timedThreadId || showArchived) return;
+    const timer = window.setTimeout(() => {
+      if (activeThreadRef.current !== activeThread.id || verifiedThreadRef.current !== activeThread.id) return;
+      void saveDeviceChat(activeThread, {
+        items: items.slice(-40).map(item => ({
+          item, turnId: item.turnId ?? '', startedAtMs: item.startedAtMs ?? null, completedAtMs: item.completedAtMs ?? null
+        })),
+        turns: Object.values(turnTimings), activeTurnId, nextCursor: null, turnsCursor: null
+      });
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [authenticated, activeThread, verifiedThreadId, timedThreadId, showArchived, items, turnTimings, activeTurnId]);
+
+  useEffect(() => {
     setOutlineTurns(current => mergeOutlineTurns(current, loadedOutline(items, turnTimings)));
   }, [items, turnTimings]);
 
@@ -660,6 +819,10 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     setHasMoreHistory(false);
     setLoadingHistory(false);
     setLoadingThread(false);
+    setThreadReady(false);
+    setVerifiedThreadId(null);
+    setTimedThreadId(null);
+    verifiedThreadRef.current = null;
   }, [clearStreamingDeltas, watchThread]);
 
   const createThread = useCallback(
@@ -693,6 +856,10 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
       watchThread(thread.id);
       setActiveThreadId(result.thread.id);
       setActiveThread(thread);
+      setThreadReady(true);
+      setVerifiedThreadId(thread.id);
+      verifiedThreadRef.current = thread.id;
+      setTimedThreadId(thread.id);
       olderHistoryCursorRef.current = null;
       newerHistoryCursorRef.current = null;
       viewingHistoryRef.current = false;
@@ -791,6 +958,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     archivedRef.current = !archivedRef.current;
     setShowArchived(archivedRef.current);
     setThreads([]);
+    provisionalListRef.current.clear();
     listPaginationRef.current?.abort();
     listRequestsRef.current.cancel();
     await listRefreshRef.current?.catch(() => undefined);
@@ -953,7 +1121,10 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
       if (stopped) return null;
       if (!nativeMetadataStarted) {
         if (snapshot?.models) setModels(snapshot.models.data ?? []);
-        if (snapshot?.projects) setProjects(snapshot.projects.data ?? []);
+        if (snapshot?.projects) {
+          nativeProjectsSeenRef.current = true;
+          setProjects(snapshot.projects.data ?? []);
+        }
         if (snapshot?.cursor && !replayCursorRef.current) replayCursorRef.current = snapshot.cursor;
       }
       return snapshot;
@@ -993,7 +1164,10 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
           if (stopped || socketRef.current !== socket) return;
           nativeMetadataStarted = true;
           if (snapshot?.models) setModels(snapshot.models.data ?? []);
-          if (snapshot?.projects) setProjects(snapshot.projects.data ?? []);
+          if (snapshot?.projects) {
+            nativeProjectsSeenRef.current = true;
+            setProjects(snapshot.projects.data ?? []);
+          }
           const results = await Promise.allSettled([
             initial ? loadInitialThreads(snapshot?.threads ?? undefined) : refreshThreads(),
             snapshot?.models ? Promise.resolve() : rpc<{ data: ModelInfo[] }>('model/list', { limit: 100, includeHidden: false }).then((result) =>
@@ -1254,6 +1428,9 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     if (method === 'thread/archived' || method === 'thread/deleted') {
       const threadId = String(params.threadId ?? '');
       if (threadId) {
+        historyCacheRef.current.delete(threadId);
+        void removeDeviceChat(threadId);
+        threadsRef.current = threadsRef.current.filter(thread => thread.id !== threadId);
         setThreads((current) => current.filter((thread) => thread.id !== threadId));
         if (threadId === activeThreadRef.current) closeThread();
       }
@@ -1352,7 +1529,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     items,
     turnTimings,
     contextUsage: activeThreadId ? tokenUsage[activeThreadId] : undefined,
-    hasMoreHistory,
+    hasMoreHistory: hasMoreHistory && timedThreadId === activeThreadId,
     loadingHistory,
     hasNewerHistory,
     viewingHistory,
@@ -1362,6 +1539,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     outlineError,
     serverRequests,
     loadingThread,
+    threadReady: threadReady && timedThreadId === activeThreadId && verifiedThreadId === activeThreadId,
     showArchived,
     lastError,
     refreshThreads,

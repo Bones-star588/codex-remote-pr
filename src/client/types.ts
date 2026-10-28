@@ -157,7 +157,7 @@ export interface ProjectInfo {
 
 export interface WorkspaceBootstrap {
   cursor?: { epoch: string; sequence: number };
-  threads: { data: Thread[]; nextCursor: string | null } | null;
+  threads: { data: Thread[]; nextCursor: string | null; snapshot?: { stale: boolean; savedAt: number } } | null;
   models: { data: ModelInfo[] } | null;
   projects: { data: ProjectInfo[] } | null;
 }

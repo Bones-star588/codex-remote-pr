@@ -5,6 +5,7 @@ import { api } from './api';
 import type { WorkspaceBootstrap } from './types';
 import { PanelBoundary } from './components/PanelBoundary';
 import { isReturningDevice, rememberDevice, startSession } from './startup';
+import { clearDeviceSnapshots } from './device-snapshots';
 
 const loadWorkspace = () => import('./Workspace').then((module) => ({ default: module.Workspace }));
 const Workspace = lazy(loadWorkspace);
@@ -30,6 +31,7 @@ export function App() {
     setRevision(value => value + 1);
   }, []);
   const expireAuth = useCallback(() => {
+    void clearDeviceSnapshots();
     rememberDevice(false);
     setReturningDevice(false);
     refreshAuth();
@@ -57,6 +59,7 @@ export function App() {
         const state = await session.auth;
         if (controller.signal.aborted) return;
         verified = true;
+        if (!state.authenticated) void clearDeviceSnapshots();
         rememberDevice(state.authenticated);
         setReturningDevice(state.authenticated);
         const bootstrapRequest = state.authenticated ? session.workspace : undefined;

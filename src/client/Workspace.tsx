@@ -105,7 +105,7 @@ export function Workspace({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   const effectivePermissions = activeThread?.permissionProfile || newTaskPermissions || remote.defaultPermissionProfile || '';
   const permissionCwd = activeThread?.cwd || remote.projects.find((project) => project.id === selectedProjectId)?.roots[0]?.path;
   const effectiveMode = activeThread ? activeThread.collaborationMode?.mode ?? 'default' : newTaskMode;
-  const hasSavedThread = Boolean(activeThread) && !remote.isNewThread && !remote.showArchived && !remote.loadingThread;
+  const hasSavedThread = Boolean(activeThread) && !remote.isNewThread && !remote.showArchived && remote.threadReady;
   const commandProps = {
     onCommand: runCommand,
     loadSkills: () => remote.listSkills(permissionCwd),
@@ -636,14 +636,14 @@ function ThreadScreen({
           onError={onError}
         />
         {!remote.isNewThread && <QueuedMessages transport={remote.chatTransport} threadId={thread.id}
-          activeTurnId={remote.activeTurnId} connected={remote.connected}
+          activeTurnId={remote.activeTurnId} connected={remote.connected && remote.threadReady}
           onError={onError} onOpenSideChat={onOpenSideChat}
           queueEnabled={queueEnabled} onQueueEnabledChange={setQueueEnabled} />}
         <Composer
           {...commandProps}
           variant="thread"
           draftKey={thread.id}
-          disabled={!remote.connected || remote.loadingThread || remote.showArchived}
+          disabled={!remote.connected || !remote.threadReady || remote.showArchived}
           layout={layout}
           model={model}
           effort={effort}

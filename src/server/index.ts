@@ -25,8 +25,8 @@ import { codexBridge } from './codex-bridge.js';
 import { config } from './config.js';
 import { desktopBridge } from './desktop-bridge.js';
 import { readThreadHistoryAround, readThreadHistoryPage, readThreadOutline } from './thread-history.js';
-import { MetadataReader, readThreadListPage, readWorkspaceBootstrap } from './bootstrap.js';
-import { readOpenThread } from './thread-open.js';
+import { MetadataReader, readWorkspaceBootstrap } from './bootstrap.js';
+import { WorkspaceSnapshots } from './workspace-snapshots.js';
 import { TerminalManager } from './terminal-manager.js';
 import { handleTerminalSocket } from './terminal-socket.js';
 import { EphemeralChats } from './ephemeral-chats.js';
@@ -53,6 +53,7 @@ const synchronizedClients = new Set<WebSocket>();
 const eventJournal = new EventJournal();
 const localImages = new LocalImages(path.join(config.dataDir, 'image-attachments'));
 const metadataReader = new MetadataReader((method, params) => codexBridge.request(method, params));
+const workspaceSnapshots = new WorkspaceSnapshots((method, params) => codexBridge.request(method, params));
 const watchedThreads = new Map<WebSocket, Set<string>>();
 const ephemeralChats = new EphemeralChats<WebSocket>(threadId => codexBridge.request('thread/unsubscribe', { threadId }));
 const queueDispatcher = new QueueDispatcher(<T,>(method: import('../shared/protocol.js').ClientRpcMethod, params: unknown) =>
@@ -235,7 +236,8 @@ app.get(
       authenticated,
       setupAllowed: !configured && isLocalRequest(req),
       workspace: authenticated
-        ? { ...await readWorkspaceBootstrap(metadataReader.read), cursor }
+        ? { ...await readWorkspaceBootstrap((method, params) =>
+          method === 'thread/list' ? workspaceSnapshots.list() : metadataReader.read(method, params)), cursor }
         : null
     });
   })
@@ -244,9 +246,7 @@ app.get(
 app.get('/api/threads', requireAuth, asyncRoute(async (req, res) => {
   const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : null;
   res.setHeader('Cache-Control', 'no-store');
-  res.json(await readThreadListPage(
-    (method, params) => codexBridge.request(method, params), cursor, req.query.archived === 'true'
-  ));
+  res.json(await workspaceSnapshots.list(cursor, req.query.archived === 'true', req.query.fresh === '1'));
 }));
 
 app.get('/api/connections', requireAuth, (_req, res) => {
@@ -284,11 +284,17 @@ app.get(
     }
     const mode = req.query.mode === 'new' || req.query.mode === 'read' ? req.query.mode : 'resume';
     res.setHeader('Cache-Control', 'no-store');
-    const result = await readOpenThread((method, params) => codexBridge.request(method, params), threadId, mode);
+    const result = await workspaceSnapshots.open(threadId, mode, req.query.fresh === '1');
     for (const entry of result.items) void localImages.remember(entry.item).catch(reportImageFailure);
     if (!res.destroyed) res.json(result);
   })
 );
+
+app.get('/api/thread/timings', requireAuth, asyncRoute(async (req, res) => {
+  const threadId = typeof req.query.threadId === 'string' ? req.query.threadId.trim() : '';
+  if (!threadId) { res.status(400).json({ error: 'threadId is required.' }); return; }
+  res.json(await workspaceSnapshots.readTimings(threadId, req.query.fresh === '1'));
+}));
 
 app.get(
   '/api/thread/history',
@@ -484,6 +490,7 @@ async function handleClientMessage(socket: WebSocket, raw: string): Promise<void
   if (message.type === 'rpc') {
     try {
       const result = await metadataReader.read(message.method, message.params ?? {});
+      workspaceSnapshots.action(message.method, message.params as Record<string, unknown> ?? {});
       if (message.method === 'project/create') metadataReader.clear('project/list');
       const params = message.params as { ephemeral?: boolean; threadId?: string;
         clientUserMessageId?: string; input?: unknown[]; expectedTurnId?: string } | undefined;
@@ -543,6 +550,7 @@ function send(socket: WebSocket, message: ServerMessage): void {
 }
 
 codexBridge.on('event', ({ method, params }) => {
+  workspaceSnapshots.event(method, params ?? {});
   if (method === 'item/started' || method === 'item/completed') {
     void localImages.remember(params?.item).catch(reportImageFailure);
   }
@@ -564,6 +572,7 @@ codexBridge.on('status', (status) => {
   if (status !== 'ready') {
     eventJournal.reset();
     metadataReader.clear();
+    workspaceSnapshots.clear();
   }
   broadcast({ type: 'bridge.status', status });
 });

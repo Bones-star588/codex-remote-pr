@@ -426,13 +426,14 @@ const ResponseSection = memo(function ResponseSection({ section, timing, active,
 }) {
   const [open, setOpen] = useState(false);
   const bodyId = useId();
-  const completed = timing && !active && timing.status !== 'inProgress';
   let finalIndex = -1;
   section.entries.forEach((entry, index) => {
     if (entry.type === 'message' && entry.item.type === 'agentMessage' &&
       entry.item.phase !== 'commentary' && entry.item.phase !== 'partial_answer') finalIndex = index;
   });
   const finalEntry = section.entries[finalIndex];
+  const completed = !active && (timing ? timing.status !== 'inProgress'
+    : finalEntry?.type === 'message' && finalEntry.item.completedAtMs != null);
   const finalStartedAtMs = finalEntry?.type === 'message' ? finalEntry.item.startedAtMs ?? null : null;
   const agentItems = useMemo(() => section.entries.flatMap(entry =>
     entry.type === 'event' && isSubagentItem(entry.item) ? [entry.item] : []), [section.entries]);

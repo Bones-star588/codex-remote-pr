@@ -4,7 +4,7 @@ type Request = (method: ClientRpcMethod, params: unknown) => Promise<unknown>;
 
 export function readThreadListPage(request: Request, cursor: string | null = null, archived = false) {
   return request('thread/list', {
-    limit: 200, sortKey: 'updated_at', sortDirection: 'desc',
+    limit: cursor ? 200 : 50, sortKey: 'updated_at', sortDirection: 'desc',
     useStateDbOnly: true, modelProviders: [], archived,
     ...(cursor ? { cursor } : {})
   });

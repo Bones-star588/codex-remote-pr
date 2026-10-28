@@ -11,6 +11,14 @@ workspace. It does not authenticate requests: private reads and sockets still
 require the signed HTTP-only session. The service worker and optional edge cache
 store public static assets, not authenticated API responses or host file contents.
 
+After server verification, the browser may read its private IndexedDB snapshot:
+bounded task metadata and recent text, retained for at most 24 hours and 1 MiB.
+It excludes credentials, permission settings, running state, image bodies,
+reasoning, tool output and file diffs. Logout and detected session expiry clear
+it. It is not an offline authentication mechanism. Operators on shared devices
+should sign out or clear site data. Host memory snapshots remain behind the
+existing authenticated HTTP endpoints; neither cache replays model actions.
+
 ## Deployment
 
 - Use HTTPS and a strong access password.

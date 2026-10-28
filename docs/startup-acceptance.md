@@ -4,10 +4,11 @@ Date: 2026-10-28.
 
 ## Current Scope
 
-The current application implementation is public commit `2f2f02c`, verified by
+The data-loading follow-up below supersedes the prior task/chat startup path.
+The earlier returning-shell implementation was public commit `2f2f02c`, verified by
 Windows/macOS/Ubuntu CI run `40623756335`: 185 tests across 38 files, type
-checking and production builds passed. Subsequent documentation-only commits do
-not require replacing that deployed application build.
+checking and production builds passed. The data-loading follow-up changes both
+backend and frontend and requires deploying matching artifacts.
 
 The parallel-startup comparison below was captured at `900e2a9`; the returning
 device follow-up covers `2f2f02c`. Treat their timings and older suite counts as
@@ -23,6 +24,9 @@ use verified entry. Early shell readiness is not authenticated task/chat
 readiness, and physical iPhone Safari / 5G/Wi-Fi remains unverified.
 
 ## Changes
+
+The following sections retain their original startup checkpoints. Current
+task/chat loading adds the data-loading follow-up at the end of this record.
 
 - Authentication status and bootstrap start concurrently. Either successful
   server response can end the login check. A bootstrap response cancels the
@@ -143,3 +147,57 @@ not establish physical iPhone Safari or real mobile-network performance.
 A separate Chromium check held both authentication reads beyond their
 six-second deadlines: the empty shell retained a retry banner, and manual retry
 recovered the authenticated task list without replacing the shell.
+
+## Task and Chat Data Follow-Up
+
+Date: 2026-10-28. This release changes both server and client.
+
+- First task pages contain 50 records; later pages use native cursors and 200
+  records. A selected chat read pauses further background task pages.
+- Bootstrap and HTTP fallback share the same native task request, even after
+  the 1.5-second bootstrap wait ends. Refresh completed during response transit
+  is reused instead of starting a duplicate.
+- Chat text uses read-only metadata plus 40 items. Initial timing is a separate
+  request; native resume no longer blocks rendering. Sending and queues remain
+  disabled until current metadata, timing, resume and the socket are ready.
+  Older history waits for the initial timing cursor.
+- Host memory retains two task first pages and five recent chats/timings.
+  Snapshots are fresh for two seconds and retained for five minutes; native
+  events, actions and bridge loss invalidate them. Stale native cursors are not
+  used for paging. All private endpoints remain authenticated and `no-store`.
+- After verified authentication, IndexedDB supplies up to 1000 task summaries
+  and three chats of 40 records, capped at 24 hours and 1 MiB. It excludes
+  credentials, permissions, unfinished turns, reasoning, tool output, diffs,
+  image bodies, ephemeral side chats and subagent chats. Logout/expiry clears
+  the snapshot and prevents prior asynchronous saves from restoring it.
+- Fresh native task rows replace provisional rows even at equal timestamps.
+  Final reconciliation removes deleted cached tasks. Snapshot arrival preserves
+  intervening live messages, reply identities and expanded process sections.
+
+The local suite passes 206 tests across 42 files; type checking and production
+build pass. Browser acceptance uses an isolated synthetic server, never a
+second connection to the owning Desktop relay.
+
+At 402x874 CSS pixels / DPR 3:
+
+| Engine | Cold task first page | Cold chat text | Returning task list | Returning chat text |
+| --- | --- | --- | --- | --- |
+| Chromium | 895 ms | 523 ms | 1475 ms | 273 ms |
+| Windows WebKit | 875 ms | 743 ms | 1484 ms | 741 ms |
+
+Task times start at navigation; chat times start at selection. Returning auth
+was delayed 1200 ms, bootstrap/task reads 3000 ms, and chat reads 2500 ms.
+Local snapshots were not read before successful authentication. Delayed native
+resume deliberately kept sending disabled: returning interaction readiness was
+5267/5759 ms, distinct from readable text. These are controlled display timings,
+not physical mobile network promises.
+
+Both engines loaded all 257 synthetic tasks, preserved the same response DOM,
+expanded fold and reading anchor (0 px shift) after unchanged background refresh.
+Expiry/logout cleared real IndexedDB contents; no early private reads/sockets,
+model actions or page exceptions occurred. Chromium also passed 320x568 and
+2560x1440 layout/loading smoke checks with no document overflow.
+
+Windows WebKit reported a visual viewport smaller than its configured screen
+before input focus; it is not a physical iPhone compositor test. Physical
+iPhone Safari/PWA, actual 5G/Wi-Fi and signed-in macOS remain pending.

@@ -1,4 +1,10 @@
 let interactiveUntil = 0;
+let foregroundReads = 0;
+
+export function beginForegroundRead(): () => void {
+  foregroundReads += 1;
+  return () => { foregroundReads -= 1; };
+}
 
 export function prioritizeInteraction(): void {
   interactiveUntil = performance.now() + 600;
@@ -24,5 +30,5 @@ export async function yieldToInteraction(signal?: AbortSignal): Promise<void> {
       }, delay);
       signal?.addEventListener('abort', abort, { once: true });
     });
-  } while (document.visibilityState === 'hidden' || performance.now() < interactiveUntil);
+  } while (foregroundReads > 0 || document.visibilityState === 'hidden' || performance.now() < interactiveUntil);
 }
