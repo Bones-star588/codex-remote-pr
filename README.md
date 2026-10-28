@@ -43,6 +43,7 @@ The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when 
 - **Workspace terminals.** Open an interactive shell in the current chat/project directory, with terminal tabs, Ctrl+C, preserved sessions, and reconnectable output.
 - **Responsive light UI.** Drag the desktop sidebar and review dividers to resize all three columns; widths are remembered in the current browser, and double-clicking restores defaults. Phones use navigation drawers, with a compact composer and system typography.
 - **Connection recovery.** Heartbeat deadlines, handshake timeouts, network/foreground recovery, and drafts stored per chat in the browser.
+- **Faster repeat entry.** Previously verified devices can open the empty workspace while login is checked in the background; tasks and chats still require server authentication.
 - **Self-hosted access.** Password login, signed HTTP-only sessions, local-only initial setup, and optional Cloudflare Tunnel.
 - **Windows and macOS controls.** Double-click `.cmd` files on Windows or `.command` files on macOS to start and stop Remote.
 
@@ -482,7 +483,7 @@ Codex CLI detection checks Windows app packages, local standalone installations,
 ## Loading and Mobile Networks
 
 - Authentication status and authenticated bootstrap requests start together. Either verified response can open the workspace, so a stalled status request does not hold up a successful bootstrap. Both reads have six-second deadlines; total failure retries after 1, 2, 4, then at most 8 seconds. Network recovery or returning to the foreground can cancel an unfinished check and start again. A successful password login enters directly without an extra status round trip.
-- Tasks, models and projects appear as HTTP bootstrap data arrives, independently of WebSocket readiness. If bootstrap stalls for 1.5 seconds after the workspace mounts, tasks load through their own authenticated HTTP endpoint. Subsequent task pages follow native cursors over HTTP, yielding to typing and selection; all tasks remain accessible. Native model/project reads remain a fallback when the socket is ready. Chat history can load while the real-time connection is still being established; sending messages and native actions require that connection.
+- Tasks, models and projects appear as HTTP bootstrap data arrives, independently of WebSocket readiness. If bootstrap stalls for 1.5 seconds after verified authentication enables task loading, tasks load through their own authenticated HTTP endpoint. Subsequent task pages follow native cursors over HTTP, yielding to typing and selection; all tasks remain accessible. Native model/project reads remain a fallback when the socket is ready. Chat history can load while the real-time connection is still being established; sending messages and native actions require that connection.
 - Opening a chat combines its native metadata and latest 40 history items in one request. Older history remains available in pages of up to 100 items. Switching back to one of the five recently opened chats shows its in-memory snapshot while refreshing from the desktop; snapshots disappear on logout or page reload.
 - Scrolling toward older messages prepares one page and its timing metadata in memory before reaching the top. Older pages load automatically without a load-more button. Insertion waits until the reader is within 64px of the top, the finger is released, and scrolling has been quiet for 160ms. A response arriving during a new gesture waits again; leaving the top retains the prepared page for a later upward scroll. Insertion preserves the visible message and expanded process details. Subagent viewers use the same mechanism. Speculative failures remain silent; after a failed foreground read, another upward gesture retries without an idle retry loop. No conversation page is added to persistent browser or edge caches.
 - Switching chats, jumping to another history window or closing a chat aborts abandoned HTTP history downloads. Duplicate pending reads share one request. Pooled task, history and permission reads time out after 15 seconds; expired authentication on task/chat opening returns to sign-in. Permission reads follow the selected directory. Cancellation does not interrupt model turns or undo native operations already dispatched.
@@ -495,6 +496,20 @@ Codex CLI detection checks Windows app packages, local standalone installations,
 - Local browser User Timing marks (`remote:shell`, `remote:auth`, `remote:bootstrap`, `remote:tasks`, `remote:chat`, `remote:connected`) record the latest completion of each phase without message content or automatic telemetry. Controlled before/after measurements and real-device limits are documented in [startup acceptance](docs/startup-acceptance.md).
 - For a fixed trusted device, sign in once in the browser or installed app you will use, then pin that entry to the home screen or taskbar. The HTTP-only session lasts 30 days by default (`SESSION_DAYS`); expiry, signing out, clearing site data, or resetting the server session secret requires signing in again. Keep the same HTTPS origin and browser profile. A home-screen installation may have separate browser storage.
 - The tunnel installers default to HTTP/2. Windows accepts `-TunnelProtocol auto|http2|quic` on `scripts/install-task-windows.ps1`; the macOS tunnel installer accepts `TUNNEL_PROTOCOL`. Compare protocols on the actual host before changing them; a slow route can still dominate dynamic requests.
+
+### Updating a Home-Screen Installation
+
+1. Open Remote while online so the new service worker can install in the background.
+2. Close all Remote windows, including the home-screen app and same-origin browser tabs, then reopen.
+3. Let the new version verify the session successfully once. Later openings in the same browser/app storage can use the returning-device hint.
+
+The hint does not sign in a new device or make expired sessions valid. First
+entry and browsers with unavailable storage still wait for server verification.
+An early workspace can be empty while authenticated task data arrives. Clearing
+site data removes both the installed cache and the hint and can require signing
+in again. The shell, authenticated tasks, readable chat and live send connection
+have different readiness times; physical iPhone 5G/Wi-Fi latency is not yet
+accepted by the controlled browser tests.
 
 ### Optional Static Edge Hosting
 
@@ -570,6 +585,17 @@ public/           Application assets
 docs/images/      Sanitized documentation screenshots
 ```
 
+## Verification Records
+
+- [Startup and returning-device acceptance](docs/startup-acceptance.md): separate shell, authentication, task, chat and socket timings; controlled measurements and network limits.
+- [History loading and side-chat acceptance](docs/history-loading-acceptance.md): automatic paging, touch gesture gates, reading anchors and side-chat settings.
+- [Session, preview and attachment acceptance](docs/session-preview-acceptance.md): preview isolation, module failures, PDF limits and retained images.
+- [Subagent acceptance](docs/subagent-acceptance.md): child discovery, history, streaming and safe viewer close.
+
+Each record identifies its original verification scope; older test counts are
+historical, not the current suite size. Current startup behavior is defined by
+the startup record and the implementation.
+
 ## Known Limits
 
 - Interface labels are currently Simplified Chinese; both English and Chinese documentation are provided.
@@ -579,6 +605,7 @@ docs/images/      Sanitized documentation screenshots
 - Live command approval is verified. File-change, user-input, and persistent command/network-policy approvals have helpers and tests but still need dedicated live acceptance.
 - Browser dictation requires browser support and microphone permission; actual spoken input has not been accepted in the release verification.
 - Heartbeats recover stale connections, but cannot guarantee network uptime. Interrupted requests are not replayed automatically.
+- Physical iPhone Safari / Add to Home Screen behavior and real 5G/Wi-Fi tail latency still need device testing. Chromium and Windows WebKit emulation do not establish iOS performance.
 - Windows is the live-tested deployment. macOS has build, unit-test, shell, and LaunchAgent CI coverage, but live desktop sync, login persistence, and the legacy tunnel still require acceptance on a signed-in Mac.
 
 ## Troubleshooting
@@ -591,6 +618,8 @@ docs/images/      Sanitized documentation screenshots
 | Windows Start cannot find build output | Run `npm ci` and `npm run build` first |
 | Public URL fails but localhost works | Check tunnel readiness, its login task, DNS, and `data/cloudflared.log` |
 | Connection stalls after sleep | Return to the foreground or restore the network; the client probes and reconnects |
+| Repeat entry still shows the full login check | Activate the waiting PWA update and complete one successful verification in the same browser/app; expired sessions or unavailable storage still require verification |
+| Workspace opens quickly but tasks or chats are slow | Shell readiness is separate from authenticated data; inspect the local `remote:auth`, `remote:tasks` and `remote:chat` timings and compare the actual network route |
 | Password forgotten | Run `npm run set-password` on the host |
 | Codex logs an ignored global setting | Check your local Codex config; Remote does not manage deprecated global settings |
 

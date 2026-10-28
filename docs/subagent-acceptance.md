@@ -20,7 +20,8 @@ Date: 2026-10-27.
 
 ## Verification
 
-- Full suite: 146 tests across 31 files. TypeScript and production build pass.
+- At the recorded acceptance checkpoint: 146 tests across 31 files.
+  TypeScript and production build passed. See the README for the current suite.
 - Synthetic browser acceptance: 2560x1440, 1024x768, 402x874 at DPR 3, and
   320x568 with touch. No page overflow or browser exceptions.
 - Browser scenarios include merged records, child streaming without main-chat

@@ -2,7 +2,14 @@
 
 Codex Remote controls a trusted operator's local Codex runtime. A signed-in
 operator may read local chat content and images, and execute actions allowed by
-the native permission profile. This is not a multi-tenant isolation boundary.
+the native permission profile. Manual filesystem/preview operations and the
+interactive terminal run with the host user's access, independently of that
+model permission profile. This is not a multi-tenant isolation boundary.
+
+The returning-device browser hint contains only a boolean and opens an empty
+workspace. It does not authenticate requests: private reads and sockets still
+require the signed HTTP-only session. The service worker and optional edge cache
+store public static assets, not authenticated API responses or host file contents.
 
 ## Deployment
 

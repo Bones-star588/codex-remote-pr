@@ -2,6 +2,26 @@
 
 Date: 2026-10-28.
 
+## Current Scope
+
+The current application implementation is public commit `2f2f02c`, verified by
+Windows/macOS/Ubuntu CI run `40623756335`: 185 tests across 38 files, type
+checking and production builds passed. Subsequent documentation-only commits do
+not require replacing that deployed application build.
+
+The parallel-startup comparison below was captured at `900e2a9`; the returning
+device follow-up covers `2f2f02c`. Treat their timings and older suite counts as
+dated observations. The deployed local and canonical public shell/service worker
+were checked against the current build on 2026-10-28, with ready Desktop
+transport. A manually set hint opened only an empty shell and was rejected by
+the unauthenticated server; no socket or private task data was exposed.
+
+To activate a waiting PWA update, open Remote online, close every Remote app
+window and same-origin browser tab, then reopen. One successful verification in
+the new version saves the device hint. First entry and unavailable storage still
+use verified entry. Early shell readiness is not authenticated task/chat
+readiness, and physical iPhone Safari / 5G/Wi-Fi remains unverified.
+
 ## Changes
 
 - Authentication status and bootstrap start concurrently. Either successful
@@ -12,7 +32,7 @@ Date: 2026-10-28.
   value grants access.
 - HTTP bootstrap populates the first task page, models and projects without
   waiting for socket synchronization. A stalled bootstrap triggers a separate
-  authenticated task read 1.5 seconds after workspace mounting. Native cursors
+  authenticated task read 1.5 seconds after verified startup enables loading. Native cursors
   continue over HTTP, including archived lists and all configured providers.
   Initial loading is shared across bootstrap, fallback and reconnect.
 - Chat reads remain independent of the socket. Pooled task/history/permission
@@ -66,7 +86,7 @@ Windows WebKit is not a physical iPhone or installed iOS application.
   without a second status read.
 - Cache inspection found no authenticated API entries. All browser probes
   recorded zero model actions and zero page exceptions.
-- The full suite passes 183 tests across 38 files, including startup races,
+- At parallel-startup acceptance, the suite passed 183 tests across 38 files, including startup races,
   cancellation, HTTP deadlines and service-worker cache behavior. Production
   TypeScript/Vite compilation passes.
 

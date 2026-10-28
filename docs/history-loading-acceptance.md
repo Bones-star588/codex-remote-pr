@@ -27,7 +27,8 @@ Date: 2026-10-27.
 
 ## Verification
 
-- 171 tests across 36 files pass; TypeScript and production build pass.
+- At the recorded acceptance checkpoint, 171 tests across 36 files passed;
+  TypeScript and production build passed. See the README for the current suite.
 - Synthetic history acceptance covers 2560x1440, 1024x768, 402x874 at DPR 3,
   390x844, 320x568 and touch landscape 874x402.
 - Warm and cold paging, scrolling during a pending read, delayed images,

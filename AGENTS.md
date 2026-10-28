@@ -104,7 +104,8 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   checks show a nonblocking retry banner in the returning shell. Never present
   shell timing as faster authentication or chat readiness.
   Apply HTTP task/model/project snapshots independently of socket readiness.
-  If bootstrap stalls for 1.5 seconds after mounting, start the task read directly.
+  If bootstrap stalls for 1.5 seconds after authentication enables loading,
+  start the task read directly, never from the unauthenticated returning shell.
   Page all tasks through authenticated /api/threads with native all-provider
   cursors, independently of the socket. Cancel downloads and background-yield
   waits on logout/unmount or archive-list changes. Share initial list loading across

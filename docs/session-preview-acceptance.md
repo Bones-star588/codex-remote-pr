@@ -2,7 +2,12 @@
 
 Date: 2026-10-28.
 
-- Authentication uses a six-second lightweight status read, with automatic
+The authentication measurements below describe the earlier `7e5b97a` build.
+Parallel authentication and returning-device entry supersede that startup
+sequence; see [current startup acceptance](startup-acceptance.md). Preview,
+attachment and gesture observations retain their original verification scope.
+
+- At that verification, authentication used a six-second lightweight status read, with automatic
   retry and an immediate reconnect control. Metadata loading does not block
   entry into the workspace. A reconnect during the first metadata wait still
   finishes task/model initialization.

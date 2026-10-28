@@ -29,11 +29,15 @@ that overwhelm the conversation.
 
 ## Design Principles
 
-- Keep commentary visible; fold consecutive commands and edits by operation type.
+- Keep live commentary in order; merge consecutive commands, edits, tools and
+  searches across types. Completed turns fold their process and commentary
+  under the native duration disclosure, leaving the final reply visible.
 - Reflect native state accurately; distinguish a tool failure from turn status.
 - Preserve reading position during streaming and history navigation.
 - Make desktop scanning and phone interaction equally practical.
 - Reuse the existing light palette, system typography, and compact controls.
+- Keep shell, authenticated data and live connection readiness distinct.
+  A returning-device hint can open an empty UI but never grants access.
 
 ## Accessibility & Inclusion
 
