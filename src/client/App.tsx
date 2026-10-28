@@ -1,9 +1,10 @@
 import { CheckCircle2, LoaderCircle, RefreshCw, ShieldCheck } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { api } from './api';
 import type { WorkspaceBootstrap } from './types';
 import { PanelBoundary } from './components/PanelBoundary';
+import { startSession } from './startup';
 
 const loadWorkspace = () => import('./Workspace').then((module) => ({ default: module.Workspace }));
 const Workspace = lazy(loadWorkspace);
@@ -21,7 +22,17 @@ export function App() {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
-  const refreshAuth = useCallback(() => setRevision(value => value + 1), []);
+  const establishedRef = useRef(false);
+  const refreshAuth = useCallback(() => {
+    establishedRef.current = false;
+    setAuth(null);
+    setRevision(value => value + 1);
+  }, []);
+  const signedIn = useCallback(() => {
+    establishedRef.current = true;
+    setAuth(null);
+    setRevision(value => value + 1);
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -34,14 +45,11 @@ export function App() {
       clearTimeout(timer);
       pending = true;
       try {
-        const state = await api<AuthState>('/api/auth/status', {
-          cache: 'no-store', signal: controller.signal, timeoutMs: 6000
-        });
+        const session = startSession(controller.signal, establishedRef.current);
+        const state = await session.auth;
         if (controller.signal.aborted) return;
         verified = true;
-        const bootstrapRequest = state.authenticated ? api<AuthState>('/api/bootstrap', {
-          cache: 'no-store', signal: controller.signal, timeoutMs: 6000
-        }).then(result => result.workspace).catch(() => null) : undefined;
+        const bootstrapRequest = state.authenticated ? session.workspace : undefined;
         setAuth({ ...state, workspace: null, ...(bootstrapRequest ? { bootstrapRequest } : {}) });
         setError(null);
       } catch {
@@ -51,7 +59,10 @@ export function App() {
       } finally { pending = false; }
     };
     const recover = () => {
-      if (!verified && document.visibilityState === 'visible') void check();
+      if (!verified && document.visibilityState === 'visible') {
+        if (pending) refreshAuth();
+        else void check();
+      }
     };
     void check();
     window.addEventListener('online', recover);
@@ -62,17 +73,17 @@ export function App() {
       window.removeEventListener('online', recover);
       document.removeEventListener('visibilitychange', recover);
     };
-  }, [revision]);
+  }, [revision, refreshAuth]);
 
   if (!auth) return <FullScreenLoader label={error ?? '正在检查登录状态'}
     {...(error ? { onRetry: refreshAuth } : {})} />;
 
   if (!auth.configured) {
-    return <SetupPage setupAllowed={auth.setupAllowed} onDone={refreshAuth} />;
+    return <SetupPage setupAllowed={auth.setupAllowed} onDone={signedIn} />;
   }
 
   if (!auth.authenticated) {
-    return <LoginPage onDone={refreshAuth} />;
+    return <LoginPage onDone={signedIn} />;
   }
 
   return <PanelBoundary><Suspense fallback={<FullScreenLoader label="正在打开工作区" />}>
@@ -112,6 +123,7 @@ function SetupPage({ setupAllowed, onDone }: { setupAllowed: boolean; onDone: ()
             setWorking(true);
             void api('/api/auth/setup', {
               method: 'POST',
+              timeoutMs: 15000,
               body: JSON.stringify({ password })
             })
               .then(onDone)
@@ -171,6 +183,7 @@ function LoginPage({ onDone }: { onDone: () => void }) {
           setError(null);
           void api('/api/auth/login', {
             method: 'POST',
+            timeoutMs: 15000,
             body: JSON.stringify({ password })
           })
             .then(onDone)

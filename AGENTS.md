@@ -89,15 +89,29 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   item has no timing yet. Ignore window-external live items while reading older
   history. Follow-up user marks missing from native summaries are added as their
   history is loaded; do not claim a complete unread steering-message index.
-- Open the workspace after a lightweight authentication check; do not wait for
-  task/model metadata. Bound auth checks to six seconds, retry with capped
-  backoff and online/visibility recovery, and preserve HTTP-only authentication.
-  Bootstrap the first task page and metadata over authenticated HTTP. Wait at
-  most 1.5 seconds after socket readiness before native reads. A reconnect
-  during initial bootstrap must still finish initialization. Continue all
-  native task cursors progressively. Open chats with one native-backed HTTP
+- Start authentication status and authenticated bootstrap reads concurrently.
+  Either verified server response can open the workspace; metadata must not
+  block entry. Bound both reads to six seconds, with capped retry backoff and
+  cancellation/restart on online/visibility recovery. A successful login POST
+  establishes identity without another status round trip. Preserve HTTP-only
+  authentication; local storage is never proof of access.
+  Apply HTTP task/model/project snapshots independently of socket readiness.
+  If bootstrap stalls for 1.5 seconds after mounting, start the task read directly.
+  Page all tasks through authenticated /api/threads with native all-provider
+  cursors, independently of the socket. Cancel downloads and background-yield
+  waits on logout/unmount or archive-list changes. Share initial list loading across
+  bootstrap, timeout fallback and reconnect; late metadata must not replace
+  newer native results. Native model/project fallbacks wait at most 1.5 seconds
+  after socket readiness. Open chats with one native-backed HTTP
   request: 40 latest records, then older pages of up to 100. Keep the five-chat
   cache in memory only and replace stale snapshots with fresh native results.
+  Bound pooled HTTP reads to 15 seconds and surface expired authentication.
+  Preload the Workspace module from the shell. Return the installed version's
+  cached public shell immediately, keeping its modules and document together;
+  install newer versions through the service-worker update lifecycle. Never
+  overwrite the installed shell with a different network version.
+  Local User Timing marks remote:auth/bootstrap/tasks/chat/connected contain
+  timings only; do not export private content or add background telemetry.
 - Abort abandoned HTTP history and permission reads when their selection changes;
   coalesce identical pending reads. Bootstrap and WebSocket share model/project
   lookups, with a five-second completed-result handoff. Invalidate on project

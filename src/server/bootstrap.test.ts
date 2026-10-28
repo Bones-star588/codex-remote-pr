@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MetadataReader, readWorkspaceBootstrap } from './bootstrap.js';
+import { MetadataReader, readThreadListPage, readWorkspaceBootstrap } from './bootstrap.js';
 
 describe('metadata bootstrap handoff', () => {
   it('reuses a slow native lookup after the HTTP bootstrap returns', async () => {
@@ -52,6 +52,14 @@ describe('metadata bootstrap handoff', () => {
 });
 
 describe('initial workspace request', () => {
+  it('keeps native cursors, archive selection and all providers for HTTP pagination', async () => {
+    const request = vi.fn(async () => ({ data: [], nextCursor: null }));
+    await readThreadListPage(request, 'native-cursor', true);
+    expect(request).toHaveBeenCalledWith('thread/list', {
+      limit: 200, sortKey: 'updated_at', sortDirection: 'desc',
+      useStateDbOnly: true, modelProviders: [], archived: true, cursor: 'native-cursor'
+    });
+  });
   it('returns the task page without waiting for a slow model catalog', async () => {
     vi.useFakeTimers();
     let finish!: (value: unknown) => void;

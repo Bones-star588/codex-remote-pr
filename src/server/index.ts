@@ -25,7 +25,7 @@ import { codexBridge } from './codex-bridge.js';
 import { config } from './config.js';
 import { desktopBridge } from './desktop-bridge.js';
 import { readThreadHistoryAround, readThreadHistoryPage, readThreadOutline } from './thread-history.js';
-import { MetadataReader, readWorkspaceBootstrap } from './bootstrap.js';
+import { MetadataReader, readThreadListPage, readWorkspaceBootstrap } from './bootstrap.js';
 import { readOpenThread } from './thread-open.js';
 import { TerminalManager } from './terminal-manager.js';
 import { handleTerminalSocket } from './terminal-socket.js';
@@ -105,6 +105,7 @@ function asyncRoute(
 }
 
 function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  res.setHeader('Cache-Control', 'no-store');
   if (!isAuthenticated(req)) {
     res.status(401).json({ error: 'Authentication required.' });
     return;
@@ -155,6 +156,7 @@ app.get('/health', (_req, res) => {
 app.get(
   '/api/auth/status',
   asyncRoute(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     const configured = isPasswordConfigured();
     res.json({
       configured,
@@ -238,6 +240,14 @@ app.get(
     });
   })
 );
+
+app.get('/api/threads', requireAuth, asyncRoute(async (req, res) => {
+  const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : null;
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await readThreadListPage(
+    (method, params) => codexBridge.request(method, params), cursor, req.query.archived === 'true'
+  ));
+}));
 
 app.get('/api/connections', requireAuth, (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');

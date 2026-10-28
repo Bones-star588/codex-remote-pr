@@ -1,5 +1,12 @@
 interface ApiOptions extends RequestInit { timeoutMs?: number }
 
+export class HttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
 export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const { timeoutMs, signal, ...request } = options;
   const controller = timeoutMs ? new AbortController() : null;
@@ -32,7 +39,7 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
         body && typeof body === 'object' && 'error' in body
           ? String((body as { error: unknown }).error)
           : `Request failed (${response.status})`;
-      throw new Error(message);
+      throw new HttpError(message, response.status);
     }
 
     return body as T;
@@ -57,7 +64,7 @@ export class ReadRequests {
     const existing = this.pending.get(path);
     if (existing) return existing.promise as Promise<T>;
     const controller = new AbortController();
-    const promise = api<T>(path, { cache: 'no-store', signal: controller.signal }).finally(() => {
+    const promise = api<T>(path, { cache: 'no-store', signal: controller.signal, timeoutMs: 15000 }).finally(() => {
       if (this.pending.get(path)?.controller === controller) this.pending.delete(path);
     });
     this.pending.set(path, { controller, promise });

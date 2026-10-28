@@ -11,7 +11,9 @@ window.addEventListener('pointerdown', prioritizeInteraction, { passive: true })
 window.addEventListener('keydown', prioritizeInteraction);
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    window.setTimeout(() => { void navigator.serviceWorker.register('/sw.js').catch(() => undefined); }, 2000);
+    window.setTimeout(() => {
+      void navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(() => undefined);
+    }, 2000);
   }, { once: true });
 }
 

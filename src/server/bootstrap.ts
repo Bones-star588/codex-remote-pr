@@ -2,6 +2,14 @@ import type { ClientRpcMethod } from '../shared/protocol.js';
 
 type Request = (method: ClientRpcMethod, params: unknown) => Promise<unknown>;
 
+export function readThreadListPage(request: Request, cursor: string | null = null, archived = false) {
+  return request('thread/list', {
+    limit: 200, sortKey: 'updated_at', sortDirection: 'desc',
+    useStateDbOnly: true, modelProviders: [], archived,
+    ...(cursor ? { cursor } : {})
+  });
+}
+
 export class MetadataReader {
   private entries = new Map<string, { promise: Promise<unknown>; completedAt: number | null }>();
 
@@ -49,10 +57,7 @@ export async function readWorkspaceBootstrap(
       clearTimeout(timer!);
     }
   };
-  const threads = read('thread/list', {
-      limit: 200, sortKey: 'updated_at', sortDirection: 'desc',
-      useStateDbOnly: true, modelProviders: [], archived: false
-    }).catch(() => null);
+  const threads = readThreadListPage(read).catch(() => null);
   let models: unknown = null;
   let projects: unknown = null;
   void read('model/list', { limit: 100, includeHidden: false }).then(value => { models = value; }, () => {});

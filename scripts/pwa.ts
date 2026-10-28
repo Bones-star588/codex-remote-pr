@@ -23,18 +23,11 @@ self.addEventListener('fetch', event => {
   const url = new URL(request.url);
   if (request.method !== 'GET' || !isStatic(url) || url.pathname.startsWith('/api/')) return;
   if (request.mode === 'navigate') {
-    const network = fetch(request).then(async response => {
-      if (response.ok) await (await caches.open(CACHE)).put('/', response.clone());
-      return response;
-    });
-    event.waitUntil(network.catch(() => {}));
     event.respondWith((async () => {
-      const cached = await caches.match('/');
-      if (!cached) return network;
-      let timer;
-      try { return await Promise.race([network.catch(() => cached),
-        new Promise(resolve => { timer = setTimeout(() => resolve(cached), 700); })]); }
-      finally { clearTimeout(timer); }
+      // Keep the shell and its modules in the same installed version.
+      // Registration updates install the next version in the background.
+      const cached = await (await caches.open(CACHE)).match('/');
+      return cached || fetch(request);
     })());
     return;
   }
@@ -53,6 +46,14 @@ export function pwaPlugin(): Plugin {
   return {
     name: 'remote-static-cache',
     apply: 'build',
+    transformIndexHtml(_html, context) {
+      const workspace = Object.values(context.bundle ?? {}).find(
+        value => value.type === 'chunk' && value.name === 'Workspace'
+      );
+      return workspace ? [{ tag: 'link', attrs: {
+        rel: 'modulepreload', crossorigin: '', href: `/${workspace.fileName}`
+      }, injectTo: 'head' }] : [];
+    },
     generateBundle(_options, bundle) {
       const entry = Object.values(bundle).find(value => value.type === 'chunk' && value.isEntry);
       if (!entry) return;

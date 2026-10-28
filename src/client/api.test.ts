@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, isAbortedRequest, ReadRequests } from './api';
+import { api, HttpError, isAbortedRequest, ReadRequests } from './api';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
@@ -35,6 +35,21 @@ describe('bounded connection checks', () => {
 });
 
 describe('selection-scoped HTTP reads', () => {
+  it('expires a stalled chat read and preserves HTTP auth failures for session recovery', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((_path: string, options: RequestInit) =>
+      new Promise((_resolve, reject) => options.signal!.addEventListener('abort', () => reject(options.signal!.reason)))));
+    const reads = new ReadRequests();
+    const expired = reads.get('/api/thread/open?threadId=a').catch(error => error);
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(await expired).toHaveProperty('name', 'TimeoutError');
+    expect(reads.has('/api/thread/open?threadId=a')).toBe(false);
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: 'Sign in again' }, { status: 401 })));
+    const failure = await reads.get('/api/threads').catch(error => error);
+    expect(failure).toBeInstanceOf(HttpError);
+    expect(failure).toHaveProperty('status', 401);
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it('shares pending reads and re-reads completed data', async () => {
     let finish!: (response: Response) => void;
     const fetch = vi.fn(() => new Promise<Response>(resolve => { finish = resolve; }));
