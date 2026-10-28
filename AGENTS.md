@@ -65,6 +65,11 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   Never prepend history or compensate its position during a drag.
   Use a passive history sentinel, never a load-more button. A new upward
   gesture retries a failed foreground page; idle failures must not loop.
+  Clamp scroll offsets to their real range before inferring direction so
+  Safari rubber-band rebound cannot cancel upward intent. Accumulate small
+  touch movements across events; do not discard each sub-threshold move.
+  Keep touch direction authoritative until the drag/momentum quiet period ends,
+  including delayed fractional-position rounding events.
   Prepare native timings before insertion, share speculative/foreground reads, and discard
   abandoned pages. Preserve response/activity identities and expanded state
   across partial-turn boundaries. Do not estimate chat-block heights with

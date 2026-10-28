@@ -1,9 +1,50 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HistoryScroll } from './history-scroll';
+import { HistoryScroll, historyScrollDelta } from './history-scroll';
 
 afterEach(() => vi.useRealTimers());
 
 describe('history insertion during scrolling', () => {
+  it('keeps upward intent through Safari top overscroll and its rebound', () => {
+    expect(historyScrollDelta(80, -75, 1000)).toBe(-80);
+    expect(historyScrollDelta(-75, -20, 1000)).toBe(0);
+    expect(historyScrollDelta(-20, 0, 1000)).toBe(0);
+    expect(historyScrollDelta(0, 30, 1000)).toBe(30);
+    expect(historyScrollDelta(-20, 0, -10)).toBe(0);
+  });
+
+  it('accumulates fine touch motion at a boundary and detects a deliberate reversal', () => {
+    const scroll = new HistoryScroll(() => {});
+    scroll.startTouch(100);
+    expect(scroll.moveTouch(101)).toBeNull();
+    expect(scroll.moveTouch(102)).toBeNull();
+    expect(scroll.moveTouch(103)).toBe(-1);
+    expect(scroll.moveTouch(102)).toBeNull();
+    expect(scroll.moveTouch(100)).toBe(1);
+    scroll.endTouch();
+    expect(scroll.moveTouch(200)).toBeNull();
+    scroll.cancel();
+  });
+
+  it('retains touch direction until momentum settles, including delayed scroll corrections', async () => {
+    vi.useFakeTimers();
+    const scroll = new HistoryScroll(() => {});
+    scroll.startTouch(100);
+    expect(scroll.hasTouchIntent).toBe(false);
+    scroll.moveTouch(130);
+    scroll.endTouch();
+    expect(scroll.hasTouchIntent).toBe(true);
+    await vi.advanceTimersByTimeAsync(100);
+    scroll.activity();
+    await vi.advanceTimersByTimeAsync(159);
+    expect(scroll.hasTouchIntent).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(scroll.hasTouchIntent).toBe(false);
+    scroll.startTouch(100);
+    scroll.moveTouch(130);
+    scroll.cancel();
+    expect(scroll.hasTouchIntent).toBe(false);
+  });
+
   it('waits while a finger remains down, including when it pauses', async () => {
     vi.useFakeTimers();
     const ready = vi.fn();

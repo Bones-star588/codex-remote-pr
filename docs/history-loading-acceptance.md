@@ -37,6 +37,33 @@ Updated: 2026-10-28. Earlier verification below retains its dated scope.
 
 ## Verification
 
+### 2026-10-28 Mobile Gesture Follow-up
+
+- Reproduced two stopped-loading paths before the fix: top rubber-band return
+  cleared upward intent, and a sequence of one-pixel finger movements never
+  passed the per-event threshold. The older page was fetched but not inserted.
+- Clamp scroll offsets before inferring direction. Accumulate small touch
+  movements, and retain their explicit direction through the drag and momentum
+  quiet period. This also handles a delayed one-pixel WebKit scroll correction
+  after touchend. Deliberate downward gestures still stop continuation.
+- All 293 unit tests / 47 files and both TypeScript targets pass; production
+  build passes. Chromium and Windows WebKit pass all eight gesture scenarios:
+  simulated rubber-band return, fine touch motion, delayed rounding and
+  deliberate downward cancellation. No model actions were submitted.
+- The 24 continuation cases at 2560x1440, 402x874 and 320x568 still pass with
+  at most 0.5 CSS pixels of reading-anchor drift.
+- Browser-level Chromium touch input at 402x874 and 320x568, DPR 3 and 4x CPU
+  throttling retains the no-insertion-while-held gate. Each history insertion
+  shifts the reading anchor by at most 0.5 CSS pixels.
+- Deployed local/public native history checks pass in both engines at
+  402x874/DPR3. One gesture mounts earlier readable messages, retains original
+  message nodes and shifts the anchor by at most 0.5 CSS pixels, with zero
+  page errors or model actions. A page already containing readable context
+  correctly stops without requesting another page; acceptance checks actual
+  mounted conversation rather than requiring an unnecessary extra HTTP read.
+- These are controlled host-browser regressions. They reproduce reachable
+  mobile gesture paths, but do not establish physical iPhone/5G acceptance.
+
 ### 2026-10-28 HTTP Paging and Folded Answers
 
 - 290 tests across 47 files pass, including bounded host coalescing, partial

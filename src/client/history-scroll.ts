@@ -1,21 +1,43 @@
 export type BeforeHistoryCommit = () => Promise<boolean>;
 
+export function historyScrollDelta(previous: number, current: number, maximum: number): number {
+  const bounded = (top: number) => Math.max(0, Math.min(Math.max(0, maximum), top));
+  return bounded(current) - bounded(previous);
+}
+
 /** Keep history layout changes out of both the drag and its momentum scroll. */
 export class HistoryScroll {
   private touching = false;
+  private touchY: number | null = null;
+  private directedTouch = false;
   private idle = true;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readers: Array<(ready: boolean) => void> = [];
 
   constructor(private readonly onIdle: () => void) {}
 
-  startTouch(): void {
+  get hasTouchIntent(): boolean { return this.directedTouch; }
+
+  startTouch(y: number | null = null): void {
     this.touching = true;
+    this.touchY = y;
+    this.directedTouch = false;
     this.activity();
+  }
+
+  moveTouch(y: number | null): -1 | 1 | null {
+    if (y === null || this.touchY === null) return null;
+    const delta = y - this.touchY;
+    // Accumulate small moves instead of discarding every sub-threshold event.
+    if (Math.abs(delta) <= 2) return null;
+    this.touchY = y;
+    this.directedTouch = true;
+    return delta > 0 ? -1 : 1;
   }
 
   endTouch(): void {
     this.touching = false;
+    this.touchY = null;
     this.activity();
   }
 
@@ -27,6 +49,7 @@ export class HistoryScroll {
     this.timer = setTimeout(() => {
       this.timer = null;
       this.idle = true;
+      this.directedTouch = false;
       this.readers.splice(0).forEach(resolve => resolve(true));
       this.onIdle();
     }, 160);
@@ -40,6 +63,8 @@ export class HistoryScroll {
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
     this.touching = false;
+    this.touchY = null;
+    this.directedTouch = false;
     this.idle = true;
     this.readers.splice(0).forEach(resolve => resolve(false));
   }

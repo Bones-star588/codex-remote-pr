@@ -36,7 +36,7 @@ import { captureReadingAnchor, restoreReadingAnchor, type ReadingAnchor } from '
 import { PreviewImage, PreviewLink } from './PreviewLinks';
 import { SubagentRows } from './Subagents';
 import { isSubagentItem } from '../subagents';
-import { HistoryScroll, type BeforeHistoryCommit } from '../history-scroll';
+import { HistoryScroll, historyScrollDelta, type BeforeHistoryCommit } from '../history-scroll';
 import { isReadableHistoryItem } from '../history-prefetch';
 
 interface ThreadTimelineProps {
@@ -101,7 +101,6 @@ export function ThreadTimeline({
   const navigationAnchorRef = useRef<string | null>(null);
   const readingAnchorRef = useRef<ReadingAnchor | null>(null);
   const restoredScrollTopRef = useRef<number | null>(null);
-  const touchYRef = useRef<number | null>(null);
   const mountedRef = useRef(false);
   const previousScrollTopRef = useRef(0);
   const wantsEarlierRef = useRef(false);
@@ -350,22 +349,20 @@ export function ThreadTimeline({
       }}
       onTouchStart={event => {
         navigationAnchorRef.current = null;
-        touchYRef.current = event.touches[0]?.clientY ?? null;
-        scrollActivityRef.current!.startTouch();
+        scrollActivityRef.current!.startTouch(event.touches[0]?.clientY ?? null);
         stickToBottomRef.current = false;
         rememberReadingPosition();
       }}
       onTouchMove={event => {
-        const y = event.touches[0]?.clientY ?? null;
-        if (y !== null && touchYRef.current !== null && Math.abs(y - touchYRef.current) > 2) {
-          wantsEarlierRef.current = y > touchYRef.current;
+        const direction = scrollActivityRef.current!.moveTouch(event.touches[0]?.clientY ?? null);
+        if (direction !== null) {
+          wantsEarlierRef.current = direction < 0;
           if (!wantsEarlierRef.current) continuationTopRef.current = null;
           if (wantsEarlierRef.current && !loadingEarlierRef.current) earlierAttemptRef.current = null;
         }
-        touchYRef.current = y;
       }}
-      onTouchEnd={() => { touchYRef.current = null; scrollActivityRef.current!.endTouch(); }}
-      onTouchCancel={() => { touchYRef.current = null; scrollActivityRef.current!.endTouch(); }}
+      onTouchEnd={() => { scrollActivityRef.current!.endTouch(); }}
+      onTouchCancel={() => { scrollActivityRef.current!.endTouch(); }}
       onPointerDownCapture={() => { navigationAnchorRef.current = null; }}
       onKeyDownCapture={event => {
         navigationAnchorRef.current = null;
@@ -388,10 +385,13 @@ export function ThreadTimeline({
         // Layout compensation emits scroll too; it must not replace the reader's anchor.
         const restored = restoredScrollTopRef.current;
         restoredScrollTopRef.current = null;
-        const delta = stream.scrollTop - previousScrollTopRef.current;
+        // Safari's rubber-band return is not a change in the reader's direction.
+        const delta = historyScrollDelta(previousScrollTopRef.current, stream.scrollTop,
+          stream.scrollHeight - stream.clientHeight);
         previousScrollTopRef.current = stream.scrollTop;
         if (restored !== null && Math.abs(stream.scrollTop - restored) < 1) return;
-        if (Math.abs(delta) > .5) {
+        // Touch intent owns the drag and momentum, including delayed rounding corrections.
+        if (Math.abs(delta) > .5 && !scrollActivityRef.current!.hasTouchIntent) {
           wantsEarlierRef.current = delta < 0;
           if (!wantsEarlierRef.current) continuationTopRef.current = null;
           if (wantsEarlierRef.current && !loadingEarlierRef.current) earlierAttemptRef.current = null;
