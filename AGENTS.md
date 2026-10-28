@@ -44,6 +44,9 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 - Task list requests include all providers with `modelProviders: []` and
   `useStateDbOnly: true`. Follow native cursors; never assume one page is complete.
 - Keep history bounded and preserve reading position when prepending older pages.
+  User attachments render in a compact row above the text bubble. Retain native
+  local image inputs under private data/image-attachments when seen or read;
+  never publish these files or silently display a missing original as blank.
   Anchor a visible stable item, not a scrollHeight snapshot taken before a
   request. Restore before paint and on delayed layout changes, while updating
   the anchor when the reader scrolls during a request.
@@ -52,6 +55,8 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   without replacing the visible stream. Recheck scroll idleness after network
   completion and retain the prepared page if the reader has left the top.
   Never prepend history or compensate its position during a drag.
+  Use a passive history sentinel, never a load-more button. A new upward
+  gesture retries a failed foreground page; idle failures must not loop.
   Prepare native timings before insertion, share speculative/foreground reads, and discard
   abandoned pages. Preserve response/activity identities and expanded state
   across partial-turn boundaries. Do not estimate chat-block heights with
@@ -64,6 +69,10 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   resource grant is read-only and confined to the document's directory.
   Never expose the Remote session to generated HTML. Binary Office formats are
   downloads; HTML preview does not build source projects.
+  Load only active previews and release hidden document renderers. Surface
+  local HTML HTTP failures before iframe rendering; renew grants on reopening.
+  Bound metadata/HTML reads to 15 seconds and isolate lazy-module failures.
+  Cap PDF backing canvases at 8 million pixels and 8192 pixels per dimension.
 - Keep task pagination complete and yield to interaction; do not restart full
   task/outline pagination on routine native events. Short reconnects replay
   subscribed events from the bounded memory journal, with sequence deduplication
@@ -80,7 +89,12 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   item has no timing yet. Ignore window-external live items while reading older
   history. Follow-up user marks missing from native summaries are added as their
   history is loaded; do not claim a complete unread steering-message index.
-- Bootstrap the first task page and metadata over authenticated HTTP. Continue all
+- Open the workspace after a lightweight authentication check; do not wait for
+  task/model metadata. Bound auth checks to six seconds, retry with capped
+  backoff and online/visibility recovery, and preserve HTTP-only authentication.
+  Bootstrap the first task page and metadata over authenticated HTTP. Wait at
+  most 1.5 seconds after socket readiness before native reads. A reconnect
+  during initial bootstrap must still finish initialization. Continue all
   native task cursors progressively. Open chats with one native-backed HTTP
   request: 40 latest records, then older pages of up to 100. Keep the five-chat
   cache in memory only and replace stale snapshots with fresh native results.

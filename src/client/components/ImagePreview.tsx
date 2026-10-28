@@ -1,18 +1,23 @@
-import { ArrowUpRight, Download, X } from 'lucide-react';
+import { ArrowUpRight, Download, ImageOff, RefreshCw, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 export function ImagePreview({ src, alt = '' }: { src: string; alt?: string }) {
   const [open, setOpen] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [revision, setRevision] = useState(0);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => { setFailed(false); setRevision(0); }, [src]);
   useEffect(() => {
     if (open) dialogRef.current?.showModal();
   }, [open]);
   return (
     <>
-      <button type="button" className="image-thumbnail" aria-label={alt ? `查看图片：${alt}` : '查看图片'}
-        onClick={() => setOpen(true)}>
-        <img src={src} alt={alt} loading="lazy" decoding="async" />
+      <button type="button" className="image-thumbnail" aria-label={failed ? '图片不可用，点击重试' : alt ? `查看图片：${alt}` : '查看图片'}
+        title={failed ? '图片不可用，点击重试' : alt || '查看图片'}
+        onClick={() => { if (failed) { setFailed(false); setRevision(value => value + 1); } else setOpen(true); }}>
+        {failed ? <span className="image-unavailable"><ImageOff size={20} /><RefreshCw size={12} /></span>
+          : <img key={`${src}:${revision}`} src={src} alt={alt} loading="lazy" decoding="async" onError={() => setFailed(true)} />}
       </button>
       {open && createPortal(
         <dialog ref={dialogRef} className="image-viewer" aria-label="图片预览"

@@ -898,6 +898,15 @@ kbd {
   object-position: left center;
 }
 
+.image-unavailable {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
 .image-viewer {
   width: min(1400px, calc(100vw - 48px));
   max-width: calc(100vw - 48px);
@@ -1548,10 +1557,7 @@ kbd {
 .user-message-body {
   min-width: 0;
   max-width: min(76ch, 82%);
-  border: 0;
-  border-radius: 16px;
-  background: var(--bg-subtle);
-  padding: 9px 13px;
+  padding: 0;
   color: var(--ink);
   font-size: 0.875rem;
   line-height: 1.5;
@@ -1559,15 +1565,34 @@ kbd {
 }
 
 .user-message-text {
+  display: inline-block;
+  max-width: 100%;
+  border-radius: 16px;
+  background: var(--bg-subtle);
+  padding: 9px 13px;
   white-space: pre-wrap;
 }
 
-.user-message-body > .image-thumbnail {
-  display: block;
+.user-message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
-.user-message-body > * + .image-thumbnail {
-  margin-top: 8px;
+.user-message-attachments > .image-thumbnail {
+  width: 96px;
+  flex: 0 0 96px;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-subtle);
+}
+
+.user-message-attachments > .image-thumbnail img {
+  object-position: center;
 }
 
 .message--agent {
@@ -1903,6 +1928,15 @@ kbd {
 .history-trim:hover {
   background: var(--bg-subtle);
   color: var(--ink);
+}
+
+.history-sentinel {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+  color: var(--muted);
 }
 
 .activity-group {

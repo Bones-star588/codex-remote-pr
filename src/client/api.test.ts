@@ -1,7 +1,38 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isAbortedRequest, ReadRequests } from './api';
+import { api, isAbortedRequest, ReadRequests } from './api';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+describe('bounded connection checks', () => {
+  it('aborts a stalled download and permits a new request', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((_path: string, options: RequestInit) =>
+      new Promise((_resolve, reject) => options.signal!.addEventListener('abort', () => reject(options.signal!.reason)))));
+    const stalled = api('/api/auth/status', { timeoutMs: 6000 }).catch(error => error);
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(await stalled).toHaveProperty('name', 'TimeoutError');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ authenticated: true })));
+    expect(await api('/api/auth/status', { timeoutMs: 6000 })).toEqual({ authenticated: true });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('keeps the deadline active through the response body and preserves caller cancellation', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn(async (_path: string, options: RequestInit) => ({
+      ok: true, text: () => new Promise((_resolve, reject) =>
+        options.signal!.addEventListener('abort', () => reject(options.signal!.reason)))
+    })));
+    const stalled = api('/api/file-preview', { timeoutMs: 15000 }).catch(error => error);
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(await stalled).toHaveProperty('name', 'TimeoutError');
+    const controller = new AbortController();
+    const cancelled = api('/api/auth/status', { signal: controller.signal, timeoutMs: 6000 }).catch(error => error);
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort();
+    expect(isAbortedRequest(await cancelled)).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
 
 describe('selection-scoped HTTP reads', () => {
   it('shares pending reads and re-reads completed data', async () => {

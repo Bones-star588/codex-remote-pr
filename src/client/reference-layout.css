@@ -118,6 +118,7 @@ svg { stroke-width: 1.8; }
 .file-preview-loading { padding: 24px 18px; }
 .file-preview-error, .file-preview-notice { padding: 10px 14px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .file-preview-error { color: var(--danger); }
+.panel-load-error { display: flex; flex: 1; min-height: 120px; align-items: center; justify-content: center; gap: 8px; padding: 20px; color: var(--muted); font-size: 13px; }
 .file-preview-markdown { padding: 20px; font-size: 14px; line-height: 22.75px; overflow-wrap: anywhere; }
 .file-preview-markdown pre { overflow-x: auto; }
 .file-preview-markdown table { display: block; max-width: 100%; overflow-x: auto; }
@@ -139,7 +140,8 @@ svg { stroke-width: 1.8; }
 .pdf-toolbar { display: flex; min-height: 40px; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px; border-bottom: 1px solid var(--line); padding: 4px; font-size: 12px; }
 .pdf-toolbar input { width: 40px; height: 28px; border: 1px solid var(--line); border-radius: 4px; padding: 2px; color: var(--ink); background: var(--surface); text-align: center; }
 .pdf-toolbar select { height: 28px; min-width: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink); font-size: 12px; }
-.pdf-viewport { min-height: 0; flex: 1; overflow: auto; background: #ebebeb; padding: 12px; }
+.pdf-viewport { position: relative; min-height: 0; flex: 1; overflow: auto; background: #ebebeb; padding: 12px; }
+.pdf-loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
 .pdf-viewport canvas { display: block; margin-inline: auto; background: white; }
 @media (pointer: coarse) {
   .file-preview-toolbar { flex-wrap: wrap; }
@@ -164,7 +166,10 @@ svg { stroke-width: 1.8; }
   contain-intrinsic-block-size: auto 44px;
 }
 .turn-response + .message--user { margin-top: 48px; }
-.user-message-body { max-width: 77%; padding: 8px 12px; font-size: 14px; line-height: 22.75px; font-weight: 430; background: #f3f3f3; }
+.user-message-body { max-width: 77%; padding: 0; font-size: 14px; line-height: 22.75px; font-weight: 430; }
+.user-message-text { background: #f3f3f3; }
+.user-message-attachments { gap: 8px; margin-bottom: 8px; }
+.user-message-attachments > .image-thumbnail { width: 96px; flex-basis: 96px; border-radius: 10px; }
 .agent-message-body { font-size: 14px; line-height: 22.75px; font-weight: 430; }
 .markdown > * + * { margin-top: 11px; }
 .markdown p { font-weight: inherit; }
@@ -356,6 +361,7 @@ svg { stroke-width: 1.8; }
 .app-shell[data-layout="mobile"] .message-stream-inner > .message--user:first-child { margin-top: 0; }
 .app-shell[data-layout="mobile"] .agent-message-body, .app-shell[data-layout="mobile"] .user-message-body { font-size: 14px; line-height: 22.75px; }
 .app-shell[data-layout="mobile"] .user-message-body { max-width: 90%; }
+.app-shell[data-layout="mobile"] .user-message-attachments > .image-thumbnail { width: 84px; flex-basis: 84px; }
 .app-shell[data-layout="mobile"] .inspector { top: calc(46px + env(safe-area-inset-top)); }
 .app-shell[data-layout="mobile"] .sidebar-footer { padding-bottom: env(safe-area-inset-bottom); }
 @media (max-width: 420px) { .composer-setting .composer-effort { display: none; } }

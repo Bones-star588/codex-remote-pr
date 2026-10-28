@@ -17,6 +17,7 @@ import { PreviewLink } from './PreviewLinks';
 import type { useSubagentChats } from '../useSubagentChats';
 import { SubagentChatView } from './SubagentChatView';
 import { SubagentRows } from './Subagents';
+import { PanelBoundary } from './PanelBoundary';
 
 const FilePreview = lazy(() => import('./FilePreview'));
 
@@ -190,9 +191,11 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
         </div>)}
         {previews.map(preview => <div key={preview.id} hidden={tab !== preview.id} className="file-preview-tab"
           role="tabpanel" id={`file-${preview.id}`} aria-labelledby={`inspector-tab-${preview.id}`}>
-          <Suspense fallback={<div className="file-preview-loading" role="status" aria-label="正在加载预览"><div className="message-skeleton message-skeleton--long" /></div>}>
-            <FilePreview target={preview.target} />
-          </Suspense>
+          <PanelBoundary key={preview.id}>
+            <Suspense fallback={<div className="file-preview-loading" role="status" aria-label="正在加载预览"><div className="message-skeleton message-skeleton--long" /></div>}>
+              <FilePreview target={preview.target} active={open && tab === preview.id} />
+            </Suspense>
+          </PanelBoundary>
         </div>)}
         {subagentChats.chats.map(chat => <div key={chat.id} hidden={tab !== `agent-${chat.id}`} className="side-chat-tab"
           role="tabpanel" id={`subagent-agent-${chat.id}`} aria-labelledby={`inspector-tab-agent-${chat.id}`}>

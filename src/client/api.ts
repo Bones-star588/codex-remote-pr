@@ -1,30 +1,45 @@
-export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers ?? {})
-    },
-    credentials: 'same-origin'
-  });
+interface ApiOptions extends RequestInit { timeoutMs?: number }
 
-  const text = await response.text();
-  let body: unknown = null;
+export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  const { timeoutMs, signal, ...request } = options;
+  const controller = timeoutMs ? new AbortController() : null;
+  const abort = () => controller?.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
+  const timer = timeoutMs ? setTimeout(() => controller!.abort(
+    new DOMException('Connection timed out. Please retry.', 'TimeoutError')), timeoutMs) : undefined;
   try {
-    body = text ? JSON.parse(text) : null;
-  } catch {
-    body = text;
-  }
+    const response = await fetch(path, {
+      ...request,
+      ...((controller?.signal ?? signal) ? { signal: controller?.signal ?? signal! } : {}),
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers ?? {})
+      },
+      credentials: 'same-origin'
+    });
 
-  if (!response.ok) {
-    const message =
-      body && typeof body === 'object' && 'error' in body
-        ? String((body as { error: unknown }).error)
-        : `Request failed (${response.status})`;
-    throw new Error(message);
-  }
+    const text = await response.text();
+    let body: unknown = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = text;
+    }
 
-  return body as T;
+    if (!response.ok) {
+      const message =
+        body && typeof body === 'object' && 'error' in body
+          ? String((body as { error: unknown }).error)
+          : `Request failed (${response.status})`;
+      throw new Error(message);
+    }
+
+    return body as T;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+  }
 }
 
 export function isAbortedRequest(error: unknown): boolean {

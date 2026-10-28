@@ -12,7 +12,8 @@ Date: 2026-10-27.
   Leaving the top keeps the prepared page for a later upward scroll.
   Short initial pages do not automatically consume the full history.
 - Cancel abandoned downloads on selection, jumps and close. Speculative
-  failures remain silent; foreground retries remain available.
+  failures remain silent. A passive sentinel replaces the manual load button;
+  another upward gesture retries a failed foreground page without idle loops.
 - Retain visible message nodes, activity identities and disclosure state across
   partial-turn boundaries. Current turn timings override older page metadata.
 - Preserve the current visible reading anchor before paint, during pending
@@ -26,7 +27,7 @@ Date: 2026-10-27.
 
 ## Verification
 
-- 162 tests across 34 files pass; TypeScript and production build pass.
+- 171 tests across 36 files pass; TypeScript and production build pass.
 - Synthetic history acceptance covers 2560x1440, 1024x768, 402x874 at DPR 3,
   390x844, 320x568 and touch landscape 874x402.
 - Warm and cold paging, scrolling during a pending read, delayed images,

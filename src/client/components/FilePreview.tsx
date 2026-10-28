@@ -7,10 +7,11 @@ import { copyText } from '../clipboard';
 import { previewLabel } from '../preview-links';
 import { MarkdownText } from './ThreadTimeline';
 import { PreviewLinks } from './PreviewLinks';
+import { previewDocument } from '../preview-rendering';
 
 const PdfPreview = lazy(() => import('./PdfPreview'));
 
-export default function FilePreview({ target }: { target: PreviewTarget }) {
+export default function FilePreview({ target, active }: { target: PreviewTarget; active: boolean }) {
   const [file, setFile] = useState<PreviewFile | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -18,20 +19,32 @@ export default function FilePreview({ target }: { target: PreviewTarget }) {
   const [source, setSource] = useState(false);
   const [wrap, setWrap] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [html, setHtml] = useState<string | null>(null);
+  const [mediaLoading, setMediaLoading] = useState(true);
   const bodyRef = useRef<HTMLDivElement>(null);
   const path = target.kind === 'file' ? target.path : '';
   useEffect(() => {
+    if (!active) return;
     if (!path) { setLoading(false); return; }
     const controller = new AbortController();
-    setLoading(true); setError(''); setFile(null);
+    setLoading(true); setError(''); setFile(null); setHtml(null); setMediaLoading(true);
     void api<PreviewFile>(`/api/file-preview?${new URLSearchParams({ path })}`, {
-      cache: 'no-store', signal: controller.signal
-    }).then(result => { setFile(result); setLoading(false); })
+      cache: 'no-store', signal: controller.signal, timeoutMs: 15_000
+    }).then(async result => {
+      if (result.kind === 'html' && result.previewUrl) {
+        const url = new URL(result.previewUrl, window.location.href).href;
+        const content = await api<string>(url, { cache: 'no-store', signal: controller.signal, timeoutMs: 15_000 });
+        if (controller.signal.aborted) return;
+        setHtml(previewDocument(content, url));
+      }
+      if (controller.signal.aborted) return;
+      setFile(result); setLoading(false);
+    })
       .catch(reason => {
         if (!controller.signal.aborted) { setError(reason.message); setLoading(false); }
       });
     return () => controller.abort();
-  }, [path, revision, target]);
+  }, [active, path, revision, target]);
   useEffect(() => {
     if (target.kind !== 'file' || !target.line || !file) return;
     setSource(true);
@@ -72,7 +85,7 @@ export default function FilePreview({ target }: { target: PreviewTarget }) {
       </div>
     </div>
     {error && <div className="file-preview-error" role="alert">{error}</div>}
-    {loading ? <div className="file-preview-loading" role="status" aria-label="正在加载预览">
+    {!active ? null : loading ? <div className="file-preview-loading" role="status" aria-label="正在加载预览">
       <div className="message-skeleton message-skeleton--long" /><div className="message-skeleton message-skeleton--medium" />
     </div> : <div className={`file-preview-body${wrap ? ' file-preview--wrap' : ''}`} ref={bodyRef}>
       {target.kind === 'url' ? <iframe key={revision} title={previewLabel(target)} src={target.url}
@@ -82,12 +95,15 @@ export default function FilePreview({ target }: { target: PreviewTarget }) {
         : file?.kind === 'markdown' ? <PreviewLinks cwd={file.path.replace(/[\\/][^\\/]+$/, '')}>
           <div className="file-preview-markdown markdown"><MarkdownText text={text ?? ''} /></div>
         </PreviewLinks>
-        : file?.kind === 'html' ? <iframe key={revision} title={file.name} src={file.previewUrl}
+        : file?.kind === 'html' && html !== null ? <iframe key={revision} title={file.name} srcDoc={html}
           sandbox="allow-scripts" referrerPolicy="no-referrer" />
         : file?.kind === 'pdf' ? <Suspense fallback={<div className="file-preview-loading" role="status">正在加载 PDF</div>}>
           <PdfPreview url={file.contentUrl} name={file.name} />
         </Suspense>
-        : file?.kind === 'image' ? <div className="file-preview-image"><img src={file.contentUrl} alt={file.name} /></div>
+        : file?.kind === 'image' ? <div className="file-preview-image">
+          {mediaLoading && <span role="status">正在加载图片</span>}
+          <img src={file.contentUrl} alt={file.name} onLoad={() => setMediaLoading(false)}
+            onError={() => { setMediaLoading(false); setError('图片加载失败，请刷新预览'); }} /></div>
         : file?.kind === 'binary' ? <div className="inspector-empty"><Download size={24} />
           <a href={file.contentUrl} download={file.name}>下载 {file.name}</a></div> : null}
     </div>}

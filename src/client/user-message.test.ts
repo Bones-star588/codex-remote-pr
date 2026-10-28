@@ -76,5 +76,7 @@ describe('user message display', () => {
     expect(html).not.toContain('<strong');
     expect(html).toContain('<img');
     expect(html).toContain('/api/local-image?path=C%3A%2Fimages%2Fscreenshot.png');
+    expect(html.indexOf('image-thumbnail')).toBeLessThan(html.indexOf('Keep **my text**'));
+    expect(html).toContain('user-message-attachments');
   });
 });

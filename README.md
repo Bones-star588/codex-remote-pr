@@ -171,10 +171,25 @@ reject embedding; use the new-tab button when that happens.
 Website URLs use the browser's network. Host-only `localhost` development
 servers are not proxied to a remote phone by this feature.
 
-Previews load only when clicked. File contents stay outside the public static
-cache. Reading host files is a manual operator action, independent of the model's
+Only the active preview loads content; hiding it releases its document renderer.
+Local HTML is fetched before iframe rendering so request failures are visible,
+and reopening renews its resource grant. Preview metadata and HTML reads time out
+after 15 seconds; Refresh retries them. Failed preview modules show a reload
+control without removing the conversation. PDF backing canvases are capped at
+8 million pixels and 8192 pixels per dimension to bound high-DPR zoom memory.
+File contents stay outside the public static cache.
+Reading host files is a manual operator action, independent of the model's
 permission profile. Older-history insertion preserves the current visible item
 before paint and through subsequent layout changes.
+
+User image attachments appear as small thumbnails above the text bubble
+(96px on desktop, 84px on mobile); click one to open the original. Remote keeps
+local attachments it receives or reads in the host's private
+`data/image-attachments/` directory, so temporary-file cleanup does not remove
+those copies. This directory is private runtime data, excluded from Git and
+public caches. Copies remain until the operator removes them. Remote cannot
+recover an older image whose original was deleted before it was retained; the
+thumbnail shows an unavailable/retry control instead of a blank image.
 
 ![File preview beside the conversation](docs/images/file-preview.png)
 
@@ -466,15 +481,16 @@ Codex CLI detection checks Windows app packages, local standalone installations,
 
 ## Loading and Mobile Networks
 
-- The login shell loads separately from the workspace. Workspace code and bootstrap load concurrently. Bootstrap waits only for the first task page, for at most 1.5 seconds; unfinished models/projects load after connection. All subsequent task pages remain accessible and load progressively, yielding to typing and selection.
+- A lightweight authentication check opens the workspace before task and model metadata finish loading. The check times out after six seconds and retries after 1, 2, 4, then at most 8 seconds; an online event or visible-tab return can retry sooner. The reconnect control permits an immediate retry. Initial metadata is awaited for at most 1.5 seconds after socket readiness, then native socket reads provide a fallback. All subsequent task pages remain accessible and load progressively, yielding to typing and selection.
 - Opening a chat combines its native metadata and latest 40 history items in one request. Older history remains available in pages of up to 100 items. Switching back to one of the five recently opened chats shows its in-memory snapshot while refreshing from the desktop; snapshots disappear on logout or page reload.
-- Scrolling toward older messages prepares one page and its timing metadata in memory before reaching the top. Automatic insertion waits until the reader is within 64px of the top, the finger is released, and scrolling has been quiet for 160ms. A response arriving during a new gesture waits again; leaving the top retains the prepared page for a later upward scroll. Insertion preserves the visible message and expanded process details. Subagent viewers use the same mechanism. Speculative failures remain silent and can be retried when the page is needed. No conversation page is added to persistent browser or edge caches.
+- Scrolling toward older messages prepares one page and its timing metadata in memory before reaching the top. Older pages load automatically without a load-more button. Insertion waits until the reader is within 64px of the top, the finger is released, and scrolling has been quiet for 160ms. A response arriving during a new gesture waits again; leaving the top retains the prepared page for a later upward scroll. Insertion preserves the visible message and expanded process details. Subagent viewers use the same mechanism. Speculative failures remain silent; after a failed foreground read, another upward gesture retries without an idle retry loop. No conversation page is added to persistent browser or edge caches.
 - Switching chats, jumping to another history window or closing a chat aborts abandoned HTTP history downloads. Duplicate pending reads share one request. Permission reads follow the selected directory. Cancellation does not interrupt model turns or undo native operations already dispatched.
 - Bootstrap and WebSocket initialization share pending model/project lookups. Completed metadata is reused for five seconds to cover transit between the two connections; project creation and bridge disconnection invalidate the relevant entries. Conversations and model actions do not use this metadata cache.
 - HTTP responses and supported WebSocket messages use compression. Fingerprinted assets have immutable caching; authenticated bootstrap and history responses use `no-store`.
 - Native events update individual task rows; completion refreshes only the latest outline page. Full list/history calibration runs at most once every five minutes. Background pagination pauses in hidden tabs and yields on constrained connections. Streaming updates batch at 60ms, 100ms on constrained networks, and 250ms in hidden tabs. Markdown reuses completed blocks and unchanged responses retain their components. Conversation blocks use their actual layout heights; image thumbnails reserve a stable contain-fit area while originals remain available in the viewer.
 - Short WebSocket outages replay subscribed events from a host-memory journal bounded to 90 seconds and 2 MiB. Expired cursors or a host restart restore native snapshots. Replayed events are deduplicated, approvals use a fresh pending snapshot, and interrupted model requests are never automatically resubmitted.
 - The production service worker caches only the public application shell and static assets. API responses, chats, approvals, images, and terminal data are not stored in its cache. Offline shell availability does not make chats available offline. Install the site from a supporting HTTPS browser, or use Safari's Add to Home Screen.
+- For a fixed trusted device, sign in once in the browser or installed app you will use, then pin that entry to the home screen or taskbar. The HTTP-only session lasts 30 days by default (`SESSION_DAYS`); expiry, signing out, clearing site data, or resetting the server session secret requires signing in again. Keep the same HTTPS origin and browser profile. A home-screen installation may have separate browser storage.
 - The tunnel installers default to HTTP/2. Windows accepts `-TunnelProtocol auto|http2|quic` on `scripts/install-task-windows.ps1`; the macOS tunnel installer accepts `TUNNEL_PROTOCOL`. Compare protocols on the actual host before changing them; a slow route can still dominate dynamic requests.
 
 ### Optional Static Edge Hosting
@@ -540,7 +556,7 @@ npm test
 npm run build
 ```
 
-The suite has **162 tests across 34 test files**, including native timing, activity folding, gesture-aware history insertion, conversation navigation, side-chat event isolation and recovery, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
+The suite has **171 tests across 36 test files**, including native timing, activity folding, gesture-aware history insertion, bounded HTTP reads, preview canvas sizing, local attachment retention, conversation navigation, side-chat event isolation and recovery, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
 
 ```text
 src/client/       React workspace, composer, history, approvals, reconnect

@@ -42,14 +42,15 @@ import type { PreviewTarget } from '../shared/file-preview';
 interface WorkspaceProps {
   onAuthExpired: () => void;
   bootstrap: WorkspaceBootstrap | null;
+  bootstrapRequest?: Promise<WorkspaceBootstrap | null> | undefined;
 }
 
 type LayoutMode = 'desktop' | 'mobile';
 
 const TerminalPanel = lazy(() => import('./components/TerminalPanel'));
 
-export function Workspace({ onAuthExpired, bootstrap }: WorkspaceProps) {
-  const remote = useRemote({ authenticated: true, onAuthExpired, bootstrap });
+export function Workspace({ onAuthExpired, bootstrap, bootstrapRequest }: WorkspaceProps) {
+  const remote = useRemote({ authenticated: true, onAuthExpired, bootstrap, bootstrapRequest });
   const layout = useResponsiveLayout();
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);

@@ -1,8 +1,9 @@
-import { CheckCircle2, LoaderCircle, ShieldCheck } from 'lucide-react';
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
+import { CheckCircle2, LoaderCircle, RefreshCw, ShieldCheck } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { api } from './api';
 import type { WorkspaceBootstrap } from './types';
+import { PanelBoundary } from './components/PanelBoundary';
 
 const loadWorkspace = () => import('./Workspace').then((module) => ({ default: module.Workspace }));
 const Workspace = lazy(loadWorkspace);
@@ -13,27 +14,58 @@ interface AuthState {
   setupAllowed: boolean;
   authFile?: string;
   workspace: WorkspaceBootstrap | null;
+  bootstrapRequest?: Promise<WorkspaceBootstrap | null>;
 }
 
 export function App() {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const refreshAuth = async () => {
-    void loadWorkspace().catch(() => undefined);
-    try {
-      setAuth(await api<AuthState>('/api/bootstrap', { cache: 'no-store' }));
-      setError(null);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-    }
-  };
-
+  const [revision, setRevision] = useState(0);
+  const refreshAuth = useCallback(() => setRevision(value => value + 1), []);
   useEffect(() => {
-    void refreshAuth();
-  }, []);
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let failures = 0;
+    let pending = false;
+    let verified = false;
+    void loadWorkspace().catch(() => undefined);
+    const check = async () => {
+      if (pending || controller.signal.aborted) return;
+      clearTimeout(timer);
+      pending = true;
+      try {
+        const state = await api<AuthState>('/api/auth/status', {
+          cache: 'no-store', signal: controller.signal, timeoutMs: 6000
+        });
+        if (controller.signal.aborted) return;
+        verified = true;
+        const bootstrapRequest = state.authenticated ? api<AuthState>('/api/bootstrap', {
+          cache: 'no-store', signal: controller.signal, timeoutMs: 6000
+        }).then(result => result.workspace).catch(() => null) : undefined;
+        setAuth({ ...state, workspace: null, ...(bootstrapRequest ? { bootstrapRequest } : {}) });
+        setError(null);
+      } catch {
+        if (controller.signal.aborted) return;
+        setError(navigator.onLine ? '连接暂不可用，正在重试' : '网络已断开，等待恢复');
+        timer = setTimeout(() => { void check(); }, Math.min(1000 * 2 ** failures++, 8000));
+      } finally { pending = false; }
+    };
+    const recover = () => {
+      if (!verified && document.visibilityState === 'visible') void check();
+    };
+    void check();
+    window.addEventListener('online', recover);
+    document.addEventListener('visibilitychange', recover);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+      window.removeEventListener('online', recover);
+      document.removeEventListener('visibilitychange', recover);
+    };
+  }, [revision]);
 
-  if (!auth) return <FullScreenLoader label={error ?? '正在检查登录状态'} />;
+  if (!auth) return <FullScreenLoader label={error ?? '正在检查登录状态'}
+    {...(error ? { onRetry: refreshAuth } : {})} />;
 
   if (!auth.configured) {
     return <SetupPage setupAllowed={auth.setupAllowed} onDone={refreshAuth} />;
@@ -43,9 +75,9 @@ export function App() {
     return <LoginPage onDone={refreshAuth} />;
   }
 
-  return <Suspense fallback={<FullScreenLoader label="正在打开工作区" />}>
-    <Workspace onAuthExpired={refreshAuth} bootstrap={auth.workspace} />
-  </Suspense>;
+  return <PanelBoundary><Suspense fallback={<FullScreenLoader label="正在打开工作区" />}>
+    <Workspace onAuthExpired={refreshAuth} bootstrap={auth.workspace} bootstrapRequest={auth.bootstrapRequest} />
+  </Suspense></PanelBoundary>;
 }
 
 function SetupPage({ setupAllowed, onDone }: { setupAllowed: boolean; onDone: () => void }) {
@@ -193,11 +225,14 @@ function AuthShell({
   );
 }
 
-function FullScreenLoader({ label }: { label: string }) {
+function FullScreenLoader({ label, onRetry }: { label: string; onRetry?: () => void }) {
   return (
     <div className="fullscreen-loader" role="status">
       <LoaderCircle size={20} className="spin" aria-hidden="true" />
       <span>{label}</span>
+      {onRetry && <button type="button" className="icon-button" title="重新连接" aria-label="重新连接" onClick={onRetry}>
+        <RefreshCw size={18} />
+      </button>}
     </div>
   );
 }

@@ -33,6 +33,7 @@ import { EphemeralChats } from './ephemeral-chats.js';
 import { QueueDispatcher } from './queue-dispatcher.js';
 import { EventJournal } from './event-journal.js';
 import { filePreviewRouter } from './file-preview.js';
+import { LocalImages, imageExtensions } from './local-images.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -50,6 +51,7 @@ const wss = new WebSocketServer({
 const clients = new Set<WebSocket>();
 const synchronizedClients = new Set<WebSocket>();
 const eventJournal = new EventJournal();
+const localImages = new LocalImages(path.join(config.dataDir, 'image-attachments'));
 const metadataReader = new MetadataReader((method, params) => codexBridge.request(method, params));
 const watchedThreads = new Map<WebSocket, Set<string>>();
 const ephemeralChats = new EphemeralChats<WebSocket>(threadId => codexBridge.request('thread/unsubscribe', { threadId }));
@@ -273,6 +275,7 @@ app.get(
     const mode = req.query.mode === 'new' || req.query.mode === 'read' ? req.query.mode : 'resume';
     res.setHeader('Cache-Control', 'no-store');
     const result = await readOpenThread((method, params) => codexBridge.request(method, params), threadId, mode);
+    for (const entry of result.items) void localImages.remember(entry.item).catch(reportImageFailure);
     if (!res.destroyed) res.json(result);
   })
 );
@@ -292,9 +295,11 @@ app.get(
       typeof req.query.limit === 'string' ? Number.parseInt(req.query.limit, 10) : 200;
     const limit = Number.isFinite(limitValue) ? Math.min(400, Math.max(1, limitValue)) : 200;
     res.setHeader('Cache-Control', 'no-store');
-    res.json(await readThreadHistoryPage(
+    const result = await readThreadHistoryPage(
       (method, params) => codexBridge.request(method, params), threadId, cursor, limit, direction
-    ));
+    );
+    for (const entry of result.items) void localImages.remember(entry.item).catch(reportImageFailure);
+    res.json(result);
   })
 );
 
@@ -351,6 +356,7 @@ app.get(
   '/api/local-image',
   requireAuth,
   asyncRoute(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     const requestedPath = typeof req.query.path === 'string' ? req.query.path.trim() : '';
     if (!requestedPath) {
       res.status(400).json({ error: 'path is required.' });
@@ -358,17 +364,16 @@ app.get(
     }
     const imagePath = path.resolve(requestedPath);
     const extension = path.extname(imagePath).toLowerCase();
-    if (!['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif'].includes(extension)) {
+    if (!imageExtensions.has(extension)) {
       res.status(415).json({ error: 'Only local image files are supported.' });
       return;
     }
-    const stats = await fs.promises.stat(imagePath).catch(() => null);
-    if (!stats?.isFile()) {
+    const retained = await localImages.resolve(imagePath);
+    if (!retained) {
       res.status(404).json({ error: 'Local image was not found.' });
       return;
     }
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-    res.sendFile(imagePath);
+    res.sendFile(retained);
   })
 );
 
@@ -528,10 +533,20 @@ function send(socket: WebSocket, message: ServerMessage): void {
 }
 
 codexBridge.on('event', ({ method, params }) => {
+  if (method === 'item/started' || method === 'item/completed') {
+    void localImages.remember(params?.item).catch(reportImageFailure);
+  }
+  if (method === 'turn/completed') {
+    for (const item of params?.turn?.items ?? []) void localImages.remember(item).catch(reportImageFailure);
+  }
   ephemeralChats.record(method, params ?? {});
   broadcast({ type: 'event', method, params });
   if (method === 'turn/completed' && params?.threadId) void queueDispatcher.drain(params.threadId);
 });
+
+function reportImageFailure(): void {
+  console.warn('Could not retain a local image attachment.');
+}
 codexBridge.on('server-request', ({ requestId, method, params }) => {
   broadcast({ type: 'server.request', requestId, method, params });
 });

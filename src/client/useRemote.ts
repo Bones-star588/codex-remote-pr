@@ -44,6 +44,7 @@ interface UseRemoteOptions {
   authenticated: boolean;
   onAuthExpired?: () => void;
   bootstrap: WorkspaceBootstrap | null;
+  bootstrapRequest?: Promise<WorkspaceBootstrap | null> | undefined;
 }
 
 export interface ThreadSettingsPatch {
@@ -62,7 +63,7 @@ export interface CreateThreadOptions {
   collaborationMode?: CollaborationMode;
 }
 
-export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemoteOptions) {
+export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRequest }: UseRemoteOptions) {
   const [connected, setConnected] = useState(false);
   const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus>({ status: 'offline' });
   const [threads, setThreads] = useState<Thread[]>(() => dedupeThreads(bootstrap?.threads?.data ?? []));
@@ -117,6 +118,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
   const disposedRef = useRef(false);
   const authExpiredRef = useRef(onAuthExpired);
   const initialBootstrapRef = useRef(bootstrap);
+  const initialBootstrapRequestRef = useRef(bootstrapRequest);
+  const initializedRef = useRef(false);
   const historyCacheRef = useRef(new Map<string, ThreadHistoryPage>());
   const lastRecoveryRef = useRef(0);
   const additionalThreadsRef = useRef<string[]>([]);
@@ -939,14 +942,30 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap }: UseRemote
         watchThread(activeThreadRef.current);
         const initial = initialBootstrapRef.current;
         initialBootstrapRef.current = null;
-        if (message.resumed && !initial) return;
-        void Promise.allSettled([
-          refreshThreads(initial?.threads ?? undefined),
-          initial?.models ? Promise.resolve() : rpc<{ data: ModelInfo[] }>('model/list', { limit: 100, includeHidden: false }).then((result) =>
-            setModels(result.data ?? [])
-          ),
-          initial?.projects ? Promise.resolve() : refreshProjects()
-        ]);
+        const pendingBootstrap = initialBootstrapRequestRef.current;
+        initialBootstrapRequestRef.current = undefined;
+        if (message.resumed && initializedRef.current) return;
+        const socket = socketRef.current;
+        void (async () => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const snapshot = initial ?? (pendingBootstrap ? await Promise.race([
+            pendingBootstrap,
+            new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 1500); })
+          ]).finally(() => clearTimeout(timer)) : null);
+          if (disposedRef.current || socketRef.current !== socket) return;
+          if (snapshot?.models) setModels(snapshot.models.data ?? []);
+          if (snapshot?.projects) setProjects(snapshot.projects.data ?? []);
+          const results = await Promise.allSettled([
+            refreshThreads(snapshot?.threads ?? undefined),
+            snapshot?.models ? Promise.resolve() : rpc<{ data: ModelInfo[] }>('model/list', { limit: 100, includeHidden: false }).then((result) =>
+              setModels(result.data ?? [])
+            ),
+            snapshot?.projects ? Promise.resolve() : refreshProjects()
+          ]);
+          if (socketRef.current === socket && results.every(result => result.status === 'fulfilled')) {
+            initializedRef.current = true;
+          }
+        })();
         const threadId = activeThreadRef.current;
         if (threadId && !initial) void openThread(threadId, { silent: true, preserveHistory: true }).catch(() => undefined);
         outlineRefreshRef.current?.();

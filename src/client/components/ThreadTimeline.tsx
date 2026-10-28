@@ -174,10 +174,10 @@ export function ThreadTimeline({
       rememberReadingPosition();
     });
   }, [rememberReadingPosition, viewingHistory]);
-  const loadEarlier = useCallback((manual = false) => {
+  const loadEarlier = useCallback(() => {
     if (!navigator.onLine || !hasMoreHistory || loadingEarlierRef.current || navigatingRef.current || navigationAnchorRef.current || revealingHistory) return;
     const attempt = JSON.stringify([threadId, items[0] ? itemKey(items[0]) : '', items.length]);
-    if (!manual && earlierAttemptRef.current === attempt) return;
+    if (earlierAttemptRef.current === attempt) return;
     earlierAttemptRef.current = attempt;
     stickToBottomRef.current = false;
     setAwayFromBottom(true);
@@ -186,7 +186,7 @@ export function ThreadTimeline({
     void onLoadEarlier(async () => {
       if (!mountedRef.current || !await scrollActivityRef.current!.waitForIdle()) return false;
       if (!mountedRef.current || navigatingRef.current || navigationAnchorRef.current) return false;
-      if (!manual && (!wantsEarlierRef.current || (streamRef.current?.scrollTop ?? Infinity) > 64)) {
+      if (!wantsEarlierRef.current || (streamRef.current?.scrollTop ?? Infinity) > 64) {
         earlierAttemptRef.current = null;
         return false;
       }
@@ -272,6 +272,7 @@ export function ThreadTimeline({
       const stream = streamRef.current;
       if (!loading && !loadingHistory && stream && !navigationAnchorRef.current) {
         if (stream.scrollTop < stream.clientHeight * 2) prefetchEarlier();
+        if (wantsEarlierRef.current && stream.scrollTop <= 64) scrollActivityRef.current!.activity();
       }
     });
     return () => window.cancelAnimationFrame(frame);
@@ -309,6 +310,7 @@ export function ThreadTimeline({
       onWheel={event => {
         navigationAnchorRef.current = null;
         wantsEarlierRef.current = event.deltaY < 0;
+        if (event.deltaY < 0 && !loadingEarlierRef.current) earlierAttemptRef.current = null;
         scrollActivityRef.current!.activity();
       }}
       onTouchStart={event => {
@@ -322,6 +324,7 @@ export function ThreadTimeline({
         const y = event.touches[0]?.clientY ?? null;
         if (y !== null && touchYRef.current !== null && Math.abs(y - touchYRef.current) > 2) {
           wantsEarlierRef.current = y > touchYRef.current;
+          if (wantsEarlierRef.current && !loadingEarlierRef.current) earlierAttemptRef.current = null;
         }
         touchYRef.current = y;
       }}
@@ -332,6 +335,7 @@ export function ThreadTimeline({
         navigationAnchorRef.current = null;
         if (['Home', 'PageUp', 'ArrowUp', 'End', 'PageDown', 'ArrowDown'].includes(event.key)) {
           wantsEarlierRef.current = ['Home', 'PageUp', 'ArrowUp'].includes(event.key);
+          if (wantsEarlierRef.current && !loadingEarlierRef.current) earlierAttemptRef.current = null;
           scrollActivityRef.current!.activity();
         }
       }}
@@ -350,7 +354,10 @@ export function ThreadTimeline({
         const delta = stream.scrollTop - previousScrollTopRef.current;
         previousScrollTopRef.current = stream.scrollTop;
         if (restored !== null && Math.abs(stream.scrollTop - restored) < 1) return;
-        if (Math.abs(delta) > .5) wantsEarlierRef.current = delta < 0;
+        if (Math.abs(delta) > .5) {
+          wantsEarlierRef.current = delta < 0;
+          if (wantsEarlierRef.current && !loadingEarlierRef.current) earlierAttemptRef.current = null;
+        }
         scrollActivityRef.current!.activity();
         stickToBottomRef.current =
           !loadingEarlierRef.current && !viewingHistory && !wantsEarlierRef.current &&
@@ -362,10 +369,9 @@ export function ThreadTimeline({
     >
       <div className="message-stream-inner" ref={innerRef}>
       {hasMoreHistory && (
-        <button type="button" className="history-trim" disabled={loadingHistory}
-          onClick={() => { navigationAnchorRef.current = null; loadEarlier(true); }}>
-          {loadingHistory ? '正在加载' : '显示更早记录'}
-        </button>
+        <div className="history-sentinel" data-history-sentinel aria-busy={loadingHistory}>
+          {loadingHistory && <LoaderCircle size={15} className="spin" role="status" aria-label="正在加载更早记录" />}
+        </div>
       )}
       {sections.map((section) => section.user
         ? <MessageItem item={(section.entries[0] as Extract<TimelineEntry, { type: 'message' }>).item} key={section.key} />
@@ -535,15 +541,18 @@ const MessageItem = memo(function MessageItem({ item }: { item: ThreadItem }) {
   if (item.type === 'userMessage') {
     const text = (item.content ?? []).filter((entry) => entry.type === 'text')
       .map((entry) => userMessageText(entry.text ?? '')).filter(Boolean).join('\n\n');
+    const images = (item.content ?? []).filter((entry) => entry.type === 'image' || entry.type === 'localImage');
     const long = text.length > 900;
     return (
       <article className="message message--user" data-user-key={itemKey(item)} data-turn-id={item.turnId}
         data-scroll-anchor={itemKey(item)}>
         <div className="user-message-body">
+          {images.length > 0 && <div className="user-message-attachments" aria-label={`${images.length} 个图片附件`}>
+            {images.map((entry, index) => (
+              <ImagePreview key={index} src={localImageSource(entry.path ?? entry.url)} alt={`图片附件 ${index + 1}`} />
+            ))}
+          </div>}
           {text && <div className="user-message-text">{long && !expanded ? `${text.slice(0, 800)}...` : text}</div>}
-          {(item.content ?? []).filter((entry) => entry.type === 'image' || entry.type === 'localImage').map((entry, index) => (
-            <ImagePreview key={index} src={localImageSource(entry.path ?? entry.url)} alt="附件" />
-          ))}
           {long && (
             <button type="button" className="message-expand" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
               {expanded ? '收起消息' : '展开消息'}

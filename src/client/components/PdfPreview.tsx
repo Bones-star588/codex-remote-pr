@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { copyText } from '../clipboard';
+import { previewPixelRatio } from '../preview-rendering';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -17,9 +18,13 @@ export default function PdfPreview({ url, name }: { url: string; name: string })
   const viewportRef = useRef<HTMLDivElement>(null);
   const textRef = useRef('');
   useEffect(() => {
+    let cancelled = false;
+    setDocument(null); setPage(1); setError(''); setBusy(true); textRef.current = '';
     const task = getDocument({ url, withCredentials: true, useSystemFonts: true });
-    void task.promise.then(setDocument).catch(reason => setError(reason.message));
-    return () => { void task.destroy(); };
+    void task.promise.then(result => { if (!cancelled) setDocument(result); }).catch(reason => {
+      if (!cancelled) { setError(reason.message); setBusy(false); }
+    });
+    return () => { cancelled = true; void task.destroy(); };
   }, [url]);
   useEffect(() => {
     const node = viewportRef.current;
@@ -40,7 +45,7 @@ export default function PdfPreview({ url, name }: { url: string; name: string })
       const scale = zoom === 'fit' ? Math.max(.1, (width - 24) / natural.width) : Number(zoom);
       const viewport = pdfPage.getViewport({ scale });
       const canvas = canvasRef.current;
-      const ratio = window.devicePixelRatio || 1;
+      const ratio = previewPixelRatio(viewport.width, viewport.height, window.devicePixelRatio);
       canvas.width = Math.ceil(viewport.width * ratio);
       canvas.height = Math.ceil(viewport.height * ratio);
       canvas.style.width = `${viewport.width}px`;
@@ -72,7 +77,8 @@ export default function PdfPreview({ url, name }: { url: string; name: string })
     </div>
     {error && <div role="alert" className="file-preview-error">{error}</div>}
     <div className="pdf-viewport" ref={viewportRef} aria-busy={busy}>
-      <canvas ref={canvasRef} role="img" aria-label={`${name} · ${page}`} data-rendered={!busy} />
+      {busy && <div className="pdf-loading" role="status">正在加载 PDF</div>}
+      <canvas ref={canvasRef} role="img" aria-label={`${name} · ${page}`} data-rendered={!busy && !error} />
     </div>
   </div>;
 }
