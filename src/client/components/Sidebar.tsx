@@ -183,6 +183,10 @@ export function Sidebar({
               setAccountOpen(false); setNotificationsOpen(true);
             }}><Bell size={15} /><span>消息通知</span></button>
             <button type="button" role="menuitem" onClick={onLogout}><LogOut size={15} /><span>退出登录</span></button>
+            <div className="account-menu-separator" />
+            <div className="account-menu-version">
+              <span>版本</span><span>{import.meta.env.VITE_APP_VERSION}</span>
+            </div>
           </div>
         )}
         <button type="button" className="account-button" aria-label="设置" aria-haspopup="menu"

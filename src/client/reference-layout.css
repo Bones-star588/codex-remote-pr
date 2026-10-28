@@ -81,6 +81,8 @@ svg { stroke-width: 1.8; }
 .account-menu button:hover { background: var(--surface-hover); color: var(--ink); }
 .account-menu-status { display: flex; min-height: 28px; align-items: center; gap: 8px; padding: 0 8px; color: var(--muted); font-size: 11px; }
 .account-menu-separator { height: 1px; margin: 5px 0; background: var(--line); }
+.account-menu-version { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; padding: 4px 8px; color: var(--muted); font-size: 11px; line-height: 18px; user-select: text; }
+.account-menu-version > span:last-child { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 
 .project-dialog { width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 64px); overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); padding: 8px; color: var(--ink); }
 .project-dialog::backdrop { background: rgb(0 0 0 / .2); }
