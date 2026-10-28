@@ -22,7 +22,6 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
   private heartbeatTimer: number | undefined;
   private pongTimer: number | undefined;
   private pingSentAtMs: number | undefined;
-  private connectingSince = 0;
   private http = false;
   private suspended = false;
   private synchronized = false;
@@ -73,21 +72,16 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
       ? new HttpChannel(this.options.httpFallback) : new WebSocket(this.options.url);
     this.socket = socket;
     this.synchronized = false;
-    this.connectingSince = Date.now();
+    this.suspended = document.visibilityState !== 'visible';
     this.options.onSocket(socket);
-    this.connectTimer = window.setTimeout(() => {
-      if (document.visibilityState !== 'visible') return;
-      this.disconnect(socket, 'Remote connection timed out. Reconnecting...');
-    }, this.http ? 12_000 : this.options.httpFallback ? 3000 : 6000);
+    this.armHandshake(socket);
 
     socket.addEventListener('open', () => {
       if (this.socket !== socket || this.stopped) return;
       window.clearTimeout(this.connectTimer);
+      this.connectTimer = undefined;
       if (this.options.readyType) {
-        this.connectTimer = window.setTimeout(() => {
-          if (document.visibilityState !== 'visible') return;
-          this.disconnect(socket, 'Remote synchronization timed out. Reconnecting...');
-        }, this.http ? 12_000 : 6000);
+        this.armHandshake(socket);
       } else { this.failures = 0; this.synchronized = true; }
       this.options.onOpen();
       this.ping();
@@ -102,6 +96,7 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
       }
       if (message.type === this.options.readyType) {
         window.clearTimeout(this.connectTimer);
+        this.connectTimer = undefined;
         this.failures = 0;
         this.synchronized = true;
         if (this.http) {
@@ -130,8 +125,24 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
     });
   };
 
+  private armHandshake(socket: RemoteChannel): void {
+    window.clearTimeout(this.connectTimer);
+    this.connectTimer = undefined;
+    if (document.visibilityState !== 'visible') return;
+    const connecting = socket.readyState === WebSocket.CONNECTING;
+    const timeout = this.http ? 12_000 : connecting && this.options.httpFallback ? 3000 : 6000;
+    this.connectTimer = window.setTimeout(() => {
+      this.connectTimer = undefined;
+      if (document.visibilityState !== 'visible') { this.suspended = true; return; }
+      this.disconnect(socket, connecting
+        ? 'Remote connection timed out. Reconnecting...'
+        : 'Remote synchronization timed out. Reconnecting...');
+    }, timeout);
+  }
+
   private clearSocketTimers(): void {
     window.clearTimeout(this.connectTimer);
+    this.connectTimer = undefined;
     this.clearHeartbeat();
   }
 
@@ -186,7 +197,8 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
   };
 
   private online = (): void => {
-    this.reconnect();
+    this.failures = 0;
+    this.recover();
   };
 
   private offline = (): void => {
@@ -194,30 +206,21 @@ export class RemoteConnection<Message extends { type: string } = ServerMessage> 
     if (this.socket) this.disconnect(this.socket, 'Network is offline.');
   };
 
-  private recover = (): void => {
+  private recover = (event?: Event): void => {
     if (document.visibilityState !== 'visible') {
       this.suspended = true;
+      window.clearTimeout(this.connectTimer);
+      this.connectTimer = undefined;
       this.clearHeartbeat();
       return;
     }
-    if (this.suspended) {
-      this.suspended = false;
-      this.clearHeartbeat();
-    }
+    const resumed = this.suspended || event?.type === 'pageshow' && (event as PageTransitionEvent).persisted;
+    this.suspended = false;
+    if (resumed) this.clearHeartbeat();
     if (!this.socket) this.connect();
-    else if (this.socket.readyState === WebSocket.CONNECTING && Date.now() - this.connectingSince >= 2000) {
-      this.disconnect(this.socket, 'Remote connection timed out. Reconnecting...');
-      this.connect();
-    }
     else {
-      if (!this.synchronized) {
-        window.clearTimeout(this.connectTimer);
-        this.connectTimer = window.setTimeout(() => {
-          if (this.socket && document.visibilityState === 'visible') {
-            this.disconnect(this.socket, 'Remote synchronization timed out. Reconnecting...');
-          }
-        }, 6000);
-      }
+      // Focus/pageshow during normal use must not shorten or extend a handshake.
+      if (resumed && !this.synchronized) this.armHandshake(this.socket);
       this.ping();
     }
   };

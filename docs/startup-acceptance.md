@@ -312,3 +312,58 @@ The terminal still uses a separate WebSocket and has no HTTP fallback. Remote,
 its native Desktop connection and the public origin must remain available for
 notifications. Physical iPhone/iPad delivery, mobile suspension and real
 5G/Wi-Fi reliability remain separate acceptance. No DNS/proxy settings changed.
+
+## Lifecycle Adversarial Follow-Up
+
+Date: 2026-10-28. The preceding short online/offline probes did not cover slow
+handshakes combined with focus events, or failed initial conversation reads.
+They did not establish that the reported frequent disconnects were resolved.
+
+Three independent reviews covered transport lifecycle, client loading and the
+server/native bridge. Confirmed defects:
+
+- Focus/pageshow cut an unfinished connection after two seconds, including
+  HTTP connections with a 12-second budget. Focus could also shorten HTTP
+  synchronization to six seconds or repeatedly postpone a stuck handshake.
+- Redundant online events destroyed healthy connections. Ordinary focus and
+  initial synchronization could cancel valid pending task reads.
+- Bootstrap could finish its task page before model/project metadata. Missing
+  catalogs then waited for realtime synchronization, even if native results
+  were already available.
+- Initial chat/timing reads and existing-thread subscription rejoin had no
+  bounded automatic recovery. Replay synchronization could skip an incomplete
+  conversation, leaving a blank stream or disabled composer.
+
+Ordinary focus/pageshow now preserves handshake deadlines, and redundant online
+events probe rather than replace healthy channels. Hidden pages pause unfinished
+handshakes; actual foreground return starts the current stage's full budget.
+Only real offline/hidden transitions replace a stalled initial task request.
+
+Missing catalogs use independent authenticated, no-store HTTP reads through the
+existing native metadata reader. Initial chat/timing and catalog GETs have at
+most three attempts, with 0.5/1-second waits; cancellation and permanent client
+errors do not retry. Existing-thread subscription rejoin is the only retried
+native RPC, with the same bounded attempts and selection/connection guards.
+Prompts and model actions are never automatically repeated.
+
+The prior production build failed all four primary fault-injection cases in
+Chromium. The new production build passed these and five additional cases in
+both Chromium and Windows WebKit at 402x874 CSS pixels / DPR 3:
+
+| Scenario | Chromium | Windows WebKit |
+| --- | --- | --- |
+| HTTP open delayed 3.5s; focus/pageshow at 2.6s | One peer; no restart | One peer; no restart |
+| HTTP sync delayed 11s; focus at 4s | Sync succeeded | Sync succeeded |
+| Missing catalogs; first GETs fail; realtime stalled | Projects at 1.10s | Projects at 1.31s |
+| First chat and timing GETs fail | Ready at 2.13s | Ready at 2.36s |
+| Task read delayed 3.5s; focus at 2.5s | No cancellation | No cancellation |
+| Catalog attempts exhausted; focus retries | Recovered, old error cleared | Recovered, old error cleared |
+| Switch chats during retry | Abandoned reads stop | Abandoned reads stop |
+| Short replay reconnect | Same message DOM; no new open | Same message DOM; no new open |
+| First native subscription resume fails | Ready at 2.16s | Ready at 2.47s |
+
+No model actions or page exceptions occurred. Local validation passed 262 tests
+in 46 files, type checking and the production build. The synthetic origin
+never connects to Desktop or private data. These results demonstrate recovery
+under the injected conditions, not physical iPhone or mobile-network acceptance.
+No DNS/proxy setting or unrelated UI behavior changed.

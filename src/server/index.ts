@@ -37,6 +37,7 @@ import { LocalImages, imageExtensions } from './local-images.js';
 import { PushNotifications } from './push-notifications.js';
 import { isTaskThread } from '../shared/thread-source.js';
 import { httpConnections, type RemotePeer } from './http-connections.js';
+import { metadataRouter } from './metadata-router.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -261,6 +262,8 @@ app.get('/api/threads', requireAuth, asyncRoute(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json(await workspaceSnapshots.list(cursor, req.query.archived === 'true', req.query.fresh === '1'));
 }));
+
+app.use('/api/metadata', metadataRouter(requireAuth, metadataReader.read));
 
 app.use('/api/notifications', requireAuth, (req, _res, next) => {
   assertTrustedOrigin(req);

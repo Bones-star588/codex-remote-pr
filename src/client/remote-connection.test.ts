@@ -97,7 +97,7 @@ describe('Remote connection recovery', () => {
     expect(hostNow()).toBe(200_200);
     vi.advanceTimersByTime(1000);
     expect(hostNow()).toBe(201_200);
-    browser.dispatchEvent(new Event('online'));
+    connection.reconnect();
     const second = FakeSocket.instances[1]!;
     second.open();
     vi.advanceTimersByTime(100);
@@ -148,7 +148,7 @@ describe('Remote connection recovery', () => {
     const second = FakeSocket.instances[1]!;
     second.open();
     browser.dispatchEvent(new Event('online'));
-    expect(FakeSocket.instances).toHaveLength(3);
+    expect(FakeSocket.instances).toHaveLength(2);
   });
 
   it('reconnects on errors and never retries or delivers events after disposal', () => {
@@ -219,16 +219,100 @@ describe('Remote connection recovery', () => {
     expect(FakeSocket.instances.slice(0, -1).every(socket => socket.sent.length === 0)).toBe(true);
   });
 
-  it('replaces an overdue connecting socket immediately on foreground return', () => {
+  it('gives an unfinished handshake a fresh full deadline after a real background suspension', () => {
     const first = FakeSocket.instances[0]!;
     documentTarget.visibilityState = 'hidden';
-    vi.setSystemTime(Date.now() + 2000);
+    documentTarget.dispatchEvent(new Event('visibilitychange'));
+    vi.advanceTimersByTime(20_000);
     documentTarget.visibilityState = 'visible';
     documentTarget.dispatchEvent(new Event('visibilitychange'));
-    expect(first.readyState).toBe(3);
-    expect(FakeSocket.instances).toHaveLength(2);
-    vi.advanceTimersByTime(250);
-    expect(FakeSocket.instances).toHaveLength(2);
+    expect(first.readyState).toBe(0);
+    expect(FakeSocket.instances).toHaveLength(1);
+    vi.advanceTimersByTime(5999);
+    expect(onDisconnect).not.toHaveBeenCalled();
+    first.open();
+    expect(current).toBe(first);
+  });
+
+  it('does not cut a still-connecting HTTP channel to two seconds on focus or pageshow', async () => {
+    connection.dispose();
+    vi.stubGlobal('sessionStorage', { getItem: () => '1', setItem: vi.fn() });
+    connection = new RemoteConnection({
+      url: 'wss://remote.test/ws', httpFallback: '/api/connection', readyType: 'sync.ready',
+      onSocket: socket => { current = socket; }, onOpen, onMessage, onDisconnect
+    });
+    connection.start();
+    const stream = FakeEventSource.instances[0]!;
+    await vi.advanceTimersByTimeAsync(2500);
+    browser.dispatchEvent(new Event('focus'));
+    browser.dispatchEvent(new Event('pageshow'));
+    expect(stream.close).not.toHaveBeenCalled();
+    expect(onDisconnect).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1500);
+    stream.open();
+    stream.message({ type: 'pong' });
+    await vi.advanceTimersByTimeAsync(7000);
+    stream.message({ type: 'sync.ready', epoch: 'test', sequence: 0, resumed: false });
+    expect(onDisconnect).not.toHaveBeenCalled();
+    expect(FakeEventSource.instances).toHaveLength(1);
+  });
+
+  it('keeps the original transport deadline when an early focus event occurs', () => {
+    vi.advanceTimersByTime(1500);
+    browser.dispatchEvent(new Event('focus'));
+    vi.advanceTimersByTime(4499);
+    expect(onDisconnect).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onDisconnect).toHaveBeenCalledOnce();
+    expect(onDisconnect.mock.calls[0]![0].message).toContain('connection timed out');
+  });
+
+  it('keeps the HTTP synchronization budget at twelve seconds after ordinary focus', async () => {
+    connection.dispose();
+    vi.stubGlobal('sessionStorage', { getItem: () => '1', setItem: vi.fn() });
+    connection = new RemoteConnection({
+      url: 'wss://remote.test/ws', httpFallback: '/api/connection', readyType: 'sync.ready',
+      onSocket: socket => { current = socket; }, onOpen, onMessage, onDisconnect
+    });
+    connection.start();
+    const stream = FakeEventSource.instances[0]!;
+    stream.open();
+    stream.message({ type: 'pong' });
+    await vi.advanceTimersByTimeAsync(4000);
+    browser.dispatchEvent(new Event('focus'));
+    await vi.advanceTimersByTimeAsync(7000);
+    expect(onDisconnect).not.toHaveBeenCalled();
+    stream.message({ type: 'sync.ready', epoch: 'test', sequence: 0, resumed: false });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(onDisconnect).not.toHaveBeenCalled();
+  });
+
+  it('does not postpone synchronization indefinitely on repeated focus events', () => {
+    connection.dispose();
+    connection = new RemoteConnection({
+      url: 'wss://remote.test/ws', readyType: 'sync.ready',
+      onSocket: socket => { current = socket; }, onOpen, onMessage, onDisconnect
+    });
+    connection.start();
+    FakeSocket.instances.at(-1)!.open();
+    FakeSocket.instances.at(-1)!.message({ type: 'pong' });
+    for (let second = 0; second < 5; second++) {
+      vi.advanceTimersByTime(1000);
+      browser.dispatchEvent(new Event('focus'));
+    }
+    vi.advanceTimersByTime(1000);
+    expect(onDisconnect).toHaveBeenCalledOnce();
+    expect(onDisconnect.mock.calls[0]![0].message).toContain('synchronization');
+  });
+
+  it('does not tear down a synchronized connection for a redundant online event', () => {
+    const socket = FakeSocket.instances[0]!;
+    socket.open();
+    socket.message({ type: 'pong' });
+    browser.dispatchEvent(new Event('online'));
+    expect(current).toBe(socket);
+    expect(onDisconnect).not.toHaveBeenCalled();
+    expect(FakeSocket.instances).toHaveLength(1);
   });
 
   it('keeps a new handshake during early focus and manually reconnects without waiting or replay', () => {

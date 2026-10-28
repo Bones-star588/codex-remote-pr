@@ -66,11 +66,30 @@ export class ReadRequests {
     return this.pending.has(path);
   }
 
-  get<T>(path: string, timeoutMs = 15000): Promise<T> {
+  get<T>(path: string, timeoutMs = 15000, attempts = 1): Promise<T> {
     const existing = this.pending.get(path);
     if (existing) return existing.promise as Promise<T>;
     const controller = new AbortController();
-    const promise = api<T>(path, { cache: 'no-store', signal: controller.signal, timeoutMs }).finally(() => {
+    const promise = (async () => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await api<T>(path, {
+            cache: 'no-store', signal: controller.signal, timeoutMs: attempt === 0 ? timeoutMs : 15000
+          });
+        } catch (error) {
+          if (controller.signal.aborted || attempt + 1 >= attempts ||
+              error instanceof HttpError && error.status !== 429 && error.status < 500) throw error;
+          await new Promise<void>((resolve, reject) => {
+            const abort = () => { clearTimeout(timer); reject(controller.signal.reason); };
+            const timer = setTimeout(() => {
+              controller.signal.removeEventListener('abort', abort);
+              resolve();
+            }, 500 * 2 ** attempt);
+            controller.signal.addEventListener('abort', abort, { once: true });
+          });
+        }
+      }
+    })().finally(() => {
       if (this.pending.get(path)?.controller === controller) this.pending.delete(path);
     });
     this.pending.set(path, { controller, promise });

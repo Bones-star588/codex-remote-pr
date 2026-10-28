@@ -47,6 +47,57 @@ describe('bounded connection checks', () => {
 });
 
 describe('selection-scoped HTTP reads', () => {
+  it('recovers initial chat and timing reads without waiting for a socket reconnect', async () => {
+    vi.useFakeTimers();
+    const counts = new Map<string, number>();
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => {
+      const count = (counts.get(path) ?? 0) + 1;
+      counts.set(path, count);
+      if (count === 1) return Response.json({ error: 'Unavailable' }, { status: 503 });
+      return Response.json({ items: ['ready'] });
+    }));
+    const reads = new ReadRequests();
+    const chat = reads.get('/api/thread/open?threadId=a', 6000, 3);
+    const timing = reads.get('/api/thread/timings?threadId=a', 6000, 3);
+    expect(reads.get('/api/thread/open?threadId=a', 6000, 3)).toBe(chat);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(await chat).toEqual({ items: ['ready'] });
+    expect(await timing).toEqual({ items: ['ready'] });
+    expect(counts.get('/api/thread/open?threadId=a')).toBe(2);
+    expect(counts.get('/api/thread/timings?threadId=a')).toBe(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('stops bounded read retries on selection cancellation and expired authentication', async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn(async () => Response.json({ error: 'Unavailable' }, { status: 503 }));
+    vi.stubGlobal('fetch', fetch);
+    const reads = new ReadRequests();
+    const abandoned = reads.get('/api/thread/open?threadId=a', 6000, 3).catch(error => error);
+    await vi.advanceTimersByTimeAsync(0);
+    reads.cancel();
+    expect(isAbortedRequest(await abandoned)).toBe(true);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    fetch.mockImplementation(async () => Response.json({ error: 'Sign in again' }, { status: 401 }));
+    await expect(reads.get('/api/metadata?kind=projects', 10000, 3)).rejects.toHaveProperty('status', 401);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('bounds retry attempts and releases failed reads', async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn(async () => Response.json({ error: 'Busy' }, { status: 503 }));
+    vi.stubGlobal('fetch', fetch);
+    const reads = new ReadRequests();
+    const failed = reads.get('/api/metadata?kind=models', 10000, 3).catch(error => error);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(await failed).toHaveProperty('status', 503);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(reads.has('/api/metadata?kind=models')).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('expires a stalled chat read and preserves HTTP auth failures for session recovery', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn((_path: string, options: RequestInit) =>

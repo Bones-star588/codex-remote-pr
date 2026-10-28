@@ -131,7 +131,9 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   Bound pooled HTTP reads to 15 seconds and surface expired authentication.
   Task first attempts use four seconds, then retry independently of WebSocket
   state at 0.5/1/2/4 seconds, capped at five seconds. Online/foreground recovery
-  replaces a first-page read stalled for two seconds; old completions must not
+  replaces a first-page read stalled for two seconds only after a real offline
+  or hidden-page transition. Ordinary focus, redundant online and initial
+  sync.ready must not cancel a healthy pending task read. Old completions must not
   clear replacement state. Bound shared native snapshot/metadata reads to eight
   seconds so retries cannot remain attached to a 120-second native read.
   Main-chat WebSocket attempts allow three seconds to connect and six seconds
@@ -142,6 +144,10 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   uncertain action POST. Remember successful HTTP use in tab-session storage
   as a route preference only, never authentication. Heartbeat replies allow
   12 seconds; pause probes in hidden pages and start fresh on foreground/pageshow.
+  Ordinary focus/pageshow must not shorten or reset handshake deadlines. Pause
+  unfinished handshakes while hidden and give the current stage its full budget
+  on actual foreground return. Redundant online events probe healthy channels
+  instead of destroying them.
   Pongs do not count as sync readiness. Visible retry starts at 250ms and caps at
   five seconds. Manual reconnect preserves the mounted workspace and drafts,
   cancels stale task/history reads, and never repeats uncertain model actions.
@@ -155,6 +161,16 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   coalesce identical pending reads. Bootstrap and WebSocket share model/project
   lookups, with a five-second completed-result handoff. Invalidate on project
   creation or bridge loss. Never deduplicate or cancel model actions this way.
+  Missing model/project catalogs use independent authenticated HTTP reads,
+  without waiting for realtime synchronization or each other. Retry transient
+  catalog and initial chat/timing reads at most three times, with 0.5/1s waits;
+  initial chat/timing attempts allow 6s, subsequent attempts 15s. Do not retry
+  expired authentication, permanent client errors or cancelled selections.
+  Recover failed catalogs on real network/foreground recovery or manual retry.
+  Replay reconnects fill incomplete chat reads without reopening healthy history.
+  Existing main-thread subscription resume may retry three times at 0.5/1s,
+  stopping on selection or connection changes. Never generalize this to retry
+  model actions or new-chat creation.
 - Do not resume a new unsent chat before its first persisted turn.
 - Native `turn/steer` uses `expectedTurnId`.
 - Composer slash commands use native RPC actions, not text prompts. Skills come
