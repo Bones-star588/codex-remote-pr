@@ -1,3 +1,4 @@
+import { historyConfig } from './history-config';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as randomUUID } from 'uuid';
 
@@ -544,8 +545,8 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
       const timingPath = `/api/thread/timings?${new URLSearchParams({ threadId })}`;
       const timings: Promise<TimingPage> = isNew ? Promise.resolve({
         turns: [], turnsCursor: null, activeTurnId: null
-      }) : historyRequestsRef.current.get<TimingPage>(timingPath, 6000, 3).then(page =>
-        page.snapshot?.stale ? historyRequestsRef.current.get<TimingPage>(`${timingPath}&fresh=1`, 6000, 3) : page);
+      }) : historyRequestsRef.current.get<TimingPage>(timingPath, historyConfig.readTimeoutMs, 3).then(page =>
+        page.snapshot?.stale ? historyRequestsRef.current.get<TimingPage>(`${timingPath}&fresh=1`, historyConfig.readTimeoutMs, 3) : page);
       void timings.then(page => {
         if (!currentSelection()) return;
         const firstTimingPage = timedThreadRef.current !== threadId;
@@ -576,10 +577,10 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
       try {
         let response = await historyRequestsRef.current.get<OpenThreadPage & {
           result: { thread: Thread; collaborationMode?: CollaborationMode } & PermissionSettings
-        }>(path, 6000, 3);
+        }>(path, historyConfig.readTimeoutMs, 3);
         if (response.snapshot?.stale) {
           preview(response.result.thread, response);
-          response = await historyRequestsRef.current.get(`${path}&fresh=1`, 6000, 3);
+          response = await historyRequestsRef.current.get(`${path}&fresh=1`, historyConfig.readTimeoutMs, 3);
         }
         if (!currentSelection()) return;
         nativeArrived = true;
@@ -699,7 +700,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         fetchHistoryPage(threadId, cursor),
         timedThreadRef.current === threadId ? Promise.resolve(null)
           : historyRequestsRef.current.get<Pick<ThreadHistoryPage, 'turns' | 'turnsCursor' | 'activeTurnId'>>(
-            `/api/thread/timings?${new URLSearchParams({ threadId, fresh: '1' })}`, 6000, 3)
+            `/api/thread/timings?${new URLSearchParams({ threadId, fresh: '1' })}`, historyConfig.readTimeoutMs, 3)
       ]);
       signal.throwIfAborted();
       if (initialTimings && timedThreadRef.current !== threadId &&
@@ -724,7 +725,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         async () => page,
         async turnsCursor => {
           const result = await historyRequestsRef.current.get<Pick<ThreadHistoryPage, 'turns' | 'turnsCursor'>>(
-            `/api/thread/timings?${new URLSearchParams({ threadId, cursor: turnsCursor })}`, 6000, 3);
+            `/api/thread/timings?${new URLSearchParams({ threadId, cursor: turnsCursor })}`, historyConfig.readTimeoutMs, 3);
           return { data: result.turns, nextCursor: result.turnsCursor };
         },
         { ...turnTimingsRef.current, ...Object.fromEntries(initialTimings?.turns.map(turn => [turn.id, turn]) ?? []) },
@@ -827,7 +828,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
       const revision = navigationRevisionRef.current;
       const cached = navigationCacheRef.current.get(cacheKey);
       const startedAt = performance.now();
-      const page = cached && Date.now() - cached.savedAt < 30_000 ? cached.page
+      const page = cached && Date.now() - cached.savedAt < historyConfig.navigationCacheMs ? cached.page
         : await historyRequestsRef.current.get<Pick<ThreadHistoryPage, 'items' | 'nextCursor'> & { newerCursor: string | null }>(
           `/api/thread/around?${query}`);
       if (version !== selectionVersionRef.current || threadId !== activeThreadRef.current) return false;
@@ -835,7 +836,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
       if (revision === navigationRevisionRef.current) {
         navigationCacheRef.current.set(cacheKey, { threadId, turnId, savedAt: Date.now(), page });
       }
-      if (navigationCacheRef.current.size > 5) navigationCacheRef.current.delete(navigationCacheRef.current.keys().next().value!);
+      if (navigationCacheRef.current.size > historyConfig.navigationCacheWindows) navigationCacheRef.current.delete(navigationCacheRef.current.keys().next().value!);
       console.debug('[turn-navigation] window ready', { cached: page === cached?.page,
         count: page.items.length, elapsedMs: Math.round(performance.now() - startedAt) });
       const windowItems = page.items.map(entry => ({ ...entry.item, turnId: entry.turnId,
@@ -934,7 +935,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     const startedAt = performance.now();
     console.debug('[thread-dock] goal read started', { connected });
     void api<{ goal: unknown }>(`/api/thread/dock/goal?${new URLSearchParams({ threadId })}`, {
-      cache: 'no-store', signal: controller.signal, timeoutMs: 6000
+      cache: 'no-store', signal: controller.signal, timeoutMs: historyConfig.readTimeoutMs
     }).then(result => {
       console.debug('[thread-dock] goal read finished', { elapsedMs: performance.now() - startedAt, present: Boolean(result.goal) });
       if (!controller.signal.aborted && goalRevisionRef.current === revision && activeThreadRef.current === threadId) {

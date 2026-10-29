@@ -1,3 +1,4 @@
+import { historyConfig } from '../history-config';
 import { Check, CornerDownRight, ListEnd, MoreHorizontal, Pencil, MessageCirclePlus, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -40,7 +41,7 @@ export function QueuedMessages({ transport, threadId, activeTurnId, connected, r
       do {
         const page: { data: QueuedSubmission[]; nextCursor?: string | null } = await api(
           `/api/thread/dock/queue?${new URLSearchParams({ threadId, ...(cursor ? { cursor } : {}) })}`,
-          { cache: 'no-store', signal: controller.signal, timeoutMs: 6000 });
+          { cache: 'no-store', signal: controller.signal, timeoutMs: historyConfig.readTimeoutMs });
         if (disposed || request !== version.current) return;
         if (!Array.isArray(page.data) || page.data.some(message => !message || typeof message.id !== 'string' ||
             typeof message.clientUserMessageId !== 'string' || !Array.isArray(message.input)) ||

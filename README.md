@@ -682,6 +682,28 @@ Each record identifies its original verification scope; older test counts are
 historical, not the current suite size. Current startup behavior is defined by
 the startup record and the implementation.
 
+### Native questions and bounded history payloads
+
+The main conversation displays native asynchronous questions as selectable options
+and custom multiline answers above the composer. The first option is selected but
+never sent automatically. Submit sends Desktop's persisted answer envelope directly
+as active-turn steering (`expectedTurnId`) or a new idle turn, bypassing the message
+queue. Replies received from Desktop are recognized from loaded history. The card
+shows questions for the latest loaded turn, outside historical navigation; pending
+questions beyond the bounded loaded window and temporary side-chat forms still need
+separate acceptance. Existing blocking user-input approvals remain supported.
+
+History pages preserve complete conversation prose, questions, file diffs, identities
+and native cursors. Folded command/tool bodies are retrieved from the original native
+item when expanded, with explicit loading/retry feedback in the timeline and command
+inspector. History/timing and dock reads allow 15 seconds through the response body
+so a healthy slow public download is not abandoned at six seconds. This reduces
+unnecessary transfer/retries; it does not eliminate tunnel latency. The new detail
+route requires a Desktop version supporting `thread/items/read`.
+
+Regression evidence, open-source assessment and verification scope are recorded in
+[history and question investigation](docs/history-questions-investigation.md).
+
 ## Known Limits
 
 - Interface labels are currently Simplified Chinese; both English and Chinese documentation are provided.

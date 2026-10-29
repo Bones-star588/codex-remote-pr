@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { itemKey } from '../remote-state';
+import { HistoryThreadContext, useHistoryDetails } from '../history-details';
 import { buildReviewTurns, splitDiffLines, type DiffLine, type ReviewFile } from '../review-model';
 import type { Thread, ThreadItem } from '../types';
 import type { RemoteState } from '../useRemote';
@@ -91,7 +92,7 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
     ...previews.map(preview => ({ id: preview.id, label: previewLabel(preview.target) }))
   ];
   return (
-    <>
+    <HistoryThreadContext.Provider value={thread?.id ?? null}>
       {open && <button type="button" className="inspector-backdrop" aria-label="关闭检查器" onClick={onClose} tabIndex={-1} />}
       <aside id="workspace-inspector" hidden={!open} className={`inspector${expanded ? ' inspector--expanded' : ''}`}
         ref={inspectorRef} aria-label="任务检查器"
@@ -170,7 +171,7 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
           ) : tab === 'activity' ? (
             <div className="inspector-list">
               {commands.length === 0 && <EmptyInspector text="暂无命令记录" />}
-              {commands.map((command) => <CommandDetail key={itemKey(command)} command={command} />)}
+              {commands.map((command) => <CommandDetail key={itemKey(command)} command={command} active={open} />)}
             </div>
           ) : (
             <div className="inspector-list">
@@ -204,7 +205,7 @@ export function Inspector({ open, thread, items, onClose, layout, view, remote, 
             onRetry={() => subagentChats.load(chat.id)} />
         </div>)}
       </aside>
-    </>
+    </HistoryThreadContext.Provider>
   );
 }
 
@@ -300,11 +301,15 @@ function DiffSide({ line, side }: { line: DiffLine | null; side: 'old' | 'new' }
   );
 }
 
-function CommandDetail({ command }: { command: Extract<ThreadItem, { type: 'commandExecution' }> }) {
+function CommandDetail({ command: summary, active }: { command: Extract<ThreadItem, { type: 'commandExecution' }>; active: boolean }) {
   const [open, setOpen] = useState(false);
+  const { item: command, loading, error, retry } = useHistoryDetails(summary, open && active);
+  if (command.type !== 'commandExecution') return null;
   return (
     <details className="inspector-activity" onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary><TerminalSquare size={15} /><code title={command.command}>{command.command}</code></summary>
+      {open && loading && <p role="status">正在加载执行详情…</p>}
+      {open && error && <p role="alert">{error} <button type="button" onClick={retry}>重试</button></p>}
       {open && command.aggregatedOutput && <pre>{command.aggregatedOutput}</pre>}
     </details>
   );
