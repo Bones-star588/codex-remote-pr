@@ -4,6 +4,7 @@ import {
   type PanelSide, type PanelWidths
 } from '../panel-layout';
 import { useMobileViewport } from '../useMobileViewport';
+import { useMobileSidebarSwipe } from '../useMobileSidebarSwipe';
 
 const storageKey = 'workspace-panel-widths';
 
@@ -23,12 +24,15 @@ interface WorkspacePanelsProps {
   children: ReactNode;
   layout: 'desktop' | 'mobile';
   sidebarCollapsed: boolean;
+  sidebarOpen: boolean;
+  onSidebarOpenChange: (open: boolean) => void;
   inspectorOpen: boolean;
 }
 
-export function WorkspacePanels({ children, layout, sidebarCollapsed, inspectorOpen }: WorkspacePanelsProps) {
+export function WorkspacePanels({ children, layout, sidebarCollapsed, sidebarOpen, onSidebarOpenChange, inspectorOpen }: WorkspacePanelsProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   useMobileViewport(shellRef, layout === 'mobile');
+  useMobileSidebarSwipe(shellRef, layout === 'mobile', sidebarOpen, onSidebarOpenChange);
   const [viewport, setViewport] = useState(() => window.innerWidth);
   const [preferred, setPreferred] = useState(readWidths);
   const preferredRef = useRef(preferred);

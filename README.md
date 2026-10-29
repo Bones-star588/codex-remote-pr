@@ -29,6 +29,8 @@ The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when 
 
 Phones use compact header and composer spacing. Mobile layout follows the visible viewport when the keyboard opens and removes the duplicate bottom safe-area gap. Physical display safe areas remain protected. Desktop appearance is unchanged. Keyboard geometry has unit coverage; real iOS keyboard acceptance is separate.
 
+On phones, swipe right from the leftmost 28 CSS pixels to open the conversation sidebar. Swipe left on the open sidebar or its backdrop to close it. A deliberate horizontal swipe travels at least 56 CSS pixels; vertical scrolling, input fields, text selection, and dialogs are excluded. Gesture logic and touch-event handling have automated coverage; physical iOS Safari/PWA gesture acceptance is separate, including browser-reserved history gestures.
+
 ## Features
 
 - **Shared desktop chats.** Open and continue chats through the same desktop backend, including activity originating in Desktop.
