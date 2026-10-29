@@ -22,7 +22,7 @@
 .side-chat-view .composer-setting > span:first-child { max-width: 145px; }
 .app-shell[data-layout="desktop"] .inspector.inspector--expanded { position: fixed; z-index: var(--z-inspector); inset: var(--header-height) 0 0 var(--sidebar-width); width: auto; }
 .app-shell[data-layout="desktop"]:has(.sidebar--collapsed) .inspector.inspector--expanded { left: 0; }
-.queued-messages { width: min(var(--content-max), 100%); max-height: 180px; overflow-y: auto; margin: 0 auto -1px; border: 1px solid var(--line); border-radius: 16px 16px 0 0; padding: 3px 7px 10px; }
+.queued-messages { width: min(var(--content-max), 100%); max-height: 180px; overflow-y: auto; margin: 0 auto -1px; border: 1px solid var(--line); border-radius: var(--composer-radius); padding: 3px 7px 10px; }
 .queued-message { display: flex; min-width: 0; min-height: 34px; align-items: center; gap: 8px; color: var(--muted); }
 .queued-message > svg { flex: none; }
 .queued-message-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 22.75px; color: var(--ink-soft); }

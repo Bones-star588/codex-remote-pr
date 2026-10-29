@@ -32,6 +32,7 @@
   --radius-sm: 7px;
   --radius: 10px;
   --radius-lg: 16px;
+  --composer-radius: 22px;
   --sidebar-width: 275px;
   --sidebar-collapsed: 52px;
   --header-height: 46px;
@@ -1131,7 +1132,7 @@ kbd {
 .composer {
   position: relative;
   border: 1px solid #e2e2e2;
-  border-radius: 22px;
+  border-radius: var(--composer-radius);
   background: var(--sidebar-bg);
   padding: 14px 10px 8px;
   transition: border-color 160ms ease-out;
@@ -2105,7 +2106,7 @@ kbd {
   gap: 8px;
   margin-inline: auto;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--composer-radius);
   padding: 8px 10px;
   background: var(--surface);
   color: var(--accent-strong);
