@@ -60,9 +60,19 @@ export async function readConversationHistoryPage(request: Request, threadId: st
 }
 
 export async function readThreadHistoryAround(request: Request, threadId: string, turnId: string, itemId: string) {
+  const startedAt = performance.now();
+  console.debug('[turn-navigation] read started');
   const list = (params: Record<string, unknown>) => request('thread/items/list', { threadId, ...params }) as
     Promise<{ data: Entry[]; nextCursor: string | null; backwardsCursor?: string | null }>;
-  let seed = await list({ turnId, sortDirection: 'asc', limit: 1 });
+  let seed = await list({ turnId, sortDirection: 'asc', limit: 100 });
+  console.debug('[turn-navigation] anchor received', { count: seed.data.length, elapsedMs: Math.round(performance.now() - startedAt) });
+  // Current Desktop supplies a reversible opaque cursor. Most selected requests
+  // and their reply fit in this first page, so return it without two extra reads.
+  if (seed.backwardsCursor && seed.data.some(entry => (entry.item as { id?: string })?.id === itemId)) {
+    console.debug('[turn-navigation] direct page ready', { count: seed.data.length, nativeReads: 1 });
+    return { items: seed.data, nextCursor: seed.backwardsCursor,
+      newerCursor: seed.nextCursor ?? seed.backwardsCursor };
+  }
   const first = seed.data[0]?.item as { id: string } | undefined;
   if (!first) throw new Error('This turn is no longer available.');
   if (first.id !== itemId) {
@@ -70,7 +80,8 @@ export async function readThreadHistoryAround(request: Request, threadId: string
     // opaque cursor for paging across turn boundaries without scanning history.
     const preceding = await list({ turnId, cursor: { type: 'item', itemId }, sortDirection: 'desc', limit: 1 });
     const predecessor = preceding.data[0]?.item as { id: string } | undefined;
-    seed = { ...preceding, nextCursor: preceding.nextCursor ?? (predecessor?.id === first.id ? seed.nextCursor : null) };
+    seed = { ...preceding, nextCursor: preceding.nextCursor ?? preceding.backwardsCursor ??
+      (predecessor?.id === first.id && seed.data.length === 1 ? seed.nextCursor : null) };
   }
   const cursor = seed.nextCursor ?? seed.backwardsCursor;
   if (!cursor) {

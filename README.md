@@ -27,7 +27,7 @@ Desktop capture: **2560 × 1440**. Phone capture: **390 × 844 CSS pixels**. The
 
 The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when the width/height ratio is less than 1.18. Touch screens narrower than 1024px and shorter than 540px also retain the phone layout in landscape. Dynamic viewport height and safe-area spacing are supported. The acceptance matrix in `scripts/acceptance-viewports.json` includes 2560×1440, 1920×1080, 1440×900, 1024×768, 402×874 at DPR 3 (1206×2622 physical pixels), its 874×402 landscape orientation (2622×1206), 390×844, and 320×568. Browser controls can reduce the available viewport; these are simulated dimensions, not physical-phone network acceptance.
 
-Phones use compact floating glass header controls and a composer by default. Toggle **Liquid glass (液态玻璃)** in the sidebar's **Settings (设置)** menu; the preference is stored on that device. Mobile layout follows the visible viewport when the keyboard opens, removes the duplicate bottom safe-area gap, and keeps the latest reply scrollable above the composer. Physical display safe areas remain protected. Desktop appearance is unchanged. Keyboard geometry has unit coverage and layout has browser phone-preview checks; real iOS keyboard acceptance is still separate.
+Phones use compact header and composer spacing. Mobile layout follows the visible viewport when the keyboard opens and removes the duplicate bottom safe-area gap. Physical display safe areas remain protected. Desktop appearance is unchanged. Keyboard geometry has unit coverage; real iOS keyboard acceptance is separate.
 
 ## Features
 
@@ -84,17 +84,17 @@ The marks at the left of the conversation follow native turn summaries. Hover
 or focus a mark to preview the request and final reply; click or press Enter to
 jump. Up/Down and Home/End move keyboard focus, and Escape closes the preview.
 The current reading position is highlighted. Narrow conversation panels and
-touch devices use a 44px list button and a selectable sheet.
+touch devices use a 44px list button beside the model selector and a selectable sheet.
 
 The outline follows all native summary cursors independently of the latest
-40-record history page. A jump reads a bounded window around the target, with
-older/newer paging and a return-to-latest button. New activity does not interrupt
-an older window. Native summaries can omit follow-up user messages within the
+40-record history page. A jump reads up to 100 target-turn records in one native request when a reversible cursor is available. Nearby context continues automatically as you scroll, without a show-more button; user text in the navigation window is expanded. Up to five windows are reused in memory for 30 seconds and invalidated by native changes. Older/newer paging remains bounded, with a return-to-latest button. New activity does not interrupt an older window. Native summaries can omit follow-up user messages within the
 same turn; these additional marks appear when their history pages are loaded.
 The outline therefore does not claim to index every raw steering message before
 that history has been read.
 
 ![Conversation navigation and request preview](docs/images/navigation.png)
+
+Goal and queued-message reads start over authenticated HTTP when a chat is selected, alongside history loading. They do not wait for realtime synchronization or thread resume; send/edit actions still require readiness. The Goal bar supports native pause/start, objective editing and deletion. Deletion requires a second click in the bar, and only explicit user actions submit goal mutations.
 
 ## Side Chats and Chat Actions
 

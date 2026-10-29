@@ -2,6 +2,22 @@ import type { ThreadGoal, ThreadGoalStatus } from './types';
 
 const statuses = new Set<ThreadGoalStatus>(['active', 'paused', 'blocked', 'usageLimited', 'budgetLimited', 'complete']);
 
+export interface GoalUpdate {
+  objective?: string;
+  status?: 'active' | 'paused';
+}
+
+export function goalUpdateParams(threadId: string, update: GoalUpdate) {
+  if (!threadId.trim() || update.objective === undefined && update.status === undefined ||
+      update.objective !== undefined && !update.objective.trim() ||
+      update.status !== undefined && update.status !== 'active' && update.status !== 'paused') {
+    throw new Error('请输入有效的目标内容。');
+  }
+  return { threadId, origin: 'user' as const,
+    ...(update.objective !== undefined ? { objective: update.objective.trim() } : {}),
+    ...(update.status !== undefined ? { status: update.status } : {}) };
+}
+
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? value as Record<string, unknown> : null;
 }

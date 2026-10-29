@@ -1,6 +1,6 @@
 import {
   Archive, ArchiveRestore, Bell, ChevronDown, ChevronRight, CircleAlert, CircleHelp, FolderOpen, FolderPlus,
-  LoaderCircle, LogOut, MessageSquare, Plus, RefreshCw, Search, Wrench, X, Sparkles, Check
+  LoaderCircle, LogOut, MessageSquare, Plus, RefreshCw, Search, Wrench, X
 } from 'lucide-react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { displayThreadTitle } from '../remote-state';
@@ -24,13 +24,11 @@ interface SidebarProps {
   onNewTask: (projectId?: string) => void;
   onSelectThread: (threadId: string) => void;
   onLogout: () => void;
-  mobileGlass: boolean;
-  onToggleMobileGlass: () => void;
 }
 
 export function Sidebar({
   remote, activeThreadId, layout, open, collapsed, search, onSearchChange,
-  onClose, onNewTask, onSelectThread, onLogout, mobileGlass, onToggleMobileGlass
+  onClose, onNewTask, onSelectThread, onLogout
 }: SidebarProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -181,10 +179,6 @@ export function Sidebar({
             {connections?.lanOrigins.filter(origin => origin !== location.origin).map(origin =>
               <a className="connection-link" href={origin} key={origin}>局域网 · {new URL(origin).host}</a>)}
             <div className="account-menu-separator" />
-            {layout === 'mobile' && <button type="button" role="menuitemcheckbox" aria-checked={mobileGlass}
-              onClick={onToggleMobileGlass}>
-              <Sparkles size={15} /><span>液态玻璃</span>{mobileGlass && <Check size={15} />}
-            </button>}
             <button type="button" role="menuitem" onClick={() => {
               setAccountOpen(false); setNotificationsOpen(true);
             }}><Bell size={15} /><span>消息通知</span></button>

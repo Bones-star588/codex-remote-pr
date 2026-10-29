@@ -1,7 +1,6 @@
 export const mobileViewportConfig = {
   keyboardThreshold: 120,
-  scaleTolerance: 0.02,
-  glassStorageKey: 'mobile-liquid-glass'
+  scaleTolerance: 0.02
 };
 
 export function mobileViewportGeometry(input: {
@@ -22,12 +21,4 @@ export function mobileViewportGeometry(input: {
     keyboardOpen: input.editing && Math.abs(input.scale - 1) < mobileViewportConfig.scaleTolerance &&
       positive(input.baselineHeight, layoutHeight) - height > mobileViewportConfig.keyboardThreshold
   };
-}
-
-export function readMobileGlass(storage: Pick<Storage, 'getItem'>): boolean {
-  try { return storage.getItem(mobileViewportConfig.glassStorageKey) !== 'off'; }
-  catch (error) {
-    console.warn('[mobile-layout] could not read appearance preference', error);
-    return true;
-  }
 }

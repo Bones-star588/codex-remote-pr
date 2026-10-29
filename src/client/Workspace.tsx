@@ -43,7 +43,6 @@ import { markStartup } from './startup';
 import { unlinkDeviceNotifications } from './push-notifications';
 import { toggleInspectorLauncher, type InspectorView } from './inspector-state';
 import { GoalStatus } from './components/GoalStatus';
-import { mobileViewportConfig, readMobileGlass } from './mobile-viewport';
 
 interface WorkspaceProps {
   authenticated: boolean;
@@ -63,14 +62,6 @@ export function Workspace({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   const remote = useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRequest });
   useEffect(() => { markStartup('shell'); }, []);
   const layout = useResponsiveLayout();
-  const [mobileGlass, setMobileGlass] = useState(() => readMobileGlass(localStorage));
-  const toggleMobileGlass = () => {
-    const next = !mobileGlass;
-    setMobileGlass(next);
-    try { localStorage.setItem(mobileViewportConfig.glassStorageKey, next ? 'on' : 'off'); }
-    catch (error) { console.warn('[mobile-layout] could not save appearance preference', error); }
-    console.debug('[mobile-layout] glass appearance changed', { enabled: next });
-  };
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -330,7 +321,7 @@ export function Workspace({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   return (
     <SubagentsContext.Provider value={subagentsContext}>
     <PreviewLinks cwd={permissionCwd ?? ''} onOpen={openPreview}>
-    <WorkspacePanels layout={layout} sidebarCollapsed={sidebarCollapsed} inspectorOpen={inspectorOpen} mobileGlass={mobileGlass}>
+    <WorkspacePanels layout={layout} sidebarCollapsed={sidebarCollapsed} inspectorOpen={inspectorOpen}>
       <Sidebar
         remote={remote}
         activeThreadId={remote.activeThreadId}
@@ -344,8 +335,6 @@ export function Workspace({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         onNewTask={beginNewTask}
         onSelectThread={(threadId) => void selectThread(threadId)}
         onLogout={() => void logout()}
-        mobileGlass={mobileGlass}
-        onToggleMobileGlass={toggleMobileGlass}
       />
 
       {layout === 'mobile' && sidebarOpen && (
@@ -664,6 +653,7 @@ function ThreadScreen({
         outlineError={remote.outlineError}
         viewingHistory={remote.viewingHistory}
         hasNewerHistory={remote.hasNewerHistory}
+        newerHistoryCursor={remote.newerHistoryCursor}
         loadingLaterHistory={remote.loadingLaterHistory}
         revealingHistory={remote.revealingHistory}
         onLoadLater={remote.loadLaterHistory}
@@ -675,13 +665,15 @@ function ThreadScreen({
       />
 
       <div className="thread-bottom">
-        <GoalStatus goal={remote.activeGoal} />
+        <GoalStatus goal={remote.activeGoal} disabled={!remote.connected || !remote.threadReady || remote.showArchived}
+          onUpdate={update => remote.setGoal(thread.id, update)} onDelete={() => remote.clearGoal(thread.id)} onError={onError} />
         <ApprovalDock
           requests={remote.serverRequests.filter((request) => request.params.threadId === thread.id)}
           onRespond={remote.respondToRequest}
           onError={onError}
         />
         {!remote.isNewThread && <QueuedMessages transport={remote.chatTransport} threadId={thread.id}
+          readable={remote.authenticated && !remote.showArchived}
           activeTurnId={remote.activeTurnId} connected={remote.connected && remote.threadReady}
           onError={onError} onOpenSideChat={onOpenSideChat}
           queueEnabled={queueEnabled} onQueueEnabledChange={setQueueEnabled} />}

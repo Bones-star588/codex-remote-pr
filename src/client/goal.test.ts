@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { goalElapsedMs, goalStatusLabel, parseThreadGoal } from './goal';
+import { goalElapsedMs, goalStatusLabel, parseThreadGoal, goalUpdateParams } from './goal';
 
 const goal = {
   threadId: 'thread', objective: '完成远程控制', status: 'active', tokenBudget: 10_000,
@@ -7,6 +7,13 @@ const goal = {
 };
 
 describe('thread goals', () => {
+  it('preserves budgets and other fields by sending only the explicit edit or status change', () => {
+    expect(goalUpdateParams('thread', { objective: '  edited  ' })).toEqual({ threadId: 'thread', origin: 'user', objective: 'edited' });
+    expect(goalUpdateParams('thread', { status: 'paused' })).toEqual({ threadId: 'thread', origin: 'user', status: 'paused' });
+    expect(goalUpdateParams('thread', { status: 'active' })).toEqual({ threadId: 'thread', origin: 'user', status: 'active' });
+    expect(() => goalUpdateParams('thread', { objective: ' ' })).toThrow();
+    expect(() => goalUpdateParams('thread', {})).toThrow();
+  });
   it('parses native goal responses and rejects invalid numeric values', () => {
     expect(parseThreadGoal({ goal })).toEqual(goal);
     expect(parseThreadGoal({ goal: { ...goal, tokensUsed: Number.NaN } })).toBeNull();

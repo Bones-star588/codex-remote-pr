@@ -31,7 +31,7 @@ import { isTaskThread } from '../shared/thread-source';
 import { HistoryPrefetch, prepareHistoryPage } from './history-prefetch';
 import type { BeforeHistoryCommit } from './history-scroll';
 import { markStartup } from './startup';
-import { parseThreadGoal } from './goal';
+import { parseThreadGoal, goalUpdateParams, type GoalUpdate } from './goal';
 
 interface PendingRpc {
   resolve: (value: unknown) => void;
@@ -81,6 +81,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [activeThread, setActiveThread] = useState<Thread | null>(null);
   const [activeGoal, setActiveGoal] = useState<ThreadGoal | null>(null);
+  const goalRevisionRef = useRef(0);
   const [items, setItems] = useState<ThreadItem[]>([]);
   const [turnTimings, setTurnTimings] = useState<Record<string, TurnTiming>>({});
   const [tokenUsage, setTokenUsage] = useState<Record<string, ContextUsage>>({});
@@ -136,6 +137,9 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   const authExpiredRef = useRef(onAuthExpired);
   const initializedRef = useRef(false);
   const historyCacheRef = useRef(new Map<string, ThreadHistoryPage>());
+  const navigationRevisionRef = useRef(0);
+  const navigationCacheRef = useRef(new Map<string, { threadId: string; turnId: string; savedAt: number;
+    page: Pick<ThreadHistoryPage, 'items' | 'nextCursor'> & { newerCursor: string | null } }>());
   const nativeListSeenRef = useRef(false);
   const nativeProjectsSeenRef = useRef(false);
   const nativeModelsSeenRef = useRef(false);
@@ -495,7 +499,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         setHasMoreHistory(false);
         setActiveTurnId(null);
         activeTurnIdRef.current = null;
-        setActiveGoal(null);
+        if (!sameThread) { goalRevisionRef.current++; setActiveGoal(null); }
       }
       const version = selectionVersionRef.current;
       let baseline = options.silent ? itemsRef.current : cachedItems;
@@ -819,9 +823,21 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     setLoadingLaterHistory(false);
     try {
       const query = new URLSearchParams({ threadId, turnId, itemId });
-      const page = await historyRequestsRef.current.get<Pick<ThreadHistoryPage, 'items' | 'nextCursor'> & { newerCursor: string | null }>(
-        `/api/thread/around?${query}`);
+      const cacheKey = query.toString();
+      const revision = navigationRevisionRef.current;
+      const cached = navigationCacheRef.current.get(cacheKey);
+      const startedAt = performance.now();
+      const page = cached && Date.now() - cached.savedAt < 30_000 ? cached.page
+        : await historyRequestsRef.current.get<Pick<ThreadHistoryPage, 'items' | 'nextCursor'> & { newerCursor: string | null }>(
+          `/api/thread/around?${query}`);
       if (version !== selectionVersionRef.current || threadId !== activeThreadRef.current) return false;
+      navigationCacheRef.current.delete(cacheKey);
+      if (revision === navigationRevisionRef.current) {
+        navigationCacheRef.current.set(cacheKey, { threadId, turnId, savedAt: Date.now(), page });
+      }
+      if (navigationCacheRef.current.size > 5) navigationCacheRef.current.delete(navigationCacheRef.current.keys().next().value!);
+      console.debug('[turn-navigation] window ready', { cached: page === cached?.page,
+        count: page.items.length, elapsedMs: Math.round(performance.now() - startedAt) });
       const windowItems = page.items.map(entry => ({ ...entry.item, turnId: entry.turnId,
         startedAtMs: entry.startedAtMs, completedAtMs: entry.completedAtMs }));
       setItems(windowItems);
@@ -908,19 +924,29 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   }, [items, turnTimings]);
 
   useEffect(() => {
-    if (!authenticated || !connected || !threadReady || !activeThreadId || activeThreadId !== verifiedThreadId || showArchived) {
+    if (!authenticated || !activeThreadId || showArchived || newThreadsRef.current.has(activeThreadId)) {
       setActiveGoal(null);
       return;
     }
-    let cancelled = false;
+    const controller = new AbortController();
+    const revision = ++goalRevisionRef.current;
     const threadId = activeThreadId;
-    void rpc<{ goal: unknown }>('thread/goal/get', { threadId }).then(result => {
-      if (!cancelled && activeThreadRef.current === threadId) setActiveGoal(parseThreadGoal(result));
+    const startedAt = performance.now();
+    console.debug('[thread-dock] goal read started', { connected });
+    void api<{ goal: unknown }>(`/api/thread/dock/goal?${new URLSearchParams({ threadId })}`, {
+      cache: 'no-store', signal: controller.signal, timeoutMs: 6000
+    }).then(result => {
+      console.debug('[thread-dock] goal read finished', { elapsedMs: performance.now() - startedAt, present: Boolean(result.goal) });
+      if (!controller.signal.aborted && goalRevisionRef.current === revision && activeThreadRef.current === threadId) {
+        setActiveGoal(parseThreadGoal(result));
+      }
     }).catch(error => {
-      if (!cancelled) console.warn('[remote] could not read thread goal', { threadId, error });
+      if (controller.signal.aborted || isAbortedRequest(error)) return;
+      if (error instanceof HttpError && error.status === 401) authExpiredRef.current?.();
+      else console.warn('[thread-dock] could not read thread goal', error);
     });
-    return () => { cancelled = true; };
-  }, [activeThreadId, authenticated, connected, rpc, showArchived, threadReady, verifiedThreadId]);
+    return () => controller.abort();
+  }, [activeThreadId, authenticated, connected, showArchived]);
 
   useEffect(() => {
     if (!activeThreadId) return;
@@ -1196,6 +1222,26 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     },
     [rpc]
   );
+
+  const setGoal = useCallback(async (threadId: string, update: GoalUpdate) => {
+    const params = goalUpdateParams(threadId, update);
+    const revision = ++goalRevisionRef.current;
+    console.debug('[thread-dock] goal update started', { status: update.status, editing: update.objective !== undefined });
+    const result = await rpc<{ goal: unknown }>('thread/goal/set', params);
+    const goal = parseThreadGoal(result);
+    if (!goal || goal.threadId !== threadId) throw new Error('Invalid goal update response.');
+    if (activeThreadRef.current === threadId && goalRevisionRef.current === revision) setActiveGoal(goal);
+    console.debug('[thread-dock] goal update finished', { status: goal.status });
+  }, [rpc]);
+
+  const clearGoal = useCallback(async (threadId: string) => {
+    const revision = ++goalRevisionRef.current;
+    console.debug('[thread-dock] goal clear started');
+    const result = await rpc<{ cleared: boolean }>('thread/goal/clear', { threadId, origin: 'user' });
+    if (typeof result.cleared !== 'boolean') throw new Error('Invalid goal clear response.');
+    if (activeThreadRef.current === threadId && goalRevisionRef.current === revision) setActiveGoal(null);
+    console.debug('[thread-dock] goal clear finished', { cleared: result.cleared });
+  }, [rpc]);
 
   const interruptTurn = useCallback(
     async (threadId: string, turnId: string) => {
@@ -1571,6 +1617,13 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     for (const listener of eventListenersRef.current) listener(method, params);
     const eventThread = params.thread as Thread | undefined;
     const eventThreadId = String(params.threadId ?? eventThread?.id ?? '');
+    if (/^(thread|turn|item)\//.test(method)) {
+      navigationRevisionRef.current++;
+      const turnId = params.turnId ?? (params.turn as { id?: string } | undefined)?.id;
+      for (const [key, entry] of navigationCacheRef.current) {
+        if (entry.threadId === eventThreadId && (!turnId || entry.turnId === turnId)) navigationCacheRef.current.delete(key);
+      }
+    }
     if (eventThread?.ephemeral || eventThreadId !== activeThreadRef.current && additionalThreadsRef.current.includes(eventThreadId)) return;
     if (method === 'thread/tokenUsage/updated') {
       const threadId = String(params.threadId ?? '');
@@ -1584,11 +1637,11 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     if (method === 'thread/compacted' && params.threadId === activeThreadRef.current) refreshActiveHistory();
     if (method === 'thread/goal/updated') {
       const threadId = String(params.threadId ?? '');
-      if (threadId === activeThreadRef.current) setActiveGoal(parseThreadGoal(params));
+      if (threadId === activeThreadRef.current) { goalRevisionRef.current++; setActiveGoal(parseThreadGoal(params)); }
     }
     if (method === 'thread/goal/cleared') {
       const threadId = String(params.threadId ?? '');
-      if (threadId === activeThreadRef.current) setActiveGoal(null);
+      if (threadId === activeThreadRef.current) { goalRevisionRef.current++; setActiveGoal(null); }
     }
     if (method === 'thread/started') {
       const thread = params.thread as Thread | undefined;
@@ -1754,6 +1807,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   }, [authenticated, bridgeStatus.status, connected]);
 
   return {
+    authenticated,
     connected,
     chatTransport,
     status,
@@ -1769,12 +1823,15 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     activeTurnId,
     activeThread,
     activeGoal,
+    setGoal,
+    clearGoal,
     items,
     turnTimings,
     contextUsage: activeThreadId ? tokenUsage[activeThreadId] : undefined,
     hasMoreHistory,
     loadingHistory,
     hasNewerHistory,
+    newerHistoryCursor: newerHistoryCursorRef.current,
     viewingHistory,
     loadingLaterHistory,
     revealingHistory,

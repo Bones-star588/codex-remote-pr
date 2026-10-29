@@ -16,6 +16,17 @@ const command: ThreadItem = { type: 'commandExecution', id: 'cmd', turnId: 't', 
   cwd: '/project', status: 'completed', aggregatedOutput: 'detail', durationMs: 100, exitCode: 0 };
 
 describe('conversation presentation', () => {
+  it('shows full user context in history navigation without a show-more button', () => {
+    const text = '完整上下文'.repeat(250) + 'VISIBLE_END';
+    const html = renderToStaticMarkup(createElement(ThreadTimeline, {
+      threadId: 'thread', items: [{ type: 'userMessage', id: 'u', turnId: 't', content: [{ type: 'text', text }] }],
+      loading: false, activeTurnId: null, turnTimings: {}, hasMoreHistory: true, loadingHistory: false,
+      viewingHistory: true, hasNewerHistory: true, onLoadEarlier: async () => {}, onLoadLater: async () => {}
+    }));
+    expect(html).toContain('VISIBLE_END');
+    expect(html).not.toContain('展开消息');
+    expect(html).not.toContain('显示后续记录');
+  });
   it('folds completed process and commentary, keeps the request/final visible, and uses native duration', () => {
     const html = render([
       { type: 'userMessage', id: 'u', turnId: 't', content: [{ type: 'text', text: 'VISIBLE_REQUEST' }] },

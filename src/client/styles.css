@@ -2957,3 +2957,17 @@ kbd {
     transition-duration: 0.01ms !important;
   }
 }
+
+.goal-status { flex-wrap: wrap; }
+.goal-status-heading { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+.goal-status-copy .goal-status-duration { overflow: visible; color: var(--muted); }
+.goal-status-actions { display: flex; flex: 0 0 auto; }
+.goal-status-actions .icon-button { width: 32px; height: 32px; }
+.goal-editor { display: grid; flex: 0 0 100%; min-width: 0; gap: 8px; color: var(--ink); }
+.goal-editor textarea { width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 6px; padding: 8px; background: var(--surface); font: inherit; }
+.goal-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.goal-editor-actions button { min-height: 32px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 12px; background: var(--surface); }
+.app-shell[data-layout="mobile"] .goal-status { gap: 4px; padding: 4px 6px; }
+.app-shell[data-layout="mobile"] .goal-status-actions .icon-button { width: 44px; height: 44px; }
+.app-shell[data-layout="mobile"] .goal-editor textarea { font-size: 16px; }
+.app-shell[data-layout="mobile"] .goal-editor-actions button { min-height: 44px; }

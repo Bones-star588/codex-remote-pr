@@ -535,9 +535,9 @@ export function Composer({
               {effort && <span className="composer-effort">{reasoningLabel(modelInfo, effort)}</span>}
               <ChevronDown size={13} aria-hidden="true" />
             </button>
+            <span className="composer-turn-slot" data-thread-navigation-slot={variant === 'thread' ? '' : undefined} />
           </div>
           <div className="composer-submit">
-            <span className="composer-turn-slot" data-thread-navigation-slot={variant === 'thread' ? '' : undefined} />
             {activeTurnId && !draft.trim() && attachments.length === 0 && selectedSkills.length === 0 ? (
               <button type="button" className="composer-stop" disabled={stopping} onClick={() => void stop()}
                 aria-label="停止任务" title="停止任务">
