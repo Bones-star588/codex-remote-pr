@@ -12,7 +12,12 @@ a merge or successful CI alone does not establish deployment.
 The README languages describe supported behavior. Dated acceptance records retain
 their original scope and do not establish current physical-device performance.
 
-The 0.1.5 functional batch integrates PR #3 after maintainer corrections:
+The 0.1.6 functional batch integrates PR #4's plain sidebar title and removal
+of the help shortcut. The proposed further button shrinking was rejected:
+mobile remains 36px and desktop retains its existing sizes. See
+[the integration review](pr-4-review.md) for scope and verification.
+
+The preceding 0.1.5 functional batch integrates PR #3 after maintainer corrections:
 manual public-app updates, a standalone recovery entry and mobile-only control
 and sidebar-gesture refinements. See [the integration review](pr-3-review.md)
 for accepted changes, corrected regressions and desktop/mobile evidence.
@@ -26,12 +31,9 @@ as proposed changes: compare desktop and mobile behavior against the deployed
 baseline and prior optimizations before integrating them. Use synthetic fixtures;
 do not create real model turns or notifications just to verify layout.
 
-Mobile model/dictation controls use 36px sizing; attachment and composer
-conversation-index controls use 24px sizing on small screens. Desktop attachment
-and composer index controls shrink from 28px to about 18.67px; desktop standalone
-index and touch side-chat attachment/index controls shrink from 44px to about 29.33px.
-Keep other desktop sizing and corners. Main and side-chat controls must have
-matching mobile geometry.
+Mobile composer controls intentionally use 36px sizing on small screens.
+Preserve desktop sizing and corners; mobile adaptation must not become a global
+style change. Main and side-chat controls must have matching mobile geometry.
 The manual update refreshes the page: main-chat text drafts persist, while
 temporary side chats, unsent images and skill selections are cleared.
 
