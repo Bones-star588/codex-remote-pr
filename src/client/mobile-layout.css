@@ -1,6 +1,7 @@
 /* Mobile-only chrome. Keep physical safe areas, remove duplicate keyboard spacing. */
 .app-shell[data-layout="mobile"] {
   --mobile-header-height: 44px;
+  --mobile-composer-control-size: 36px;
   --mobile-edge: 8px;
   --mobile-header-top: env(safe-area-inset-top, 0px);
   --mobile-bottom-inset: env(safe-area-inset-bottom, 0px);
@@ -73,6 +74,7 @@
 
 .app-shell[data-layout="mobile"] .composer-setting {
   min-width: 0;
+  min-height: var(--mobile-composer-control-size);
   flex-shrink: 1;
 }
 
@@ -83,12 +85,12 @@
 }
 
 .app-shell[data-layout="mobile"] .composer-circle-button {
-  width: 44px;
-  height: 44px;
-  flex-basis: 44px;
+  width: var(--mobile-composer-control-size);
+  height: var(--mobile-composer-control-size);
+  flex-basis: var(--mobile-composer-control-size);
 }
 
 .app-shell[data-layout="mobile"] .composer-turn-slot .thread-navigation-mobile--composer {
-  width: 44px;
-  height: 44px;
+  width: var(--mobile-composer-control-size);
+  height: var(--mobile-composer-control-size);
 }
