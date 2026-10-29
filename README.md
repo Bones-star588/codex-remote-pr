@@ -29,7 +29,7 @@ The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when 
 
 Phones use compact header and composer spacing. Mobile layout follows the visible viewport when the keyboard opens and removes the duplicate bottom safe-area gap. Physical display safe areas remain protected. Desktop appearance is unchanged. Keyboard geometry has unit coverage; real iOS keyboard acceptance is separate.
 
-Mobile attachment and composer conversation-index buttons are 24px, two thirds of their previous size; model and dictation controls remain 36px. Desktop control sizes are unchanged. Both layouts show a plain Codex sidebar title and omit the help shortcut; the bottom Settings button remains the menu entry.
+Attachment and conversation-index buttons use two thirds of their previous size on both layouts: mobile composer buttons are 24px; desktop composer buttons are about 18.67px. Desktop standalone index and touch side-chat attachment/index controls are about 29.33px. Model/dictation sizing and the wide desktop turn rail are retained. Both layouts show a plain Codex sidebar title and omit the help shortcut; the bottom Settings button remains the menu entry.
 
 On phones, swipe right from the leftmost 28 CSS pixels to open the conversation sidebar. Swipe left on the open sidebar or its backdrop to close it. A deliberate horizontal swipe travels at least 56 CSS pixels; vertical scrolling, input fields, text selection, and dialogs are excluded. Gesture logic and touch-event handling have automated coverage; physical iOS Safari/PWA gesture acceptance is separate, including browser-reserved history gestures.
 

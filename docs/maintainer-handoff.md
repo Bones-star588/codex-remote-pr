@@ -27,9 +27,11 @@ baseline and prior optimizations before integrating them. Use synthetic fixtures
 do not create real model turns or notifications just to verify layout.
 
 Mobile model/dictation controls use 36px sizing; attachment and composer
-conversation-index controls use 24px sizing on small screens.
-Preserve desktop sizing and corners; mobile adaptation must not become a global
-style change. Main and side-chat controls must have matching mobile geometry.
+conversation-index controls use 24px sizing on small screens. Desktop attachment
+and composer index controls shrink from 28px to about 18.67px; desktop standalone
+index and touch side-chat attachment/index controls shrink from 44px to about 29.33px.
+Keep other desktop sizing and corners. Main and side-chat controls must have
+matching mobile geometry.
 The manual update refreshes the page: main-chat text drafts persist, while
 temporary side chats, unsent images and skill selections are cleared.
 

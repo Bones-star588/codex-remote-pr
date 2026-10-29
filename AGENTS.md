@@ -27,9 +27,11 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   under the duration disclosure, leaving the final reply visible.
   Mobile dictation and model controls use 36px controls; attachment and
   composer conversation-index buttons use two thirds of that size (24px).
-  Apply these exceptions only to the mobile layout, including side chats;
-  preserve desktop sizes and
-  desktop goal/queued-message corners. Other touch targets remain at least 44px.
+  Desktop attachment and composer conversation-index buttons also use two
+  thirds of their previous size: 28px becomes about 18.67px. Desktop standalone
+  conversation-index and coarse-pointer side-chat attachment/index controls shrink
+  from 44px to about 29.33px. Preserve desktop model/dictation sizing and
+  goal/queued-message corners. Other touch targets remain at least 44px.
   Conversation text follows native 14px/22.75px, weight 430; activity headers use
   14px/21px, weight 430. Keep the system font stack and lazy detail bodies.
 - Use native turn timing, including metadata cursors for older history. Never
