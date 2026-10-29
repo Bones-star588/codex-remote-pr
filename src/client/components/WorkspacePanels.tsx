@@ -3,6 +3,7 @@ import {
   clampPanelWidth, defaultPanelWidths, fitPanelWidths, panelMinimums, panelWidthMaximum,
   type PanelSide, type PanelWidths
 } from '../panel-layout';
+import { useMobileViewport } from '../useMobileViewport';
 
 const storageKey = 'workspace-panel-widths';
 
@@ -23,10 +24,12 @@ interface WorkspacePanelsProps {
   layout: 'desktop' | 'mobile';
   sidebarCollapsed: boolean;
   inspectorOpen: boolean;
+  mobileGlass: boolean;
 }
 
-export function WorkspacePanels({ children, layout, sidebarCollapsed, inspectorOpen }: WorkspacePanelsProps) {
+export function WorkspacePanels({ children, layout, sidebarCollapsed, inspectorOpen, mobileGlass }: WorkspacePanelsProps) {
   const shellRef = useRef<HTMLDivElement>(null);
+  useMobileViewport(shellRef, layout === 'mobile');
   const [viewport, setViewport] = useState(() => window.innerWidth);
   const [preferred, setPreferred] = useState(readWidths);
   const preferredRef = useRef(preferred);
@@ -132,7 +135,7 @@ export function WorkspacePanels({ children, layout, sidebarCollapsed, inspectorO
   } as CSSProperties;
 
   return (
-    <div ref={shellRef} className="app-shell" data-layout={layout} style={style}>
+    <div ref={shellRef} className="app-shell" data-layout={layout} data-mobile-glass={mobileGlass} style={style}>
       {children}
       {layout === 'desktop' && (['sidebar', 'inspector'] as const).map((side) => (
         (side === 'sidebar' ? !sidebarCollapsed : inspectorOpen) && (

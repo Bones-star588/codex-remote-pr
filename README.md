@@ -27,6 +27,8 @@ Desktop capture: **2560 × 1440**. Phone capture: **390 × 844 CSS pixels**. The
 
 The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when the width/height ratio is less than 1.18. Touch screens narrower than 1024px and shorter than 540px also retain the phone layout in landscape. Dynamic viewport height and safe-area spacing are supported. The acceptance matrix in `scripts/acceptance-viewports.json` includes 2560×1440, 1920×1080, 1440×900, 1024×768, 402×874 at DPR 3 (1206×2622 physical pixels), its 874×402 landscape orientation (2622×1206), 390×844, and 320×568. Browser controls can reduce the available viewport; these are simulated dimensions, not physical-phone network acceptance.
 
+Phones use compact floating glass header controls and a composer by default. Toggle **Liquid glass (液态玻璃)** in the sidebar's **Settings (设置)** menu; the preference is stored on that device. Mobile layout follows the visible viewport when the keyboard opens, removes the duplicate bottom safe-area gap, and keeps the latest reply scrollable above the composer. Physical display safe areas remain protected. Desktop appearance is unchanged. Keyboard geometry has unit coverage and layout has browser phone-preview checks; real iOS keyboard acceptance is still separate.
+
 ## Features
 
 - **Shared desktop chats.** Open and continue chats through the same desktop backend, including activity originating in Desktop.
