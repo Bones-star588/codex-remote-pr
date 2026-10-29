@@ -688,7 +688,6 @@ function ThreadScreen({
           models={remote.models}
           activeTurnId={remote.activeTurnId}
           queueMessages={queueEnabled}
-          {...(remote.contextUsage ? { contextUsage: remote.contextUsage } : {})}
           onModelChange={onModelChange}
           onEffortChange={onEffortChange}
           onSubmit={async (text, attachments, skills) => {
