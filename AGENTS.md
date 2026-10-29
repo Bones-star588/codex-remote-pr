@@ -25,6 +25,10 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   into native-style summaries across types. Ordinary reasoning is hidden; viewed
   images and commentary keep their positions. Completed turns fold their process
   under the duration disclosure, leaving the final reply visible.
+  Mobile attachment/dictation and conversation-index buttons use 36px controls
+  to fit small screens, matching the model selector. Apply this exception only
+  to the mobile layout, including side chats; preserve desktop sizes and
+  desktop goal/queued-message corners. Other touch targets remain at least 44px.
   Conversation text follows native 14px/22.75px, weight 430; activity headers use
   14px/21px, weight 430. Keep the system font stack and lazy detail bodies.
 - Use native turn timing, including metadata cursors for older history. Never

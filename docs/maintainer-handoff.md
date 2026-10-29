@@ -12,28 +12,25 @@ a merge or successful CI alone does not establish deployment.
 The README languages describe supported behavior. Dated acceptance records retain
 their original scope and do not establish current physical-device performance.
 
-This closeout corrects notification privacy and history timeout documentation.
-It adds no connection, history or UI behavior and keeps application version 0.1.4.
-The previous functional batch merged PR #2: native asynchronous question forms,
-lazy execution details and 15-second chat/timing downloads.
-See [the investigation](history-questions-investigation.md) for that review's scope.
+The 0.1.5 functional batch integrates PR #3 after maintainer corrections:
+manual public-app updates, a standalone recovery entry and mobile-only control
+and sidebar-gesture refinements. See [the integration review](pr-3-review.md)
+for accepted changes, corrected regressions and desktop/mobile evidence.
+Prior native question forms, lazy execution details, 15-second chat/timing
+downloads, connection recovery and notification previews are retained.
 
 ## Next Work
 
-At this checkpoint, [PR #3](https://github.com/CoralFlower325/Codex-remote/pull/3),
-`feat: add manual app updates and refine mobile controls`, is open.
-Its latest observed head is `ccb92f746091e44cd6d53dac110e02bf9473e72a` and CI run
-`40840478793` passed on Windows, macOS and Ubuntu.
-It has not been reviewed, merged or deployed by this closeout.
-Refresh its state before continuing; passing CI does not replace review.
-
-Review mobile control sizes, swipe direction/thresholds, focus and keyboard
-behavior, and conflicts with conversation scrolling or panel resizing.
-Keep main and side-chat controls consistent. Use synthetic browser fixtures;
+Refresh pending pull requests before starting the next batch. Treat contributions
+as proposed changes: compare desktop and mobile behavior against the deployed
+baseline and prior optimizations before integrating them. Use synthetic fixtures;
 do not create real model turns or notifications just to verify layout.
-Review the newly added manual app-update workflow for authentication, scope,
-concurrent requests, private-data preservation, failure recovery and platform
-behavior before enabling it on a running installation.
+
+Mobile composer controls intentionally use 36px sizing on small screens.
+Preserve desktop sizing and corners; mobile adaptation must not become a global
+style change. Main and side-chat controls must have matching mobile geometry.
+The manual update refreshes the page: main-chat text drafts persist, while
+temporary side chats, unsent images and skill selections are cleared.
 
 Outstanding acceptance:
 

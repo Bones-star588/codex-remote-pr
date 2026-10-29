@@ -322,7 +322,8 @@ export function Workspace({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   return (
     <SubagentsContext.Provider value={subagentsContext}>
     <PreviewLinks cwd={permissionCwd ?? ''} onOpen={openPreview}>
-    <WorkspacePanels layout={layout} sidebarCollapsed={sidebarCollapsed} inspectorOpen={inspectorOpen}>
+    <WorkspacePanels layout={layout} sidebarCollapsed={sidebarCollapsed} sidebarOpen={sidebarOpen}
+      onSidebarOpenChange={setSidebarOpen} inspectorOpen={inspectorOpen}>
       <Sidebar
         remote={remote}
         activeThreadId={remote.activeThreadId}
