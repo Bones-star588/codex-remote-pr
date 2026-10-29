@@ -3,8 +3,8 @@ import { composerKeyboardAction, insertComposerNewline } from './composer-keyboa
 
 describe('composer keyboard behavior', () => {
   it('keeps plain Enter and Shift+Enter as real newlines', () => {
-    expect(composerKeyboardAction({ key: 'Enter', shiftKey: false, slashOpen: false })).toBe('newline');
-    expect(composerKeyboardAction({ key: 'Enter', shiftKey: true, slashOpen: false })).toBe('newline');
+    expect(composerKeyboardAction({ layout: 'mobile', key: 'Enter', shiftKey: false, slashOpen: false })).toBe('newline');
+    expect(composerKeyboardAction({ layout: 'mobile', key: 'Enter', shiftKey: true, slashOpen: false })).toBe('newline');
   });
 
   it('inserts a newline at the current selection and replaces selected text', () => {
@@ -17,15 +17,23 @@ describe('composer keyboard behavior', () => {
   });
 
   it('does not interfere with IME composition', () => {
-    expect(composerKeyboardAction({ key: 'Enter', shiftKey: false, slashOpen: false, isComposing: true })).toBe('none');
-    expect(composerKeyboardAction({ key: 'Enter', shiftKey: false, slashOpen: false, keyCode: 229 })).toBe('none');
+    for (const layout of ['desktop', 'mobile'] as const) {
+      expect(composerKeyboardAction({ layout, key: 'Enter', shiftKey: false, slashOpen: true, isComposing: true })).toBe('none');
+      expect(composerKeyboardAction({ layout, key: 'Enter', shiftKey: false, slashOpen: true, keyCode: 229 })).toBe('none');
+    }
   });
 
   it('keeps slash-menu navigation on non-text keys without turning Enter into send', () => {
-    expect(composerKeyboardAction({ key: 'ArrowDown', shiftKey: false, slashOpen: true })).toBe('move-down');
-    expect(composerKeyboardAction({ key: 'ArrowUp', shiftKey: false, slashOpen: true })).toBe('move-up');
-    expect(composerKeyboardAction({ key: 'Escape', shiftKey: false, slashOpen: true })).toBe('dismiss-slash');
-    expect(composerKeyboardAction({ key: 'Tab', shiftKey: false, slashOpen: true })).toBe('choose-slash');
-    expect(composerKeyboardAction({ key: 'Enter', shiftKey: false, slashOpen: true })).toBe('newline');
+    expect(composerKeyboardAction({ layout: 'mobile', key: 'ArrowDown', shiftKey: false, slashOpen: true })).toBe('move-down');
+    expect(composerKeyboardAction({ layout: 'mobile', key: 'ArrowUp', shiftKey: false, slashOpen: true })).toBe('move-up');
+    expect(composerKeyboardAction({ layout: 'mobile', key: 'Escape', shiftKey: false, slashOpen: true })).toBe('dismiss-slash');
+    expect(composerKeyboardAction({ layout: 'mobile', key: 'Tab', shiftKey: false, slashOpen: true })).toBe('choose-slash');
+    expect(composerKeyboardAction({ layout: 'mobile', key: 'Enter', shiftKey: false, slashOpen: true })).toBe('newline');
+  });
+
+  it('preserves desktop sending and slash selection while Shift+Enter adds a line', () => {
+    expect(composerKeyboardAction({ layout: 'desktop', key: 'Enter', shiftKey: false, slashOpen: false })).toBe('submit');
+    expect(composerKeyboardAction({ layout: 'desktop', key: 'Enter', shiftKey: false, slashOpen: true })).toBe('choose-slash');
+    expect(composerKeyboardAction({ layout: 'desktop', key: 'Enter', shiftKey: true, slashOpen: true })).toBe('newline');
   });
 });

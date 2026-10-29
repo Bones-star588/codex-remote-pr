@@ -116,6 +116,58 @@ describe('private standard Web Push subscriptions', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it('does not read title metadata when no devices are subscribed', async () => {
+    const { directory } = create();
+    const readThread = vi.fn();
+    const notifications = new PushNotifications(directory, 'https://remote.example.test', readThread);
+    notifications.watch('main');
+    await notifications.notifyTurn({ threadId: 'main', turn: { id: 'turn', status: 'completed' } });
+    await notifications.notifyApproval({ threadId: 'main' });
+    expect(readThread).not.toHaveBeenCalled();
+  });
+
+  it('delivers with a default title after 1.5 seconds even when native metadata hangs', async () => {
+    vi.useFakeTimers();
+    const send = vi.spyOn(webPush, 'sendNotification').mockResolvedValue(sent);
+    const { directory } = create();
+    let rejectRead!: (error: Error) => void;
+    const readThread = vi.fn(() => new Promise((_, reject) => { rejectRead = reject; }));
+    const notifications = new PushNotifications(directory, 'https://remote.example.test', readThread);
+    notifications.subscribe(subscription());
+    notifications.watch('main');
+    const pending = notifications.notifyTurn({
+      threadId: 'main', turn: { id: 'turn', status: 'completed', items: [{ type: 'agentMessage', text: 'Ready' }] }
+    });
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(send).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(JSON.parse(send.mock.calls[0]![1] as string)).toMatchObject({ title: 'Codex', body: '任务已完成：Ready' });
+    rejectRead(new Error('Late native failure'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('prefers final replies and excludes commentary and tool bodies from the reply preview', async () => {
+    const send = vi.spyOn(webPush, 'sendNotification').mockResolvedValue(sent);
+    const { notifications } = create();
+    notifications.subscribe(subscription());
+    notifications.watch('main');
+    await notifications.notifyTurn({
+      threadId: 'main', thread: { name: 'Task' }, turn: { id: 'turn', status: 'completed', items: [
+        { type: 'agentMessage', phase: 'final_answer', text: 'Done' },
+        { type: 'agentMessage', phase: 'commentary', text: 'PRIVATE_COMMENTARY' },
+        { type: 'commandExecution', text: 'PRIVATE_COMMAND' }
+      ] }
+    });
+    expect(JSON.parse(send.mock.calls[0]![1] as string).body).toBe('任务已完成：Done');
+    await notifications.notifyTurn({
+      threadId: 'main', thread: { name: 'Task' },
+      turn: { id: 'turn-2', status: 'completed', items: [{ type: 'agentMessage', phase: 'commentary', text: 'PRIVATE_COMMENTARY' }] }
+    });
+    expect(JSON.parse(send.mock.calls[1]![1] as string).body).toBe('任务已完成');
+  });
+
   it('retries transient background delivery without any browser connection', async () => {
     vi.useFakeTimers();
     const send = vi.spyOn(webPush, 'sendNotification')

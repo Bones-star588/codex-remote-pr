@@ -116,6 +116,7 @@ export function ThreadTimeline({
   const laterSentinelRef = useRef<HTMLDivElement | null>(null);
   const laterAttemptRef = useRef<string | null>(null);
   const laterPendingRef = useRef(false);
+  const loadLaterRef = useRef<() => void>(() => {});
   const previousSectionsRef = useRef<TimelineSection[]>([]);
   const entries = useMemo(() => buildTimelineEntries(items, activeTurnId,
     previousSectionsRef.current.flatMap(section => section.entries)), [items, activeTurnId]);
@@ -160,7 +161,11 @@ export function ThreadTimeline({
   useEffect(() => {
     const stream = streamRef.current;
     const sentinel = laterSentinelRef.current;
-    if (!stream || !sentinel || !hasNewerHistory || !onLoadLater) return;
+    if (!stream || !sentinel || !hasNewerHistory || !onLoadLater) {
+      loadLaterRef.current = () => {};
+      return;
+    }
+    let frame = 0;
     const load = () => {
       if (loadingLaterHistory || loadingHistory || revealingHistory || laterPendingRef.current ||
           !navigator.onLine || document.visibilityState !== 'visible' ||
@@ -169,15 +174,35 @@ export function ThreadTimeline({
       if (laterAttemptRef.current === key) return;
       laterAttemptRef.current = key;
       laterPendingRef.current = true;
-      console.debug('[turn-navigation] continuing context', { count: items.length });
-      void onLoadLater().finally(() => { laterPendingRef.current = false; });
+      void onLoadLater().catch(error => onActionError?.(error)).finally(() => {
+        laterPendingRef.current = false;
+        // React can commit the new cursor before this promise settles.
+        // Recheck the current page, whose attempt key prevents idle retries.
+        frame = requestAnimationFrame(() => loadLaterRef.current());
+      });
+    };
+    loadLaterRef.current = load;
+    const recover = () => {
+      if (document.visibilityState !== 'visible' || !navigator.onLine || laterPendingRef.current) return;
+      laterAttemptRef.current = null;
+      load();
     };
     const observer = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) load(); },
       { root: stream, rootMargin: `0px 0px ${stream.clientHeight * 2}px 0px` });
     observer.observe(sentinel);
+    stream.addEventListener('scroll', load, { passive: true });
+    window.addEventListener('online', recover);
+    document.addEventListener('visibilitychange', recover);
     load();
-    return () => observer.disconnect();
-  }, [hasNewerHistory, newerHistoryCursor, onLoadLater, items, loadingLaterHistory, loadingHistory, revealingHistory]);
+    return () => {
+      observer.disconnect();
+      stream.removeEventListener('scroll', load);
+      window.removeEventListener('online', recover);
+      document.removeEventListener('visibilitychange', recover);
+      cancelAnimationFrame(frame);
+      loadLaterRef.current = () => {};
+    };
+  }, [hasNewerHistory, newerHistoryCursor, onLoadLater, items, loadingLaterHistory, loadingHistory, revealingHistory, onActionError]);
   const rememberReadingPosition = useCallback(() => {
     const stream = streamRef.current;
     const inner = innerRef.current;
@@ -369,7 +394,8 @@ export function ThreadTimeline({
       className="message-stream"
       aria-label="会话记录"
       onWheel={event => {
-        laterAttemptRef.current = null;
+        if (!laterPendingRef.current) laterAttemptRef.current = null;
+        loadLaterRef.current();
         navigationAnchorRef.current = null;
         wantsEarlierRef.current = event.deltaY < 0;
         if (!wantsEarlierRef.current) continuationTopRef.current = null;
@@ -377,7 +403,8 @@ export function ThreadTimeline({
         scrollActivityRef.current!.activity();
       }}
       onTouchStart={event => {
-        laterAttemptRef.current = null;
+        if (!laterPendingRef.current) laterAttemptRef.current = null;
+        loadLaterRef.current();
         navigationAnchorRef.current = null;
         scrollActivityRef.current!.startTouch(event.touches[0]?.clientY ?? null);
         stickToBottomRef.current = false;
@@ -397,6 +424,8 @@ export function ThreadTimeline({
       onKeyDownCapture={event => {
         navigationAnchorRef.current = null;
         if (['Home', 'PageUp', 'ArrowUp', 'End', 'PageDown', 'ArrowDown'].includes(event.key)) {
+          if (!laterPendingRef.current) laterAttemptRef.current = null;
+          loadLaterRef.current();
           wantsEarlierRef.current = ['Home', 'PageUp', 'ArrowUp'].includes(event.key);
           if (!wantsEarlierRef.current) continuationTopRef.current = null;
           if (wantsEarlierRef.current && !loadingEarlierRef.current) earlierAttemptRef.current = null;

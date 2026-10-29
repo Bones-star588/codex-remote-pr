@@ -1,6 +1,6 @@
 import { List, LoaderCircle, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { memo, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import type { OutlineTurn } from '../../shared/thread-outline';
 import { itemKey } from '../remote-state';
 
@@ -32,8 +32,9 @@ export const ThreadNavigation = memo(function ThreadNavigation({ turns, streamRe
   const buttonsRef = useRef<Array<HTMLButtonElement | null>>([]);
   const previewId = useId();
 
-  useLayoutEffect(() => {
-    setMobileTriggerTarget(document.querySelector<HTMLElement>('[data-thread-navigation-slot]'));
+  useEffect(() => {
+    setMobileTriggerTarget(streamRef.current?.closest('.thread-screen')
+      ?.querySelector<HTMLElement>('[data-thread-navigation-slot]') ?? null);
   }, []);
 
   useEffect(() => {

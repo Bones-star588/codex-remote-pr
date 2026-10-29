@@ -80,3 +80,29 @@ No new dependency was installed and no third-party UI source was copied. Statist
 ## Limits
 
 The interface loads bounded pages as the reader scrolls; it does not preload an arbitrarily large entire transcript. First navigation and uncached dock data still depend on the host/network. Physical iOS keyboard/network acceptance is separate.
+
+## Maintainer Review: 0.1.3
+
+The integration preserves browser dictation and native context usage in main and
+side composers. Desktop Enter sends or selects the highlighted slash command;
+Shift+Enter adds a line. Mobile Enter adds a line, including native beforeinput
+events from soft keyboards, without sending during IME composition.
+
+Forward navigation retries on a new gesture after failure, including an
+underfilled sentinel that remains visible. Cursor-only progress continues
+automatically; an unchanged failed page never loops while idle. The mobile
+outline trigger attaches after the composer exists and remains scoped to its
+own conversation. Switching conversations remounts Goal action state.
+
+Notifications retain conversation titles and up to 100 characters of final
+reply content, as requested. Native title lookup allows at most 1.5 seconds and
+is skipped when there are no subscribers. Commentary and tool bodies are not
+reply previews. Settings and both README languages describe lock-screen content.
+
+Maintainer validation: 346 tests across 56 files, both TypeScript targets and
+production build pass. Chromium and Windows WebKit cover 2560x1440, 402x874,
+320x568 and 874x402, including desktop/mobile Enter, slash menus, Goal pause/edit,
+draft preservation and a failed forward page followed by gesture retry and
+cursor-only completion. Screenshots contain synthetic content only. Windows
+WebKit permits a one-CSS-pixel viewport rounding tolerance; this does not replace
+physical Safari or OS notification acceptance.

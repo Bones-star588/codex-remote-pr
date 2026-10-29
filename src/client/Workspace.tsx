@@ -665,7 +665,7 @@ function ThreadScreen({
       />
 
       <div className="thread-bottom">
-        <GoalStatus goal={remote.activeGoal} disabled={!remote.connected || !remote.threadReady || remote.showArchived}
+        <GoalStatus key={thread.id} goal={remote.activeGoal} disabled={!remote.connected || !remote.threadReady || remote.showArchived}
           onUpdate={update => remote.setGoal(thread.id, update)} onDelete={() => remote.clearGoal(thread.id)} onError={onError} />
         <ApprovalDock
           requests={remote.serverRequests.filter((request) => request.params.threadId === thread.id)}
@@ -691,6 +691,7 @@ function ThreadScreen({
           models={remote.models}
           activeTurnId={remote.activeTurnId}
           queueMessages={queueEnabled}
+          {...(remote.contextUsage ? { contextUsage: remote.contextUsage } : {})}
           onModelChange={onModelChange}
           onEffortChange={onEffortChange}
           onSubmit={async (text, attachments, skills) => {

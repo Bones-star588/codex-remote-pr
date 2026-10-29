@@ -1,12 +1,12 @@
 import {
   ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, Eye, Folder,
-  LoaderCircle, ShieldAlert, ShieldCheck, Square, X, Plus, FileImage, MessageSquare, Sparkles, ListTodo
+  LoaderCircle, ShieldAlert, ShieldCheck, Square, X, Plus, Mic, FileImage, MessageSquare, Sparkles, ListTodo
 } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { v4 as randomUUID } from 'uuid';
 import { permissionLabel, type PermissionProfile } from '../../shared/permissions';
-import type { ComposerAttachment, ModelInfo, ProjectInfo, SkillInfo, SkillsResult } from '../types';
+import type { ComposerAttachment, ContextUsage, ModelInfo, ProjectInfo, SkillInfo, SkillsResult } from '../types';
 import { modelDisplayName, reasoningLabel, reasoningOptionsForModel } from '../workspace-model';
 import { findSlashCommand, parseSlashQuery, slashOptions, type SlashCommandId, type SlashOption } from '../slash-commands';
 import { composerKeyboardAction, insertComposerNewline } from '../composer-keyboard';
@@ -40,6 +40,7 @@ interface ComposerProps {
   skillScope: string;
   hasSavedThread: boolean;
   mode: 'default' | 'plan';
+  contextUsage?: ContextUsage;
   onStop?: () => Promise<void>;
   onError: (error: unknown) => void;
 }
@@ -48,7 +49,7 @@ export function Composer({
   variant, layout, model, effort, models, permissions, permissionProfiles, onPermissionsChange,
   projects = [], selectedProjectId = '', activeTurnId, focusRequest = 0,
   draftKey = variant, disabled = false, placeholder, onProjectChange,
-  onModelChange, onEffortChange, onSubmit, onStop, onError,
+  onModelChange, onEffortChange, onSubmit, onStop, onError, contextUsage,
   onCommand, loadSkills, skillScope, hasSavedThread, mode, temporary = false, initialInput, queueMessages = false
 }: ComposerProps) {
   const controlId = useId();
@@ -64,6 +65,7 @@ export function Composer({
   const [focused, setFocused] = useState(false);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
+  const [listening, setListening] = useState(false);
   const [menu, setMenu] = useState<'settings' | 'models' | 'permissions' | 'projects' | null>(null);
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({});
   const draftRef = useRef(draft);
@@ -74,10 +76,16 @@ export function Composer({
   const permissionButtonRef = useRef<HTMLButtonElement>(null);
   const projectButtonRef = useRef<HTMLButtonElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<Dictation | null>(null);
   const commandRunningRef = useRef(false);
   const skillsLoaderRef = useRef(loadSkills);
   const skillScopeRef = useRef(skillScope);
   skillsLoaderRef.current = loadSkills;
+  const speechConstructor = (window as SpeechWindow).SpeechRecognition ?? (window as SpeechWindow).webkitSpeechRecognition;
+  const contextWindow = contextUsage?.modelContextWindow;
+  const usedTokens = contextUsage?.last.totalTokens;
+  const contextPercent = contextWindow && usedTokens != null
+    ? Math.min(100, Math.max(0, usedTokens / contextWindow * 100)) : null;
   const modelInfo = models.find((entry) => entry.model === model);
   const effortOptions = useMemo(() => reasoningOptionsForModel(modelInfo), [modelInfo]);
   const menuLabel = menu === 'permissions' ? '访问权限' : menu === 'models' ? '模型' : menu === 'projects' ? '项目' : '推理强度';
@@ -116,6 +124,18 @@ export function Composer({
     });
   };
   useEffect(() => {
+    const textarea = textareaRef.current;
+    if (layout !== 'mobile' || !textarea) return;
+    const beforeInput = (event: InputEvent) => {
+      if (!event.cancelable || event.isComposing ||
+          (event.inputType !== 'insertLineBreak' && event.inputType !== 'insertParagraph')) return;
+      event.preventDefault();
+      insertNewline();
+    };
+    textarea.addEventListener('beforeinput', beforeInput);
+    return () => textarea.removeEventListener('beforeinput', beforeInput);
+  }, [layout, draftKey, temporary]);
+  useEffect(() => {
     setSlashIndex(Math.max(0, options.findIndex((option) => !option.disabledReason)));
   }, [draft, skills, hasSavedThread, activeTurnId]);
   useEffect(() => {
@@ -138,6 +158,28 @@ export function Composer({
     }).finally(() => { if (!cancelled) setSkillsLoading(false); });
     return () => { cancelled = true; };
   }, [slashOpen, skillScope]);
+
+  useEffect(() => () => { recognitionRef.current?.abort(); }, []);
+
+  const dictate = () => {
+    if (recognitionRef.current) { recognitionRef.current.stop(); return; }
+    if (!speechConstructor) return;
+    const recognition = new speechConstructor();
+    recognitionRef.current = recognition;
+    recognition.lang = document.documentElement.lang || navigator.language;
+    recognition.interimResults = false;
+    recognition.onstart = () => setListening(true);
+    recognition.onend = () => { recognitionRef.current = null; setListening(false); };
+    recognition.onerror = (event) => {
+      if (event.error !== 'aborted') onError(new Error(event.error === 'not-allowed' ? '请允许浏览器使用麦克风。' : '听写暂时不可用，请重试。'));
+    };
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results).map((result) => result[0]?.transcript ?? '').join('');
+      const current = draftRef.current;
+      updateDraft(`${current}${current && !/\s$/.test(current) ? ' ' : ''}${transcript}`);
+    };
+    recognition.start();
+  };
 
   const addFiles = async (files: FileList | null) => {
     try {
@@ -458,14 +500,9 @@ export function Composer({
             updateDraft(event.target.value);
             setMenu(null);
           }}
-          onBeforeInput={(event) => {
-            const input = event.nativeEvent as InputEvent;
-            if (input.isComposing || (input.inputType !== 'insertLineBreak' && input.inputType !== 'insertParagraph')) return;
-            event.preventDefault();
-            insertNewline();
-          }}
           onKeyDown={(event) => {
             const action = composerKeyboardAction({
+              layout,
               key: event.key,
               shiftKey: event.shiftKey,
               slashOpen,
@@ -473,6 +510,11 @@ export function Composer({
               keyCode: event.keyCode
             });
             if (action === 'none') return;
+            if (action === 'submit') {
+              event.preventDefault();
+              void submit();
+              return;
+            }
             if (action === 'newline') {
               event.preventDefault();
               event.stopPropagation();
@@ -490,9 +532,10 @@ export function Composer({
               return;
             }
             if (action === 'choose-slash') {
+              event.preventDefault();
               const option = options[slashIndex];
               if (option && !option.disabledReason) {
-                event.preventDefault(); void chooseSlash(option);
+                void chooseSlash(option);
               }
             }
           }}
@@ -538,6 +581,18 @@ export function Composer({
             <span className="composer-turn-slot" data-thread-navigation-slot={variant === 'thread' ? '' : undefined} />
           </div>
           <div className="composer-submit">
+            {contextPercent !== null && <span className="context-usage" role="img" tabIndex={0}
+              aria-label={`上下文已用 ${Math.round(contextPercent)}%`}
+              title={`上下文已用 ${Math.round(contextPercent)}%\n${usedTokens?.toLocaleString()} / ${contextWindow?.toLocaleString()} tokens`}
+              style={{ '--context-percent': contextPercent } as CSSProperties}>
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                <circle className="context-usage-track" cx="6" cy="6" r="5" pathLength="100" />
+                <circle className="context-usage-progress" cx="6" cy="6" r="5" pathLength="100" />
+              </svg>
+            </span>}
+            {speechConstructor && <button type="button" className={`composer-circle-button${listening ? ' is-listening' : ''}`}
+              aria-label={listening ? '停止听写' : '开始听写'} title={listening ? '停止听写' : '开始听写'}
+              aria-pressed={listening} onClick={dictate}><Mic size={15} /></button>}
             {activeTurnId && !draft.trim() && attachments.length === 0 && selectedSkills.length === 0 ? (
               <button type="button" className="composer-stop" disabled={stopping} onClick={() => void stop()}
                 aria-label="停止任务" title="停止任务">
@@ -556,3 +611,19 @@ export function Composer({
     </div>
   );
 }
+
+interface Dictation {
+  lang: string;
+  interimResults: boolean;
+  onstart: (() => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+}
+type SpeechWindow = Window & {
+  SpeechRecognition?: new () => Dictation;
+  webkitSpeechRecognition?: new () => Dictation;
+};

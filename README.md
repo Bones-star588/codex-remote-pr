@@ -508,8 +508,11 @@ Expired endpoints are removed; unsubscribing stops further attempts.
 VAPID keys, device subscriptions and notification chat scope are private runtime
 data in `data/web-push.json`. Keep that file across updates and out of Git.
 Browser push services, including Apple or the browser vendor, deliver encrypted
-messages. Payloads contain a generic status and chat identifier, without prompts,
-reply text, filenames or command output. Disable affects this device; successful
+messages. Notifications include the conversation title, status, chat identifier
+and up to 100 characters of the final reply. A title may fall back to the chat's
+native preview; this content can appear on the device's lock screen. Tool and
+command output are excluded. Title lookup falls back after 1.5 seconds.
+Disable affects this device; successful
 logout also removes its subscription. Expiring browser login alone does not
 revoke an existing OS push subscription; use Disable or remove the site's
 notification permission. Delivery depends on system settings, Focus modes and

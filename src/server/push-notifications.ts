@@ -41,11 +41,13 @@ function truncateReply(value: string, limit = 100): string {
 function replyText(params: Record<string, unknown>): string | null {
   const turn = recordValue(params.turn);
   const items = Array.isArray(turn?.items) ? turn.items : [];
-  for (const item of [...items].reverse()) {
-    const candidate = recordValue(item);
-    if (candidate?.type !== 'agentMessage') continue;
-    const text = firstText(candidate.text);
-    if (text) return truncateReply(text);
+  for (const phase of ['final_answer', null]) {
+    for (const item of [...items].reverse()) {
+      const candidate = recordValue(item);
+      if (candidate?.type !== 'agentMessage' || (candidate.phase ?? null) !== phase) continue;
+      const text = firstText(candidate.text);
+      if (text) return truncateReply(text);
+    }
   }
   return null;
 }
@@ -130,15 +132,18 @@ export class PushNotifications {
 
   private async conversationTitle(threadId: string, params: Record<string, unknown>): Promise<string> {
     const fromEvent = threadTitle(params.thread) ?? firstText(params.threadName, params.name);
-    if (fromEvent) return fromEvent;
+    if (fromEvent) return truncateReply(fromEvent);
     if (this.readThread) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        const result = await this.readThread(threadId);
+        const result = await Promise.race([
+          Promise.resolve().then(() => this.readThread!(threadId)),
+          new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 1500); })
+        ]);
         const fromNative = threadTitle(recordValue(result)?.thread);
-        if (fromNative) return fromNative;
-      } catch (error) {
-        console.warn('[push-notifications] could not read thread title', { threadId, error });
-      }
+        if (fromNative) return truncateReply(fromNative);
+      } catch { /* Title metadata must not prevent status delivery. */ }
+      finally { clearTimeout(timer); }
     }
     return 'Codex';
   }
@@ -146,7 +151,7 @@ export class PushNotifications {
   async notifyTurn(params: Record<string, unknown>): Promise<void> {
     const threadId = typeof params.threadId === 'string' ? params.threadId : '';
     const turn = params.turn as { id?: string; status?: string } | undefined;
-    if (!this.watchedThreads.has(threadId) || !turn?.id) return;
+    if (!this.subscriptions.size || !this.watchedThreads.has(threadId) || !turn?.id) return;
     const status = turn.status === 'completed' ? '\u4efb\u52a1\u5df2\u5b8c\u6210'
       : turn.status === 'interrupted' ? '\u4efb\u52a1\u5df2\u505c\u6b62'
       : turn.status === 'failed' ? '\u4efb\u52a1\u6267\u884c\u5931\u8d25' : null;
@@ -162,7 +167,7 @@ export class PushNotifications {
 
   async notifyApproval(params: Record<string, unknown>): Promise<void> {
     const threadId = typeof params.threadId === 'string' ? params.threadId : '';
-    if (!this.watchedThreads.has(threadId)) return;
+    if (!this.subscriptions.size || !this.watchedThreads.has(threadId)) return;
     await this.notify({
       title: await this.conversationTitle(threadId, params), body: '\u4efb\u52a1\u9700\u8981\u4f60\u7684\u786e\u8ba4',
       tag: `codex-approval-${threadId}`, url: `/?thread=${encodeURIComponent(threadId)}`, threadId

@@ -52,7 +52,7 @@ export function SideChatView({ chat, remote, layout, onPatch, onSend, onNew }: {
       <Composer temporary {...(chat.initialInput ? { initialInput: queuedDraft(chat.initialInput) } : {})}
         variant="thread" draftKey={chat.id} layout={layout} model={chat.model} effort={effort}
         permissions={chat.permissions} permissionProfiles={profiles} models={remote.models}
-        activeTurnId={chat.activeTurnId}
+        activeTurnId={chat.activeTurnId} {...(chat.contextUsage ? { contextUsage: chat.contextUsage } : {})}
         disabled={!remote.connected || Boolean(chat.closing || chat.unavailable)}
         placeholder="和 Codex 一起工作" skillScope={chat.cwd ?? ''} hasSavedThread={false} mode={chat.mode}
         loadSkills={() => remote.listSkills(chat.cwd)}

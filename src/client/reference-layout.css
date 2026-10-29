@@ -269,6 +269,11 @@ svg { stroke-width: 1.8; }
 .composer-circle-button { display: inline-grid; width: 28px; height: 28px; flex: 0 0 28px; place-items: center; border: 0; border-radius: 50%; background: transparent; padding: 0; color: var(--muted); }
 .composer-circle-button:hover { background: var(--surface-hover); color: var(--ink); }
 .composer-add { border: 1px solid var(--line-strong); }
+.composer-circle-button.is-listening { color: var(--danger); background: var(--danger-soft); }
+.context-usage { display: inline-grid; width: 18px; height: 28px; flex: 0 0 18px; place-items: center; color: var(--muted); }
+.context-usage svg { fill: none; stroke: currentColor; stroke-width: 2; }
+.context-usage-track { opacity: .16; }
+.context-usage-progress { stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: calc(100 - var(--context-percent)); transform: rotate(-90deg); transform-origin: 50% 50%; }
 .composer-context-tray { display: flex; flex-wrap: wrap; gap: 6px; padding: 9px 11px 0; }
 .composer-context-chip { display: flex; max-width: 260px; min-height: 28px; align-items: center; gap: 6px; border: 1px solid var(--line-strong); border-radius: 8px; padding: 0 8px; color: var(--muted); font-size: 12px; }
 .composer-context-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
