@@ -59,7 +59,7 @@ describe('private standard Web Push subscriptions', () => {
     expect(new PushNotifications(directory, 'https://remote.example.test').status(device.endpoint)).toBe(false);
   });
 
-  it('sends actual push-adapter payloads with generic text and the selected chat link only', async () => {
+  it('includes the conversation name and the current reply preview in completion notifications', async () => {
     const send = vi.spyOn(webPush, 'sendNotification').mockResolvedValue(sent);
     const { notifications } = create();
     const device = subscription();
@@ -67,8 +67,8 @@ describe('private standard Web Push subscriptions', () => {
     notifications.watch('chat/with space');
     await notifications.notifyTurn({
       threadId: 'chat/with space',
-      turn: { id: 'turn', status: 'completed', items: [{ text: 'PRIVATE_CHAT_TEXT' }] },
-      cwd: 'PRIVATE_PATH'
+      thread: { name: '实现登录流程' },
+      turn: { id: 'turn', status: 'completed', items: [{ type: 'agentMessage', text: '已完成登录流程，并更新了相关测试。' }] }
     });
     await notifications.notifyApproval({
       threadId: 'chat/with space', command: 'PRIVATE_COMMAND', requestId: 'request'
@@ -76,14 +76,32 @@ describe('private standard Web Push subscriptions', () => {
     expect(send).toHaveBeenCalledTimes(2);
     const payload = JSON.parse(send.mock.calls[0]![1] as string);
     expect(payload).toMatchObject({
-      title: 'Codex', body: '\u4efb\u52a1\u5df2\u5b8c\u6210',
+      title: '实现登录流程', body: '任务已完成：已完成登录流程，并更新了相关测试。',
       threadId: 'chat/with space', url: '/?thread=chat%2Fwith%20space'
     });
     expect(send.mock.calls[0]![2]).toMatchObject({
       TTL: 300, timeout: 8000, urgency: 'high', contentEncoding: 'aes128gcm',
       vapidDetails: { publicKey: notifications.publicKey, subject: 'https://remote.example.test' }
     });
-    expect(JSON.stringify(send.mock.calls)).not.toContain('PRIVATE_');
+  });
+
+  it('falls back to the native thread title and truncates long replies by Unicode characters', async () => {
+    const send = vi.spyOn(webPush, 'sendNotification').mockResolvedValue(sent);
+    const readThread = vi.fn(async () => ({ thread: { name: '来自桌面的任务' } }));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-push-'));
+    directories.push(directory);
+    const notifications = new PushNotifications(directory, 'https://remote.example.test', readThread);
+    const device = subscription();
+    notifications.subscribe(device);
+    notifications.watch('native-title');
+    const reply = `${'a'.repeat(100)}结尾不应出现`;
+    await notifications.notifyTurn({
+      threadId: 'native-title', turn: { id: 'turn', status: 'completed', items: [{ type: 'agentMessage', text: reply }] }
+    });
+    const payload = JSON.parse(send.mock.calls[0]![1] as string);
+    expect(payload.title).toBe('来自桌面的任务');
+    expect(payload.body).toBe(`任务已完成：${'a'.repeat(100)}…`);
+    expect(readThread).toHaveBeenCalledWith('native-title');
   });
 
   it('ignores unwatched side/subagent chats and unfinished turns', async () => {

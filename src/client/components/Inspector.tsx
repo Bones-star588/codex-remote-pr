@@ -27,7 +27,7 @@ interface InspectorProps {
   items: ThreadItem[];
   onClose: () => void;
   layout: 'desktop' | 'mobile';
-  view: 'changes' | 'activity' | 'files';
+  view: 'launcher' | 'changes' | 'activity' | 'files';
   remote: RemoteState;
   sideChatRequest: { id: number; input?: ChatInput } | null;
   previewRequest: { id: number; target: PreviewTarget } | null;

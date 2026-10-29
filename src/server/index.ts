@@ -59,7 +59,11 @@ const eventJournal = new EventJournal();
 const localImages = new LocalImages(path.join(config.dataDir, 'image-attachments'));
 const metadataReader = new MetadataReader((method, params) => codexBridge.request(method, params));
 const workspaceSnapshots = new WorkspaceSnapshots((method, params) => codexBridge.request(method, params));
-const pushNotifications = new PushNotifications(config.dataDir, config.publicOrigin ?? 'https://example.com');
+const pushNotifications = new PushNotifications(
+  config.dataDir,
+  config.publicOrigin ?? 'https://example.com',
+  threadId => codexBridge.request('thread/read', { threadId, includeTurns: false })
+);
 const watchedThreads = new Map<RemotePeer, Set<string>>();
 const ephemeralChats = new EphemeralChats<RemotePeer>(threadId => codexBridge.request('thread/unsubscribe', { threadId }));
 const queueDispatcher = new QueueDispatcher(<T,>(method: import('../shared/protocol.js').ClientRpcMethod, params: unknown) =>

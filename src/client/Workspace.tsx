@@ -41,6 +41,7 @@ import './subagents.css';
 import type { PreviewTarget } from '../shared/file-preview';
 import { markStartup } from './startup';
 import { unlinkDeviceNotifications } from './push-notifications';
+import { toggleInspectorLauncher, type InspectorView } from './inspector-state';
 
 interface WorkspaceProps {
   authenticated: boolean;
@@ -64,7 +65,7 @@ export function Workspace({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
-  const [inspectorView, setInspectorView] = useState<'changes' | 'activity' | 'files'>('changes');
+  const [inspectorView, setInspectorView] = useState<InspectorView>('changes');
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [newTaskModel, setNewTaskModel] = useState('');
@@ -415,7 +416,11 @@ export function Workspace({ authenticated, onAuthExpired, bootstrap, bootstrapRe
             <button
               type="button"
               className={`icon-button${inspectorOpen ? ' is-active' : ''}`}
-              onClick={() => { setInspectorView('changes'); setInspectorOpen((value) => inspectorView === 'changes' ? !value : true); }}
+              onClick={() => {
+                const next = toggleInspectorLauncher(inspectorOpen, inspectorView);
+                setInspectorView(next.view);
+                setInspectorOpen(next.open);
+              }}
               aria-label="打开任务检查器"
               title="打开任务检查器"
               aria-pressed={inspectorOpen}

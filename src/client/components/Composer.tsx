@@ -9,6 +9,7 @@ import { permissionLabel, type PermissionProfile } from '../../shared/permission
 import type { ComposerAttachment, ContextUsage, ModelInfo, ProjectInfo, SkillInfo, SkillsResult } from '../types';
 import { modelDisplayName, reasoningLabel, reasoningOptionsForModel } from '../workspace-model';
 import { findSlashCommand, parseSlashQuery, slashOptions, type SlashCommandId, type SlashOption } from '../slash-commands';
+import { composerKeyboardAction } from '../composer-keyboard';
 import { SlashMenu } from './SlashMenu';
 
 interface ComposerProps {
@@ -475,28 +476,29 @@ export function Composer({
             setMenu(null);
           }}
           onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-            if (slashOpen) {
-              if (event.key === 'Escape') {
+            const action = composerKeyboardAction({
+              key: event.key,
+              shiftKey: event.shiftKey,
+              slashOpen,
+              isComposing: event.nativeEvent.isComposing,
+              keyCode: event.keyCode
+            });
+            if (action === 'none' || action === 'newline') return;
+            if (action === 'dismiss-slash') {
                 event.preventDefault(); event.stopPropagation(); setSlashDismissed(true); return;
-              }
-              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                event.preventDefault();
-                const enabled = options.map((option, index) => option.disabledReason ? -1 : index).filter((index) => index >= 0);
-                const at = enabled.indexOf(slashIndex);
-                setSlashIndex(enabled[(at + (event.key === 'ArrowDown' ? 1 : -1) + enabled.length) % enabled.length] ?? 0);
-                return;
-              }
-              if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
-                const option = options[slashIndex];
-                if (option && !option.disabledReason) {
-                  event.preventDefault(); void chooseSlash(option); return;
-                }
-                if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); return; }
-              }
             }
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault(); void submit();
+            if (action === 'move-up' || action === 'move-down') {
+              event.preventDefault();
+              const enabled = options.map((option, index) => option.disabledReason ? -1 : index).filter((index) => index >= 0);
+              const at = enabled.indexOf(slashIndex);
+              setSlashIndex(enabled[(at + (action === 'move-down' ? 1 : -1) + enabled.length) % enabled.length] ?? 0);
+              return;
+            }
+            if (action === 'choose-slash') {
+              const option = options[slashIndex];
+              if (option && !option.disabledReason) {
+                event.preventDefault(); void chooseSlash(option);
+              }
             }
           }}
           placeholder={placeholder ?? (activeTurnId ? '补充要求' : variant === 'home' ? '有什么需要处理？' : '继续向 Codex 提问')}
