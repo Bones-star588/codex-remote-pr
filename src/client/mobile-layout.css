@@ -100,3 +100,20 @@
 .app-shell[data-layout="mobile"] .queued-messages {
   border-radius: var(--composer-radius);
 }
+
+/* Match the composer sheet while keeping the close button's touch area. */
+.app-shell[data-layout="mobile"] .thread-navigation-dialog {
+  border-radius: var(--composer-radius);
+  overflow: hidden;
+}
+.app-shell[data-layout="mobile"] .navigation-dialog-list > button {
+  border-radius: var(--radius);
+}
+.app-shell[data-layout="mobile"] .navigation-dialog-close {
+  border: 0;
+  background: transparent;
+}
+.app-shell[data-layout="mobile"] .navigation-dialog-close > svg {
+  width: 14px;
+  height: 14px;
+}

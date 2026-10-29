@@ -86,6 +86,9 @@ export const ThreadNavigation = memo(function ThreadNavigation({ turns, streamRe
   useEffect(() => {
     if (!mobileOpen) { mobileRef.current?.close(); return; }
     mobileRef.current?.showModal();
+    // Keep the first control from receiving an opening-time focus ring.
+    // Keyboard navigation still gives each button its normal visible focus.
+    mobileRef.current?.focus({ preventScroll: true });
     const frame = requestAnimationFrame(() => {
       mobileRef.current?.querySelector('[aria-current]')?.scrollIntoView({ block: 'center' });
     });
@@ -146,12 +149,12 @@ export const ThreadNavigation = memo(function ThreadNavigation({ turns, streamRe
       </button>;
       return mobileTriggerTarget ? createPortal(trigger, mobileTriggerTarget) : trigger;
     })()}
-    <dialog ref={mobileRef} className="thread-navigation-dialog" aria-label="对话回合"
+    <dialog ref={mobileRef} className="thread-navigation-dialog" aria-label="对话回合" tabIndex={-1}
       onCancel={() => setMobileOpen(false)}
       onClose={() => { setMobileOpen(false); triggerRef.current?.focus(); }}
       onClick={event => { if (event.target === event.currentTarget) setMobileOpen(false); }}>
       <div className="navigation-dialog-header"><span>对话回合</span>
-        <button type="button" className="icon-button" aria-label="关闭" onClick={() => setMobileOpen(false)}><X size={18} /></button>
+        <button type="button" className="icon-button navigation-dialog-close" aria-label="关闭" onClick={() => setMobileOpen(false)}><X size={18} /></button>
       </div>
       {error && <p className="navigation-error" role="status">部分回合未能加载，请重新打开会话。</p>}
       <div className="navigation-dialog-list">{entries.map((entry, index) =>
