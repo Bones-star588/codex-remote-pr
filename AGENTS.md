@@ -296,6 +296,9 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 - After completing and validating project changes, push the public repository
   by default unless the user explicitly asks not to. Never push the separate
   private deployment checkout or its runtime data.
+- Restart the local Remote service after every application update, including
+  frontend-only updates. Verify its old listener and owned process exited before
+  starting once; then verify ready Desktop transport without stopping Desktop.
 - Never commit `.env`, `data/`, tokens, private keys, session cookies, logs,
   real chat exports, local machine identifiers, or private screenshots.
 - Keep documentation examples generic. Use synthetic data for screenshots.
