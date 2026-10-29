@@ -1,6 +1,7 @@
 import type { ClientRpcMethod } from '../shared/protocol.js';
 import type { TurnTiming } from '../shared/turn-timing.js';
 import { isReadableHistoryItem } from '../shared/history-context.js';
+import { compactHistoryEntries } from './history-payload.js';
 
 type Request = (method: ClientRpcMethod, params: unknown) => Promise<unknown>;
 
@@ -57,7 +58,7 @@ export async function readOpenThread(
   }
   return {
     result,
-    items: entries.reverse(),
+    items: compactHistoryEntries(entries.reverse()),
     nextCursor,
     activeTurnId: null,
     turns: [] as TurnTiming[],

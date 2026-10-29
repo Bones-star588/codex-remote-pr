@@ -48,7 +48,8 @@ export interface Turn extends TurnTiming {
 
 export type ThreadItem = (
   | { type: 'userMessage'; id: string; content: Array<{ type: string; text?: string; path?: string; url?: string }> }
-  | { type: 'agentMessage'; id: string; text: string; phase?: 'commentary' | 'partial_answer' | 'final_answer' | null }
+  | { type: 'agentMessage'; id: string; text: string; phase?: 'commentary' | 'partial_answer' | 'final_answer' | null; delivery?: string | null;
+      questions?: Array<{ title: string; options: string[] | null }> | null }
   | { type: 'reasoning'; id: string; summary: string[]; content: string[] }
   | {
       type: 'commandExecution';
@@ -79,7 +80,7 @@ export type ThreadItem = (
     }
   | { type: 'subAgentActivity'; id: string; kind: 'started' | 'interacted' | 'interrupted' | 'completed';
       agentThreadId: string; agentPath: string; model: string | null; reasoningEffort: string | null }
-) & { turnId?: string; startedAtMs?: number | null; completedAtMs?: number | null };
+) & { turnId?: string; startedAtMs?: number | null; completedAtMs?: number | null; detailsDeferred?: boolean };
 
 export type SubagentStatus = 'pendingInit' | 'running' | 'interrupted' | 'completed' | 'errored' | 'shutdown' | 'notFound';
 

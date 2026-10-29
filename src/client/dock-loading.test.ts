@@ -24,10 +24,11 @@ const hooks = vi.hoisted(() => {
   }
   const changed = (a: unknown[] | undefined, b: unknown[] | undefined) => !a || !b ||
     a.length !== b.length || a.some((value, index) => !Object.is(value, b[index]));
-  return { Scope, changed, active: null as Scope | null };
+  return { Scope, changed, active: null as Scope | null, threadId: 'synthetic-chat' };
 });
 vi.mock('react', async importOriginal => ({
   ...await importOriginal<typeof import('react')>(),
+  useContext() { return hooks.threadId; },
   useState(initial: any) {
     const scope = hooks.active!, slot = scope.slot();
     if (!('value' in slot)) slot.value = typeof initial === 'function' ? initial() : initial;
@@ -72,11 +73,16 @@ vi.mock('./background-work', () => ({
   yieldToInteraction: () => new Promise(() => {})
 }));
 import { useRemote } from './useRemote';
+import { useHistoryDetails } from './history-details';
+import type { ThreadItem } from './types';
+import { QuestionCard } from './components/QuestionDock';
+import { parseQuestionReplies, questionItemId } from '../shared/async-user-input';
+import { historyConfig } from './history-config';
 import { QueuedMessages } from './components/QueuedMessages';
 import type { Thread, WorkspaceBootstrap } from './types';
 
 let scope: InstanceType<typeof hooks.Scope>;
-afterEach(() => { scope?.dispose(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { scope?.dispose(); hooks.threadId = 'synthetic-chat'; vi.useRealTimers(); vi.unstubAllGlobals(); });
 const thread = { id: 'synthetic-chat', status: { type: 'active' }, updatedAt: 1 } as Thread;
 
 async function settle() {
@@ -189,4 +195,165 @@ describe('thread dock load ordering', () => {
     expect(reads).toBe(2);
   });
 
+});
+
+function elements(tree: any): any[] {
+  if (!tree || typeof tree !== 'object') return [];
+  return [tree, ...[tree.props?.children].flat(Infinity).flatMap(elements)];
+}
+
+describe('native question interaction', () => {
+  it('preselects the first option but waits for explicit submission, preserves multiline drafts on failure', async () => {
+    const onSubmit = vi.fn().mockRejectedValueOnce(new Error('Disconnected')).mockResolvedValueOnce(undefined);
+    const onError = vi.fn();
+    let card: any;
+    scope = new hooks.Scope();
+    scope.root = () => { card = QuestionCard({ group: { id: 'q', questions: [
+      { id: questionItemId('call', 0), title: 'Choose?', options: ['A', 'B'] },
+      { id: questionItemId('call', 1), title: 'Details?', options: null }
+    ] }, disabled: false, onSubmit, onError }); };
+    scope.render();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(elements(card).find(node => node.props?.['aria-pressed'])?.props.children.props.children).toBe('A');
+    const inputs = elements(card).filter(node => node.type === 'textarea');
+    inputs[1]!.props.onChange({ target: { value: 'First line\nSecond line' } });
+    scope.render();
+    expect(onSubmit).not.toHaveBeenCalled(); // A newline in a free-text answer is never send.
+    let button = elements(card).find(node => node.props?.className === 'primary-button');
+    expect(button.props.disabled).toBe(false);
+    button.props.onClick(); await settle();
+    expect(onError).toHaveBeenCalledOnce();
+    expect(elements(card).filter(node => node.type === 'textarea')[1]!.props.value).toBe('First line\nSecond line');
+    button = elements(card).find(node => node.props?.className === 'primary-button');
+    button.props.onClick(); await settle();
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    expect(parseQuestionReplies(onSubmit.mock.calls[1]![0])).toEqual([
+      { questionItemId: questionItemId('call', 0), question: 'Choose?', answer: 'A' },
+      { questionItemId: questionItemId('call', 1), question: 'Details?', answer: 'First line\nSecond line' }
+    ]);
+    expect(card.props.role).toBe('status');
+  });
+  it('sends native replies directly with expectedTurnId, never as a queued message', async () => {
+    const f = fixture(() => new Promise(() => {}));
+    const sent: any[] = [];
+    connection.options.onSocket({ readyState: 1, send: (payload: string) => {
+      const message = JSON.parse(payload);
+      if (message.type !== 'rpc') return;
+      sent.push(message);
+      connection.options.onMessage({ type: 'rpc.result', id: message.id, result: {} });
+    } });
+    const text = '<send_user_message_question_reply>\n[]\n</send_user_message_question_reply>';
+    await f.remote.steerTurn(thread.id, 'active-native-turn', text);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ method: 'turn/steer', params: { threadId: thread.id,
+      expectedTurnId: 'active-native-turn', input: [{ type: 'text', text }] } });
+  });
+});
+
+describe('slow history transport regression', () => {
+  it('allows the selected chat body to finish past six seconds, retaining the first download', async () => {
+    let finish!: (value: Response) => void;
+    let signal: AbortSignal | undefined;
+    const fetcher = vi.fn<typeof fetch>((path, options) => String(path).includes('/thread/open?')
+      ? new Promise((resolve, reject) => {
+        finish = resolve; signal = options?.signal ?? undefined;
+        signal?.addEventListener('abort', () => reject(signal!.reason));
+      }) : new Promise(() => {}));
+    const f = fixture(fetcher);
+    const opening = f.remote.openThread(thread.id);
+    await settle();
+    await vi.advanceTimersByTimeAsync(7000);
+    expect(signal?.aborted).toBe(false);
+    expect(historyConfig.readTimeoutMs).toBeGreaterThan(7000);
+    finish(await json({ result: { thread }, items: [{ turnId: 't', item: { type: 'agentMessage', id: 'a', text: 'Answer' } }],
+      nextCursor: null, turns: [], turnsCursor: null, activeTurnId: null }));
+    await opening; await settle();
+    expect(f.remote.items[0]).toMatchObject({ id: 'a', text: 'Answer' });
+    expect(fetcher.mock.calls.filter(([path]) => String(path).includes('/thread/open?'))).toHaveLength(1);
+  });
+});
+
+describe('on-demand execution bodies', () => {
+  it('loads only opened details, reuses full output and cancels abandoned item reads', async () => {
+    let summary: ThreadItem = { type: 'commandExecution', id: 'cmd', turnId: 't', command: 'preview', cwd: '/',
+      status: 'completed', aggregatedOutput: null, exitCode: 0, durationMs: 1, detailsDeferred: true };
+    let opened = false;
+    let detail!: ReturnType<typeof useHistoryDetails>;
+    let finish!: (value: Response) => void;
+    const signals: AbortSignal[] = [];
+    const fetcher = vi.fn<typeof fetch>((_path, options) => new Promise(resolve => {
+      finish = resolve; signals.push(options!.signal!);
+    }));
+    vi.stubGlobal('fetch', fetcher);
+    scope = new hooks.Scope(); scope.root = () => { detail = useHistoryDetails(summary, opened); };
+    scope.render(); expect(fetcher).not.toHaveBeenCalled();
+    opened = true; scope.dirty = true; scope.render();
+    expect(detail.loading).toBe(true);
+    const full = { ...summary, command: 'echo full command', aggregatedOutput: 'full output', detailsDeferred: false };
+    finish(await json({ data: [{ turnId: 't', item: full }] })); await settle();
+    expect(detail.item).toMatchObject({ command: 'echo full command', aggregatedOutput: 'full output' });
+    expect(detail.loading).toBe(false);
+    opened = false; scope.dirty = true; scope.render();
+    opened = true; scope.dirty = true; scope.render();
+    expect(fetcher).toHaveBeenCalledOnce();
+    summary = { ...summary, id: 'second' }; scope.dirty = true; scope.render();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    opened = false; scope.dirty = true; scope.render();
+    expect(signals[1]?.aborted).toBe(true);
+    finish(await json({ data: [{ turnId: 't', item: { ...full, id: 'second' } }] })); await settle();
+    expect(detail.item.id).toBe('second');
+    expect(detail.item.detailsDeferred).toBe(true); // A closed/abandoned request cannot apply later.
+  });
+  it('surfaces missing/mismatched native records and retries without losing the row', async () => {
+    const summary: ThreadItem = { type: 'dynamicToolCall', id: 'tool', turnId: 't', tool: 'example',
+      arguments: null, contentItems: null, status: 'completed', detailsDeferred: true };
+    const fetcher = vi.fn<typeof fetch>().mockImplementationOnce(() => json({ data: [{ turnId: 'other', item: summary }] }))
+      .mockImplementationOnce(() => json({ data: [{ turnId: 't', item: { ...summary, detailsDeferred: false, contentItems: ['full'] } }] }));
+    vi.stubGlobal('fetch', fetcher);
+    let detail!: ReturnType<typeof useHistoryDetails>;
+    scope = new hooks.Scope(); scope.root = () => { detail = useHistoryDetails(summary, true); };
+    scope.render(); await settle();
+    expect(detail.error).toBeTruthy();
+    expect(detail.item).toBe(summary);
+    detail.retry(); scope.render(); await settle();
+    expect(detail.error).toBeNull();
+    expect(detail.item).toMatchObject({ contentItems: ['full'] });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('does not retain an old read error after full live output replaces its summary', async () => {
+    let summary: ThreadItem = { type: 'dynamicToolCall', id: 'tool', turnId: 't', tool: 'example',
+      arguments: null, contentItems: null, status: 'completed', detailsDeferred: true };
+    vi.stubGlobal('fetch', () => json({ data: [] }));
+    let detail!: ReturnType<typeof useHistoryDetails>;
+    scope = new hooks.Scope(); scope.root = () => { detail = useHistoryDetails(summary, true); };
+    scope.render(); await settle();
+    expect(detail.error).toBeTruthy();
+    summary = { ...summary, detailsDeferred: false, contentItems: ['live output'] };
+    scope.dirty = true; scope.render();
+    expect(detail.error).toBeNull();
+    expect(detail.loading).toBe(false);
+    expect(detail.item).toBe(summary);
+  });
+  it('scopes loaded details and failures to the owning conversation', async () => {
+    const summary: ThreadItem = { type: 'commandExecution', id: 'cmd', turnId: 't', command: 'preview', cwd: '/',
+      status: 'completed', aggregatedOutput: null, exitCode: 0, durationMs: 1, detailsDeferred: true };
+    const fetcher = vi.fn<typeof fetch>().mockImplementationOnce(() => json({ data: [
+      { turnId: 't', item: { ...summary, aggregatedOutput: 'first chat output' } }
+    ] })).mockImplementationOnce(() => json({ data: [] }))
+      .mockImplementationOnce(() => new Promise(() => {}));
+    vi.stubGlobal('fetch', fetcher);
+    let detail!: ReturnType<typeof useHistoryDetails>;
+    scope = new hooks.Scope(); scope.root = () => { detail = useHistoryDetails(summary, true); };
+    scope.render(); await settle();
+    expect(detail.item).toMatchObject({ aggregatedOutput: 'first chat output' });
+    hooks.threadId = 'second-chat'; scope.dirty = true; scope.render();
+    expect(detail.item).toBe(summary);
+    await settle();
+    expect(detail.error).toBeTruthy();
+    hooks.threadId = 'third-chat'; scope.dirty = true; scope.render();
+    expect(detail.error).toBeNull();
+    expect(detail.loading).toBe(true);
+    expect(fetcher.mock.calls.map(([path]) => new URL(String(path), 'http://localhost').searchParams.get('threadId')))
+      .toEqual(['synthetic-chat', 'second-chat', 'third-chat']);
+  });
 });

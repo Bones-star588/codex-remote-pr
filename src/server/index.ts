@@ -40,6 +40,7 @@ import { isTaskThread } from '../shared/thread-source.js';
 import { httpConnections, type RemotePeer } from './http-connections.js';
 import { metadataRouter } from './metadata-router.js';
 import { threadDockRouter } from './thread-dock-router.js';
+import { historyItemRouter } from './history-item-router.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -271,6 +272,7 @@ app.get('/api/threads', requireAuth, asyncRoute(async (req, res) => {
 
 app.use('/api/metadata', metadataRouter(requireAuth, metadataReader.read));
 app.use('/api/thread/dock', threadDockRouter(requireAuth, (method, params) => codexBridge.request(method, params)));
+app.use('/api/thread/item', historyItemRouter(requireAuth, (method, params) => codexBridge.request(method, params)));
 
 app.use('/api/notifications', requireAuth, (req, _res, next) => {
   assertTrustedOrigin(req);

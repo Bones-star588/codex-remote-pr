@@ -17,6 +17,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import { v4 as randomUUID } from 'uuid';
 
 import { api } from './api';
+import { QuestionDock } from './components/QuestionDock';
 import { ApprovalDock } from './components/ApprovalDock';
 import { Composer } from './components/Composer';
 import { Inspector } from './components/Inspector';
@@ -667,6 +668,10 @@ function ThreadScreen({
       <div className="thread-bottom">
         <GoalStatus key={thread.id} goal={remote.activeGoal} disabled={!remote.connected || !remote.threadReady || remote.showArchived}
           onUpdate={update => remote.setGoal(thread.id, update)} onDelete={() => remote.clearGoal(thread.id)} onError={onError} />
+        {!remote.viewingHistory && <QuestionDock items={remote.items}
+          turnId={remote.activeTurnId ?? remote.items.at(-1)?.turnId ?? null}
+          disabled={!remote.connected || !remote.threadReady || remote.showArchived}
+          onSubmit={text => onSubmit(text, [], [])} onError={onError} />}
         <ApprovalDock
           requests={remote.serverRequests.filter((request) => request.params.threadId === thread.id)}
           onRespond={remote.respondToRequest}

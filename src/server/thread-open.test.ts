@@ -25,6 +25,19 @@ const activity = (size: number, prefix = 'r') => Array.from({ length: size }, (_
   entry(`${prefix}${index}`, 'reasoning', { summary: [], content: [] }));
 
 describe('opening a read-only chat without waiting for interaction setup', () => {
+  it('does not download folded command bodies when switching chats', async () => {
+    const command = entry('cmd', 'commandExecution', { command: 'echo example', status: 'completed',
+      aggregatedOutput: 'synthetic output '.repeat(20000), exitCode: 0, durationMs: 1 });
+    const request = vi.fn(async (method: string) => method === 'thread/read'
+      ? { thread: { id: 'chat' } } : { data: [answer(), command, user()], nextCursor: null });
+    const page = await readOpenThread(request, 'chat', 'resume');
+    console.debug('[history-regression] initial payload', { bytes: JSON.stringify(page).length });
+    expect(JSON.stringify(page).length).toBeLessThan(4096);
+    expect(page.items[1]?.item).toMatchObject({ id: 'cmd', detailsDeferred: true });
+    expect(page.items[0]?.item).toEqual(user().item);
+    expect(page.items[2]?.item).toEqual(answer().item);
+  });
+
   it('reads a small latest page without resuming or waiting for turn metadata', async () => {
     const request = vi.fn(async (method: string) => method === 'thread/read'
       ? { thread: { id: 'chat' } }

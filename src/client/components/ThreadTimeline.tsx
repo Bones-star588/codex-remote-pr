@@ -20,6 +20,7 @@ import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, 
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+import { HistoryThreadContext, useHistoryDetails } from '../history-details';
 import { localImageSource } from '../markdown-media';
 import { itemKey } from '../remote-state';
 import type { ThreadItem } from '../types';
@@ -386,6 +387,7 @@ export function ThreadTimeline({
   }
 
   return (
+    <HistoryThreadContext.Provider value={threadId}>
     <div className="timeline-shell">
     <ThreadNavigation turns={outlineTurns} streamRef={streamRef} innerRef={innerRef}
       busy={revealingHistory} error={outlineError} onNavigate={handleNavigate} />
@@ -513,6 +515,7 @@ export function ThreadTimeline({
       </button>
     )}
     </div>
+    </HistoryThreadContext.Provider>
   );
 }
 
@@ -792,8 +795,11 @@ function activityPresentation(entry: Extract<TimelineEntry, { type: 'activity' }
       .map(kind => presentations[kind].label).join('、') };
 }
 
-const ActivityItem = memo(function ActivityItem({ item, running }: { item: ThreadItem; running: boolean }) {
+const ActivityItem = memo(function ActivityItem({ item: summary, running }: { item: ThreadItem; running: boolean }) {
   const [open, setOpen] = useState(false);
+  const { item, loading, error, retry } = useHistoryDetails(summary, open);
+  const detailNotice = loading ? <p role="status">正在加载执行详情…</p> : error
+    ? <p role="alert">{error} <button type="button" className="text-button" onClick={retry}>重试</button></p> : null;
   const status = 'status' in item
     ? item.status === 'inProgress' && !running ? 'ended' : item.status
     : undefined;
@@ -836,6 +842,7 @@ const ActivityItem = memo(function ActivityItem({ item, running }: { item: Threa
           <ChevronDown size={14} className="summary-chevron" aria-hidden="true" />
         </summary>
         {open && <div className="activity-body">
+          {detailNotice}
           <pre className="command-block">{item.command}</pre>
           {item.aggregatedOutput && <pre className="output-block">{item.aggregatedOutput}</pre>}
           {(item.exitCode !== null || item.durationMs !== null) && (
@@ -863,6 +870,7 @@ const ActivityItem = memo(function ActivityItem({ item, running }: { item: Threa
           <ChevronDown size={14} className="summary-chevron" aria-hidden="true" />
         </summary>
         {open && <div className="activity-body file-list">
+          {detailNotice}
           {item.changes?.map((change, index) => (
             <div className="file-change" key={`${change.path}-${index}`}>
               <code>{change.path}</code>
@@ -896,7 +904,7 @@ const ActivityItem = memo(function ActivityItem({ item, running }: { item: Threa
           <ChevronDown size={14} className="summary-chevron" aria-hidden="true" />
         </summary>
         {open && <div className="activity-body">
-          <pre className="output-block">{JSON.stringify(item.result ?? item.error ?? item.arguments, null, 2)}</pre>
+          {detailNotice ?? <pre className="output-block">{JSON.stringify(item.result ?? item.error ?? item.arguments, null, 2)}</pre>}
         </div>}
       </details>
     );
@@ -912,7 +920,7 @@ const ActivityItem = memo(function ActivityItem({ item, running }: { item: Threa
           <ChevronDown size={14} className="summary-chevron" aria-hidden="true" />
         </summary>
         {open && <div className="activity-body">
-          <pre className="output-block">{JSON.stringify(item.contentItems ?? item.arguments, null, 2)}</pre>
+          {detailNotice ?? <pre className="output-block">{JSON.stringify(item.contentItems ?? item.arguments, null, 2)}</pre>}
         </div>}
       </details>
     );

@@ -195,7 +195,7 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   Missing model/project catalogs use independent authenticated HTTP reads,
   without waiting for realtime synchronization or each other. Retry transient
   catalog and initial chat/timing reads at most three times, with 0.5/1s waits;
-  initial chat/timing attempts allow 6s, subsequent attempts 15s. Do not retry
+  initial chat/timing attempts allow 15s through the complete body, as do subsequent attempts. Do not retry
   expired authentication, permanent client errors or cancelled selections.
   Recover failed catalogs on real network/foreground recovery or manual retry.
   Replay reconnects fill incomplete chat reads without reopening healthy history.
@@ -208,6 +208,16 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 - Composer slash commands use native RPC actions, not text prompts. Skills come
   from `skills/list` for the current directory and submit as native skill input.
   Keep collaboration mode synchronized through resume/settings notifications.
+- Native async question messages preserve their questions and native index IDs. Submit
+  explicit answers using the persisted Desktop reply envelope, directly steering an
+  active turn with expectedTurnId or starting an idle turn; never queue these replies.
+  Keep first-option defaults unsent until the user clicks submit, allow custom text,
+  and retain failed drafts. Folded history command/tool bodies load only on expansion
+  through authenticated native thread/items/read; preserve full prose, question
+  payloads, file diffs for review, item identities and pagination cursors.
+  Scope loaded details and read errors to the owning thread and item summary;
+  full live output supersedes stale read errors. Do not serialize full native
+  bodies just to measure history projection size in production.
 - Native approvals arrive through `mcp-request`; responses use `mcp-response`.
   Respect the request's available decisions.
 - Permissions apply per chat. Do not rewrite global Codex config to change them.

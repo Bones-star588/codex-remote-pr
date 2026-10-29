@@ -2,6 +2,7 @@ import type { ClientRpcMethod } from '../shared/protocol.js';
 import type { TurnTiming } from '../shared/turn-timing.js';
 import { outlineMessages, type OutlineItem, type OutlineTurn } from '../shared/thread-outline.js';
 import { isReadableHistoryItem } from '../shared/history-context.js';
+import { compactHistoryEntries } from './history-payload.js';
 
 type Request = (method: ClientRpcMethod, params: unknown) => Promise<unknown>;
 interface Entry {
@@ -23,7 +24,7 @@ export async function readThreadHistoryPage(
     cursor ? null : request('thread/turns/list', { threadId, limit: Math.min(limit, 100), itemsView: 'notLoaded' })
   ]) as [{ data: Entry[]; nextCursor: string | null }, { data: TurnTiming[]; nextCursor?: string | null } | null];
   return {
-    items: direction === 'desc' ? [...history.data].reverse() : history.data,
+    items: compactHistoryEntries(direction === 'desc' ? [...history.data].reverse() : history.data),
     nextCursor: history.nextCursor,
     activeTurnId: turns?.data.find((turn) => turn.status === 'inProgress')?.id ?? null,
     turns: turns?.data.map(({ id, status, startedAt, completedAt, durationMs }) =>
@@ -70,7 +71,7 @@ export async function readThreadHistoryAround(request: Request, threadId: string
   // and their reply fit in this first page, so return it without two extra reads.
   if (seed.backwardsCursor && seed.data.some(entry => (entry.item as { id?: string })?.id === itemId)) {
     console.debug('[turn-navigation] direct page ready', { count: seed.data.length, nativeReads: 1 });
-    return { items: seed.data, nextCursor: seed.backwardsCursor,
+    return { items: compactHistoryEntries(seed.data), nextCursor: seed.backwardsCursor,
       newerCursor: seed.nextCursor ?? seed.backwardsCursor };
   }
   const first = seed.data[0]?.item as { id: string } | undefined;
@@ -85,7 +86,7 @@ export async function readThreadHistoryAround(request: Request, threadId: string
   }
   const cursor = seed.nextCursor ?? seed.backwardsCursor;
   if (!cursor) {
-    return { items: seed.data, nextCursor: null, newerCursor: null };
+    return { items: compactHistoryEntries(seed.data), nextCursor: null, newerCursor: null };
   }
   const [older, newer] = await Promise.all([
     list({ cursor, sortDirection: 'desc', limit: 40 }),
@@ -94,7 +95,7 @@ export async function readThreadHistoryAround(request: Request, threadId: string
   const unique = new Map([...older.data].reverse().concat(seed.data, newer.data)
     .map(entry => [JSON.stringify([entry.turnId, (entry.item as { id: string }).id]), entry]));
   return {
-    items: [...unique.values()],
+    items: compactHistoryEntries([...unique.values()]),
     nextCursor: older.nextCursor,
     newerCursor: newer.nextCursor
   };

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { historyConfig } from './history-config';
 import { api, HttpError, isAbortedRequest, ReadRequests } from './api';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
@@ -47,6 +48,21 @@ describe('bounded connection checks', () => {
 });
 
 describe('selection-scoped HTTP reads', () => {
+  it('finishes a healthy slow public history body without aborting and downloading it again at six seconds', async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn(async (_path: string, options: RequestInit) => ({ ok: true,
+      text: () => new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(JSON.stringify({ items: ['complete'] })), 11000);
+        options.signal!.addEventListener('abort', () => { clearTimeout(timer); reject(options.signal!.reason); });
+      }) }));
+    vi.stubGlobal('fetch', fetcher);
+    const read = new ReadRequests().get('/api/thread/open', historyConfig.readTimeoutMs, 3);
+    await vi.advanceTimersByTimeAsync(11000);
+    expect(await read).toEqual({ items: ['complete'] });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('recovers initial chat and timing reads without waiting for a socket reconnect', async () => {
     vi.useFakeTimers();
     const counts = new Map<string, number>();

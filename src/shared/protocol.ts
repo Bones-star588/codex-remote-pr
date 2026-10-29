@@ -6,6 +6,7 @@ export type ClientRpcMethod =
   | 'thread/resume'
   | 'thread/turns/list'
   | 'thread/items/list'
+  | 'thread/items/read'
   | 'thread/name/set'
   | 'thread/archive'
   | 'thread/unarchive'

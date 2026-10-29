@@ -2971,3 +2971,10 @@ kbd {
 .app-shell[data-layout="mobile"] .goal-status-actions .icon-button { width: 44px; height: 44px; }
 .app-shell[data-layout="mobile"] .goal-editor textarea { font-size: 16px; }
 .app-shell[data-layout="mobile"] .goal-editor-actions button { min-height: 44px; }
+
+/* Pending native questions remain reachable above the mobile composer. */
+.question-dock { max-height: 42dvh; overflow-y: auto; overscroll-behavior: contain; }
+.question-dock .question-input { width: 100%; min-height: 44px; padding-block: 8px; resize: vertical; font: inherit; }
+.question-dock .primary-button { margin-top: 10px; min-height: 44px; }
+.question-dock legend { overflow-wrap: anywhere; }
+.question-error { color: var(--danger); margin-top: 8px; }
