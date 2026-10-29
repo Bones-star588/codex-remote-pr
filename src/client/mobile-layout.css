@@ -117,3 +117,15 @@
   width: 14px;
   height: 14px;
 }
+
+/* Keep phone index triggers part of their composer without changing desktop. */
+.app-shell[data-layout="mobile"] .thread-navigation-mobile {
+  -webkit-tap-highlight-color: transparent;
+}
+.app-shell[data-layout="mobile"] .thread-navigation-mobile:focus-visible {
+  outline: none;
+  color: var(--ink);
+}
+.app-shell[data-layout="mobile"] .composer-turn-slot .thread-navigation-mobile--composer {
+  background: transparent;
+}

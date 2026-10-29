@@ -119,3 +119,12 @@ trigger, use keyboard focus, switch to side chat, and repeat. Assert no visible
 outline, no physical border, and equality of the painted button and composer
 backgrounds. This is native macOS Safari with simulated phone layout; physical
 iOS tap-highlight acceptance remains separate.
+
+## Maintainer integration
+
+The final public batch is 0.1.7 after baseline 0.1.6. Trigger tap/focus/background
+rules are restricted to the mobile layout; desktop trigger backgrounds and
+keyboard focus outlines retain the baseline behavior, including coarse-pointer
+desktop browsers. The prior contributor-local deployment numbers and Safari
+measurements above describe their original investigation, not this installation.
+See [the integration review](pr-5-review.md) for the accepted scope.
