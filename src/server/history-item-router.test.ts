@@ -21,7 +21,16 @@ async function fixture(read: (method: string, params: unknown) => Promise<unknow
   const server = http.createServer(app); servers.push(server); server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}/item`;
-  return { native, get: (query: string, auth = true) => fetch(base + query, { headers: auth ? { Cookie: 'session=operator' } : {} }) };
+  return { native, get: (query: string, auth = true) => new Promise<Response>((resolve, reject) => {
+    http.get(base + query, { headers: auth ? { Cookie: 'session=operator' } : {} }, response => {
+      const chunks: Buffer[] = [];
+      response.on('data', chunk => chunks.push(Buffer.from(chunk)));
+      response.on('error', reject);
+      response.on('end', () => resolve(new Response(Buffer.concat(chunks), {
+        status: response.statusCode, headers: response.headers as Record<string, string>
+      })));
+    }).on('error', reject);
+  }) };
 }
 describe('authenticated native execution detail reads', () => {
   it('rejects unauthenticated and invalid query input without accessing native data', async () => {

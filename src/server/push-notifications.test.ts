@@ -257,10 +257,21 @@ describe('private standard Web Push subscriptions', () => {
     await once(server, 'listening');
     const address = server.address() as { port: number };
     const base = `http://127.0.0.1:${address.port}/api/notifications`;
-    const post = (route: string, body: unknown, method = 'POST') => fetch(`${base}${route}`, {
-      method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    // OS-assigned ports can be on Fetch's browser-only forbidden-port list.
+    const request = (route: string, body?: unknown, method = 'GET') => new Promise<Response>((resolve, reject) => {
+      const payload = body === undefined ? undefined : JSON.stringify(body);
+      const req = http.request(`${base}${route}`, { method, headers: { 'Content-Type': 'application/json',
+        ...(payload === undefined ? {} : { 'Content-Length': Buffer.byteLength(payload) }) } }, response => {
+        const chunks: Buffer[] = [];
+        response.on('data', chunk => chunks.push(Buffer.from(chunk)));
+        response.on('error', reject);
+        response.on('end', () => resolve(new Response(Buffer.concat(chunks), { status: response.statusCode })));
+      });
+      req.on('error', reject);
+      req.end(payload);
     });
-    const key = await (await fetch(`${base}/public-key`)).json();
+    const post = (route: string, body: unknown, method = 'POST') => request(route, body, method);
+    const key = await (await request('/public-key')).json();
     expect(key).toEqual({ publicKey: notifications.publicKey });
     expect(key).not.toHaveProperty('privateKey');
     const first = subscription('first');

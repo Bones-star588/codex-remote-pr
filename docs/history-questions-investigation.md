@@ -42,7 +42,7 @@ flowchart LR
    emits asynchronous questions on agentMessage.questions. The current native
    schema and emitted records contain that field; the old UI renders text only.
 
-Instrumentation logs sizes, counts, duration, cache state and errors, never
+Contributor diagnostic instrumentation logged sizes, counts, duration, cache state and errors, never
 question text, answers, command output or authentication values. A synthetic
 340 KB command output reproduced the initial-transfer defect before the fix.
 Its bounded response now stays below 4 KB while retaining user/reply text.
@@ -113,7 +113,10 @@ an answer protocol. The implementation is original code using native contracts.
   side-chat forms are not claimed complete. Network tail latency remains an
   external limit; a 15-second timeout is mitigation, not a tunnel repair.
 
-### Final integration and live deployment check
+### Contributor integration and live deployment check
+
+The following macOS deployment observations were supplied by the contributor.
+They have not been repeated by the maintainer on a signed-in Mac.
 
 The original PR was merged while this work was in progress. Integrated upstream
 0.1.3 (`1e131ce`), retaining its stale-queue guard alongside the longer read
@@ -137,3 +140,26 @@ An IPv4 HTTP/1.1 entry-module read succeeded and matched the build in about
 instant chat switching or resolved tunnel behavior. A subsequent Chrome public
 entry showed the authentication shell; no real account password or answer was
 entered for acceptance.
+
+### Maintainer review for 0.1.4
+
+- Scoped both loaded execution bodies and read errors to their owning thread and
+  summary. A full live item supersedes an old detail-read error immediately.
+  Cancelled or closed reads cannot apply late results.
+- Removed unconditional byte-size logging from the history projection. Measuring
+  it serialized the full input and compact output on every page before the HTTP
+  serializer ran. Deferred bodies are now omitted without this extra traversal.
+- The complete suite passes 366 tests across 59 files; TypeScript and the
+  production build pass. HTTP router tests use Node HTTP so OS-assigned ports
+  cannot randomly collide with Fetch's forbidden-port list.
+- Chromium and Windows WebKit pass synthetic acceptance at 2560x1440,
+  402x874, 320x568 and 874x402. Checks cover explicit submission, unsent defaults,
+  multiline answers, failure draft retention, active-turn steering, idle-turn
+  start, partial persisted Desktop answers and bypassing the normal queue.
+  Folded bodies cause no detail read; expansion, retry, reopening and independent
+  command/tool details preserve their expected identities and request counts.
+  No page exceptions or horizontal overflow were observed.
+- Screenshots and mutations use an isolated synthetic origin. No real model
+  request, user answer, Goal mutation or push notification was sent.
+  Physical iOS, live native answers and mobile network tail latency remain
+  separate acceptance.

@@ -24,11 +24,11 @@ const hooks = vi.hoisted(() => {
   }
   const changed = (a: unknown[] | undefined, b: unknown[] | undefined) => !a || !b ||
     a.length !== b.length || a.some((value, index) => !Object.is(value, b[index]));
-  return { Scope, changed, active: null as Scope | null };
+  return { Scope, changed, active: null as Scope | null, threadId: 'synthetic-chat' };
 });
 vi.mock('react', async importOriginal => ({
   ...await importOriginal<typeof import('react')>(),
-  useContext() { return 'synthetic-chat'; },
+  useContext() { return hooks.threadId; },
   useState(initial: any) {
     const scope = hooks.active!, slot = scope.slot();
     if (!('value' in slot)) slot.value = typeof initial === 'function' ? initial() : initial;
@@ -82,7 +82,7 @@ import { QueuedMessages } from './components/QueuedMessages';
 import type { Thread, WorkspaceBootstrap } from './types';
 
 let scope: InstanceType<typeof hooks.Scope>;
-afterEach(() => { scope?.dispose(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { scope?.dispose(); hooks.threadId = 'synthetic-chat'; vi.useRealTimers(); vi.unstubAllGlobals(); });
 const thread = { id: 'synthetic-chat', status: { type: 'active' }, updatedAt: 1 } as Thread;
 
 async function settle() {
@@ -319,5 +319,41 @@ describe('on-demand execution bodies', () => {
     expect(detail.error).toBeNull();
     expect(detail.item).toMatchObject({ contentItems: ['full'] });
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('does not retain an old read error after full live output replaces its summary', async () => {
+    let summary: ThreadItem = { type: 'dynamicToolCall', id: 'tool', turnId: 't', tool: 'example',
+      arguments: null, contentItems: null, status: 'completed', detailsDeferred: true };
+    vi.stubGlobal('fetch', () => json({ data: [] }));
+    let detail!: ReturnType<typeof useHistoryDetails>;
+    scope = new hooks.Scope(); scope.root = () => { detail = useHistoryDetails(summary, true); };
+    scope.render(); await settle();
+    expect(detail.error).toBeTruthy();
+    summary = { ...summary, detailsDeferred: false, contentItems: ['live output'] };
+    scope.dirty = true; scope.render();
+    expect(detail.error).toBeNull();
+    expect(detail.loading).toBe(false);
+    expect(detail.item).toBe(summary);
+  });
+  it('scopes loaded details and failures to the owning conversation', async () => {
+    const summary: ThreadItem = { type: 'commandExecution', id: 'cmd', turnId: 't', command: 'preview', cwd: '/',
+      status: 'completed', aggregatedOutput: null, exitCode: 0, durationMs: 1, detailsDeferred: true };
+    const fetcher = vi.fn<typeof fetch>().mockImplementationOnce(() => json({ data: [
+      { turnId: 't', item: { ...summary, aggregatedOutput: 'first chat output' } }
+    ] })).mockImplementationOnce(() => json({ data: [] }))
+      .mockImplementationOnce(() => new Promise(() => {}));
+    vi.stubGlobal('fetch', fetcher);
+    let detail!: ReturnType<typeof useHistoryDetails>;
+    scope = new hooks.Scope(); scope.root = () => { detail = useHistoryDetails(summary, true); };
+    scope.render(); await settle();
+    expect(detail.item).toMatchObject({ aggregatedOutput: 'first chat output' });
+    hooks.threadId = 'second-chat'; scope.dirty = true; scope.render();
+    expect(detail.item).toBe(summary);
+    await settle();
+    expect(detail.error).toBeTruthy();
+    hooks.threadId = 'third-chat'; scope.dirty = true; scope.render();
+    expect(detail.error).toBeNull();
+    expect(detail.loading).toBe(true);
+    expect(fetcher.mock.calls.map(([path]) => new URL(String(path), 'http://localhost').searchParams.get('threadId')))
+      .toEqual(['synthetic-chat', 'second-chat', 'third-chat']);
   });
 });

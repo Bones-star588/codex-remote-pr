@@ -34,4 +34,9 @@ describe('bounded conversation payloads', () => {
     expect(compactHistoryEntries(entries)).toEqual(entries);
     expect(compactHistoryEntries([])).toEqual([]);
   });
+  it('does not serialize deferred native bodies while preparing a history page', () => {
+    const output = { toJSON() { throw new Error('Deferred bodies must not be serialized here.'); } };
+    const compact = compactHistoryEntries([entry({ id: 'tool', type: 'mcpToolCall', arguments: output, result: output })]);
+    expect(compact[0]?.item).toMatchObject({ detailsDeferred: true, arguments: null, result: null });
+  });
 });

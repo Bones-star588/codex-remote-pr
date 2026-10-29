@@ -215,6 +215,9 @@ Self-hosted React and Node.js workspace for Codex Desktop.
   and retain failed drafts. Folded history command/tool bodies load only on expansion
   through authenticated native thread/items/read; preserve full prose, question
   payloads, file diffs for review, item identities and pagination cursors.
+  Scope loaded details and read errors to the owning thread and item summary;
+  full live output supersedes stale read errors. Do not serialize full native
+  bodies just to measure history projection size in production.
 - Native approvals arrive through `mcp-request`; responses use `mcp-response`.
   Respect the request's available decisions.
 - Permissions apply per chat. Do not rewrite global Codex config to change them.

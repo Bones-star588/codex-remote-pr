@@ -660,7 +660,7 @@ npm test
 npm run build
 ```
 
-The suite has **309 tests across 48 test files**, including readable-history detection, Safari overscroll direction and fine touch motion, isolated HTTP POST failure recovery, parallel transport selection, initial conversation-context filling, native read coalescing and timeout recovery, bounded host/device snapshots, foreground request priority, parallel session startup, returning-device hints, static-shell caching, native timing, activity folding, gesture-aware history insertion, bounded HTTP reads, preview canvas sizing, local attachment retention, conversation navigation, side-chat event isolation and recovery, child-task filtering, assistant citation display, device push registration/routing/retries, HTTP realtime fallback, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
+The suite has **366 tests across 59 test files**, including readable-history detection, Safari overscroll direction and fine touch motion, isolated HTTP POST failure recovery, parallel transport selection, initial conversation-context filling, native read coalescing and timeout recovery, bounded host/device snapshots, foreground request priority, parallel session startup, returning-device hints, static-shell caching, native timing, activity folding, gesture-aware history insertion, bounded HTTP reads, preview canvas sizing, local attachment retention, conversation navigation, side-chat event isolation and recovery, child-task filtering, assistant citation display, device push registration/routing/retries, HTTP realtime fallback, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
 
 ```text
 src/client/       React workspace, composer, history, approvals, reconnect
@@ -696,7 +696,8 @@ separate acceptance. Existing blocking user-input approvals remain supported.
 History pages preserve complete conversation prose, questions, file diffs, identities
 and native cursors. Folded command/tool bodies are retrieved from the original native
 item when expanded, with explicit loading/retry feedback in the timeline and command
-inspector. History/timing and dock reads allow 15 seconds through the response body
+inspector. Loaded details and errors are scoped to their owning conversation;
+fresh live output supersedes stale read errors. History/timing and dock reads allow 15 seconds through the response body
 so a healthy slow public download is not abandoned at six seconds. This reduces
 unnecessary transfer/retries; it does not eliminate tunnel latency. The new detail
 route requires a Desktop version supporting `thread/items/read`.
