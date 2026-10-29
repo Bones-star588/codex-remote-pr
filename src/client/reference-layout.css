@@ -453,3 +453,8 @@ svg { stroke-width: 1.8; }
     border: 0; border-radius: 50%; box-shadow: none;
   }
 }
+
+/* Keep the index trigger visually part of the composer after touch/focus. */
+.thread-navigation-mobile { -webkit-tap-highlight-color: transparent; }
+.thread-navigation-mobile:focus-visible { outline: none; color: var(--ink); }
+.composer-turn-slot .thread-navigation-mobile--composer { background: transparent; }

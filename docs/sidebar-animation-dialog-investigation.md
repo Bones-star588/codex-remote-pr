@@ -86,3 +86,36 @@ compilers). The deployment branch also passed the explicit typecheck command.
 Physical iOS Home Screen rotation, reduced-motion and post-change visual
 acceptance remain separate live checks. Do not equate passing unit tests with
 physical-phone rendering acceptance.
+
+
+## Follow-up: composer index trigger focus and background
+
+The trigger also inherits the global 2px black `:focus-visible` outline after
+focus restoration. On touch devices the narrow/coarse-pointer rules can supply
+an independent surface background. These are style-layer discrepancies, not
+native conversation state changes.
+
+Hypotheses checked: a physical border (computed 0px, excluded), a global focus
+outline (computed 2px solid rgb(32,32,32), confirmed), or platform tap highlighting
+(addressed only on this trigger). The instrumented synthetic trigger records its
+focus state, outline, border, own background and first painted ancestor beside
+the owning composer's background. No real chat content is read.
+
+The change removes this trigger's focus outline and tap highlight, keeps a darker
+keyboard-focus glyph, and makes the composer trigger transparent in every state.
+Focus restoration and keyboard navigation remain intact. Other buttons retain
+their focus outlines; desktop rail marks are unaffected.
+
+Manual Safari regression, actual components and CSS, 402x874 touch layout:
+
+| Same trigger | Focus visible | Outline | Painted button | Composer |
+| --- | --- | --- | --- | --- |
+| Before | true | 2px solid black | input background | rgb(247,247,247) |
+| After, main composer | true | none | rgb(247,247,247) | rgb(247,247,247) |
+| After, side composer | false (before refocus) | none | rgb(255,255,255) | rgb(255,255,255) |
+
+Regression steps: open and dismiss the round list, restore focus to the index
+trigger, use keyboard focus, switch to side chat, and repeat. Assert no visible
+outline, no physical border, and equality of the painted button and composer
+backgrounds. This is native macOS Safari with simulated phone layout; physical
+iOS tap-highlight acceptance remains separate.
