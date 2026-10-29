@@ -1,5 +1,5 @@
 import {
-  Archive, ArchiveRestore, Bell, ChevronDown, ChevronRight, CircleAlert, CircleHelp, FolderOpen, FolderPlus,
+  Archive, ArchiveRestore, Bell, ChevronRight, CircleAlert, FolderOpen, FolderPlus,
   LoaderCircle, LogOut, MessageSquare, Plus, RefreshCw, Search, Wrench, X
 } from 'lucide-react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
@@ -43,7 +43,6 @@ export function Sidebar({
     catch { return {}; }
   });
   const footerRef = useRef<HTMLDivElement>(null);
-  const productRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const projectDialogRef = useRef<HTMLDialogElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -79,7 +78,7 @@ export function Sidebar({
       signal: controller.signal, cache: 'no-store'
     }).then(setConnections).catch(() => undefined);
     const dismiss = (event: PointerEvent) => {
-      if (!footerRef.current?.contains(event.target as Node) && !productRef.current?.contains(event.target as Node)) setAccountOpen(false);
+      if (!footerRef.current?.contains(event.target as Node)) setAccountOpen(false);
     };
     window.addEventListener('pointerdown', dismiss);
     return () => { controller.abort(); window.removeEventListener('pointerdown', dismiss); };
@@ -106,10 +105,7 @@ export function Sidebar({
       }}>
       <div className="sidebar-top">
         <div className="sidebar-mode-row">
-          <button type="button" ref={productRef} className="sidebar-product" aria-label="Codex 菜单"
-            aria-expanded={accountOpen} onClick={() => setAccountOpen(!accountOpen)}>
-            <strong>Codex</strong><ChevronDown size={10} />
-          </button>
+          <div className="sidebar-product"><strong>Codex</strong></div>
           <button type="button" className="icon-button sidebar-toolbar-button" aria-label="搜索任务"
             title="搜索任务" aria-expanded={searchOpen} onClick={() => setSearchOpen(!searchOpen)}>
             <Search size={16} />
@@ -195,8 +191,6 @@ export function Sidebar({
           <Wrench size={16} /><span>设置</span>
           <span className="account-version">{import.meta.env.VITE_APP_VERSION}</span>
         </button>
-        <a className="icon-button" href="https://developers.openai.com/codex/" target="_blank" rel="noreferrer"
-          aria-label="帮助" title="帮助"><CircleHelp size={20} /></a>
       </div>
       {projectPickerOpen && (
         <dialog ref={projectDialogRef} className="project-dialog" aria-label="选择项目"
