@@ -17,6 +17,7 @@ import type {
   ProjectInfo,
   ServerRequest,
   Thread,
+  ThreadGoal,
   ThreadHistoryPage,
   ThreadItem
 } from './types';
@@ -30,6 +31,7 @@ import { isTaskThread } from '../shared/thread-source';
 import { HistoryPrefetch, prepareHistoryPage } from './history-prefetch';
 import type { BeforeHistoryCommit } from './history-scroll';
 import { markStartup } from './startup';
+import { parseThreadGoal } from './goal';
 
 interface PendingRpc {
   resolve: (value: unknown) => void;
@@ -78,6 +80,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [activeThread, setActiveThread] = useState<Thread | null>(null);
+  const [activeGoal, setActiveGoal] = useState<ThreadGoal | null>(null);
   const [items, setItems] = useState<ThreadItem[]>([]);
   const [turnTimings, setTurnTimings] = useState<Record<string, TurnTiming>>({});
   const [tokenUsage, setTokenUsage] = useState<Record<string, ContextUsage>>({});
@@ -492,6 +495,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
         setHasMoreHistory(false);
         setActiveTurnId(null);
         activeTurnIdRef.current = null;
+        setActiveGoal(null);
       }
       const version = selectionVersionRef.current;
       let baseline = options.silent ? itemsRef.current : cachedItems;
@@ -904,6 +908,21 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   }, [items, turnTimings]);
 
   useEffect(() => {
+    if (!authenticated || !connected || !threadReady || !activeThreadId || activeThreadId !== verifiedThreadId || showArchived) {
+      setActiveGoal(null);
+      return;
+    }
+    let cancelled = false;
+    const threadId = activeThreadId;
+    void rpc<{ goal: unknown }>('thread/goal/get', { threadId }).then(result => {
+      if (!cancelled && activeThreadRef.current === threadId) setActiveGoal(parseThreadGoal(result));
+    }).catch(error => {
+      if (!cancelled) console.warn('[remote] could not read thread goal', { threadId, error });
+    });
+    return () => { cancelled = true; };
+  }, [activeThreadId, authenticated, connected, rpc, showArchived, threadReady, verifiedThreadId]);
+
+  useEffect(() => {
     if (!activeThreadId) return;
     const controller = new AbortController();
     const threadId = activeThreadId;
@@ -961,6 +980,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     loadingHistoryRef.current = false;
     setActiveThreadId(null);
     setActiveThread(null);
+    setActiveGoal(null);
     setActiveTurnId(null);
     setItems([]);
     setTurnTimings({});
@@ -1562,6 +1582,14 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
       refreshActiveHistory();
     }
     if (method === 'thread/compacted' && params.threadId === activeThreadRef.current) refreshActiveHistory();
+    if (method === 'thread/goal/updated') {
+      const threadId = String(params.threadId ?? '');
+      if (threadId === activeThreadRef.current) setActiveGoal(parseThreadGoal(params));
+    }
+    if (method === 'thread/goal/cleared') {
+      const threadId = String(params.threadId ?? '');
+      if (threadId === activeThreadRef.current) setActiveGoal(null);
+    }
     if (method === 'thread/started') {
       const thread = params.thread as Thread | undefined;
       if (thread && isTaskThread(thread) && !archivedRef.current) setThreads((current) => dedupeThreads([...current, thread]));
@@ -1740,6 +1768,7 @@ export function useRemote({ authenticated, onAuthExpired, bootstrap, bootstrapRe
     activeThreadId,
     activeTurnId,
     activeThread,
+    activeGoal,
     items,
     turnTimings,
     contextUsage: activeThreadId ? tokenUsage[activeThreadId] : undefined,

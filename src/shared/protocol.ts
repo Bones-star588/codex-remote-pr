@@ -10,6 +10,7 @@ export type ClientRpcMethod =
   | 'thread/archive'
   | 'thread/unarchive'
   | 'thread/settings/update'
+  | 'thread/goal/get'
   | 'thread/compact/start'
   | 'thread/fork'
   | 'thread/queue/list'

@@ -6,6 +6,7 @@ describe('Codex bridge method allowlist', () => {
     expect(isAllowedRpcMethod('thread/list')).toBe(true);
     expect(isAllowedRpcMethod('thread/read')).toBe(true);
     expect(isAllowedRpcMethod('thread/resume')).toBe(true);
+    expect(isAllowedRpcMethod('thread/goal/get')).toBe(true);
     expect(isAllowedRpcMethod('turn/start')).toBe(true);
     expect(isAllowedRpcMethod('turn/interrupt')).toBe(true);
     expect(isAllowedRpcMethod('model/list')).toBe(true);

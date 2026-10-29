@@ -2097,6 +2097,46 @@ kbd {
   padding: 8px 24px max(12px, env(safe-area-inset-bottom));
 }
 
+.goal-status {
+  display: flex;
+  width: min(var(--content-max), 100%);
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin-inline: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  color: var(--accent-strong);
+}
+
+.goal-status-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+}
+
+.goal-status-copy strong { font-size: 12px; font-weight: 600; }
+.goal-status-copy span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.goal-status-duration {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.goal-status--complete { color: var(--success, #17803d); }
+.goal-status--paused, .goal-status--blocked,
+.goal-status--usageLimited, .goal-status--budgetLimited { color: var(--warning, #a15c00); }
+
 .thread-bottom > .composer-wrap,
 .approval-dock {
   width: min(var(--content-max), 100%);

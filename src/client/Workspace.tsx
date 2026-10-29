@@ -42,6 +42,7 @@ import type { PreviewTarget } from '../shared/file-preview';
 import { markStartup } from './startup';
 import { unlinkDeviceNotifications } from './push-notifications';
 import { toggleInspectorLauncher, type InspectorView } from './inspector-state';
+import { GoalStatus } from './components/GoalStatus';
 
 interface WorkspaceProps {
   authenticated: boolean;
@@ -663,6 +664,7 @@ function ThreadScreen({
       />
 
       <div className="thread-bottom">
+        <GoalStatus goal={remote.activeGoal} />
         <ApprovalDock
           requests={remote.serverRequests.filter((request) => request.params.threadId === thread.id)}
           onRespond={remote.respondToRequest}

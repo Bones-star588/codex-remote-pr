@@ -7,7 +7,7 @@ export interface RemoteChannel extends EventTarget {
 }
 
 const independentReads = new Set<ClientRpcMethod>([
-  'thread/list', 'thread/read', 'thread/resume', 'thread/turns/list', 'thread/items/list', 'thread/queue/list',
+  'thread/list', 'thread/read', 'thread/resume', 'thread/goal/get', 'thread/turns/list', 'thread/items/list', 'thread/queue/list',
   'model/list', 'permissionProfile/list', 'project/list', 'project/read', 'getAuthStatus',
   'account/read', 'account/rateLimits/read', 'config/read', 'mcpServerStatus/list', 'skills/list',
   'collaborationMode/list', 'fs/readFile', 'fs/readDirectory', 'fs/getMetadata',
