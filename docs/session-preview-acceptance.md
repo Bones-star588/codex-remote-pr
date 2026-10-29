@@ -2,6 +2,20 @@
 
 Date: 2026-10-28.
 
+## Native File References: 0.1.2
+
+On 2026-10-29, assistant `codex-file-citation` directives render as compact
+blue filename links through the existing preview inspector. Windows/macOS and
+workspace-relative paths, spaces, Unicode and native line suffixes are covered.
+Code examples, existing links and user messages remain literal; malformed or
+unsafe references do not become links. The suite passes 309 tests in 48 files,
+and both TypeScript targets and the production build pass.
+
+Synthetic Chromium and Windows WebKit acceptance at 2560x1440, 402x874 and 320x568 verifies the
+blue link, resolved host path, inspector opening and selected code line, with
+zero page errors or model actions. Office references retain the existing
+download-only behavior. Physical iPhone acceptance remains separate.
+
 The authentication measurements below describe the earlier `7e5b97a` build.
 Parallel authentication and returning-device entry supersede that startup
 sequence; see [current startup acceptance](startup-acceptance.md). Preview,

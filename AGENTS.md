@@ -278,6 +278,9 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 
 ## Publication and Privacy
 
+- Increment the package patch version once per completed change batch by default.
+  Keep package.json, the lockfile, deployed assets and the visible version aligned.
+  An explicit user version takes precedence.
 - After completing and validating project changes, push the public repository
   by default unless the user explicitly asks not to. Never push the separate
   private deployment checkout or its runtime data.

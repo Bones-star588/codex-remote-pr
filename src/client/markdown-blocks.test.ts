@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import { markdownBlocks, remarkAssistantSources } from './markdown-blocks';
 
 describe('streamed Markdown blocks', () => {
@@ -31,7 +31,43 @@ describe('streamed Markdown blocks', () => {
 describe('assistant source markers', () => {
   const marker = '\uE200cite\uE202turn0search0\uE202turn1search1\uE201';
   const render = (text: string, assistant = true) => renderToStaticMarkup(createElement(ReactMarkdown,
-    { remarkPlugins: assistant ? [remarkAssistantSources] : [], children: text }));
+    { remarkPlugins: assistant ? [remarkAssistantSources] : [],
+      urlTransform: url => /^[a-z]:[\\/]/i.test(url) ? url : defaultUrlTransform(url), children: text }));
+
+  it('renders native file citations as compact links across Windows and macOS paths', () => {
+    const input = 'Sources: :codex-file-citation{path="F:/Project/docs/design_notes.docx" purpose="source"} and ' +
+      'codex-file-citation{purpose="source" path="F:\\Project\\Core\\Src\\main.c:42"}.\n\n' +
+      '::codex-file-citation{path="/Users/operator/My Project/slides.pptx" purpose="output"}';
+    expect(render(input)).toBe('<p>Sources: <a href="F:/Project/docs/design_notes.docx">design_notes.docx</a> and ' +
+      '<a href="F:/Project/Core/Src/main.c:42">main.c:42</a>.</p>\n' +
+      '<p><a href="/Users/operator/My%20Project/slides.pptx">slides.pptx</a></p>');
+  });
+
+  it('handles Unicode, Markdown punctuation, file URLs and workspace-relative citations', () => {
+    expect(render(':codex-file-citation{path="F:/Project/\u62a5\u544a [final]_v1.docx" purpose="output"}'))
+      .toBe('<p><a href="F:/Project/%E6%8A%A5%E5%91%8A%20%5Bfinal%5D_v1.docx">\u62a5\u544a [final]_v1.docx</a></p>');
+    expect(render(':codex-file-citation{path="file:///C:/My%20Project/main.c#L12" purpose="source"}'))
+      .toBe('<p><a href="C:/My%20Project/main.c:12">main.c:12</a></p>');
+    expect(render(":codex-file-citation{path='./src/main.ts' purpose='source'}"))
+      .toBe('<p><a href="./src/main.ts">main.ts</a></p>');
+  });
+
+  it('preserves literal citations in code, existing links, HTML and user messages', () => {
+    const citation = ':codex-file-citation{path="F:/Project/main.c" purpose="source"}';
+    expect(render(`\`${citation}\`\n\n\`\`\`txt\n${citation}\n\`\`\``))
+      .toContain(`<code>${citation.replaceAll('"', '&quot;')}</code>`);
+    expect(render(`[${citation}](https://example.com)`)).toContain('codex-file-citation');
+    expect(render(`<!-- ${citation} -->`)).not.toContain('<a ');
+    expect(render(citation, false)).not.toContain('<a ');
+  });
+
+  it('keeps malformed, incomplete and unsafe file citations as literal text', () => {
+    for (const body of ['path="javascript:alert(1)"', 'path="https://example.com/x.ts"',
+      'path="F:/Project/a.ts" unexpected', 'path="a.ts" path="b.ts"', 'purpose="source"']) {
+      expect(render(`:codex-file-citation{${body}}`)).not.toContain('<a ');
+    }
+    expect(render(':codex-file-citation{path="F:/Project/part')).not.toContain('<a ');
+  });
 
   it('hides internal sources in assistant prose without changing surrounding text or real links', () => {
     expect(render(`Useful answer. ${marker} [Source](https://example.com)`))
