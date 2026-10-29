@@ -21,9 +21,9 @@ See [the investigation](history-questions-investigation.md) for that review's sc
 ## Next Work
 
 At this checkpoint, [PR #3](https://github.com/CoralFlower325/Codex-remote/pull/3),
-`feat: refine mobile composer and add sidebar swipe gestures`, is open.
-Its head is `47acc01b72c4bc7779cf0afc426dea3c403bd4f9` and CI run
-`40835069083` passed on Windows, macOS and Ubuntu.
+`feat: add manual app updates and refine mobile controls`, is open.
+Its latest observed head is `ccb92f746091e44cd6d53dac110e02bf9473e72a` and CI run
+`40840478793` passed on Windows, macOS and Ubuntu.
 It has not been reviewed, merged or deployed by this closeout.
 Refresh its state before continuing; passing CI does not replace review.
 
@@ -31,6 +31,9 @@ Review mobile control sizes, swipe direction/thresholds, focus and keyboard
 behavior, and conflicts with conversation scrolling or panel resizing.
 Keep main and side-chat controls consistent. Use synthetic browser fixtures;
 do not create real model turns or notifications just to verify layout.
+Review the newly added manual app-update workflow for authentication, scope,
+concurrent requests, private-data preservation, failure recovery and platform
+behavior before enabling it on a running installation.
 
 Outstanding acceptance:
 
