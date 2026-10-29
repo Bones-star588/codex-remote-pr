@@ -2,7 +2,7 @@ import { useEffect, useRef, type RefObject } from 'react';
 import { SidebarSwipe, sidebarSwipeSettings } from './sidebar-swipe';
 
 const excludedTargets = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), .composer, pre, '
-  + 'dialog, [role="dialog"], [role="menu"], .terminal-panel, [data-sidebar-swipe-ignore]';
+  + 'dialog, [role="dialog"], [role="menu"], .terminal-panel, .inspector, .inspector-backdrop, [data-sidebar-swipe-ignore]';
 
 export function useMobileSidebarSwipe(rootRef: RefObject<HTMLElement | null>, mobile: boolean,
   open: boolean, onOpenChange: (open: boolean) => void) {

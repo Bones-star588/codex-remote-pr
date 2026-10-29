@@ -26,7 +26,8 @@ Recognition attaches only to the mobile workspace. A one-finger swipe starts
 within 28 CSS pixels of the left edge to open; closing starts on the sidebar or
 its backdrop. A 10px direction threshold, horizontal ratio 1.4, and 56px travel
 require deliberate horizontal intent. Vertical intent permanently cancels the
-current gesture. Input/code areas, selection, modal dialogs, multiple fingers,
+current gesture. Input/code areas, inspector/side-chat/preview panels, selection,
+modal dialogs, multiple fingers,
 noncancelable native gestures, and touch cancellation leave the drawer alone.
 
 Recognition does not rerender chat history during movement. On release it uses

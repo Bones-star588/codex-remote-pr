@@ -10,6 +10,7 @@ import { useMobileSidebarSwipe } from './useMobileSidebarSwipe';
 class Surface {
   listeners = new Map<string, (event: any) => void>();
   excluded = false;
+  inspector = false;
   inSidebar = false;
   selection = '';
   modal = false;
@@ -18,6 +19,7 @@ class Surface {
     getSelection: () => this.selection
   };
   closest(selector: string) {
+    if (this.inspector && selector.includes('.inspector')) return this;
     return (selector.includes('#workspace-sidebar') ? this.inSidebar : this.excluded) ? this : null;
   }
   addEventListener(type: string, listener: (event: any) => void) { this.listeners.set(type, listener); }
@@ -94,6 +96,16 @@ describe('mobile sidebar touch integration', () => {
     root.emit('touchend', 100, 170);
     expect(change).not.toHaveBeenCalled();
     expect(root.emit('click').preventDefault).not.toHaveBeenCalled();
+  });
+
+  it('does not open the sidebar underneath a mobile inspector or side chat', () => {
+    const root = new Surface();
+    root.inspector = true;
+    const change = mount(root);
+    root.emit('touchstart');
+    expect(root.emit('touchmove', 100).preventDefault).not.toHaveBeenCalled();
+    root.emit('touchend', 110);
+    expect(change).not.toHaveBeenCalled();
   });
 
   it.each(['excluded', 'modal', 'selection'] as const)('leaves %s interactions alone', blocker => {

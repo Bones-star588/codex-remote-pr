@@ -2106,7 +2106,7 @@ kbd {
   gap: 8px;
   margin-inline: auto;
   border: 1px solid var(--line);
-  border-radius: var(--composer-radius);
+  border-radius: 10px;
   padding: 8px 10px;
   background: var(--surface);
   color: var(--accent-strong);

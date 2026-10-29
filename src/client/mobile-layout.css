@@ -87,10 +87,16 @@
 .app-shell[data-layout="mobile"] .composer-circle-button {
   width: var(--mobile-composer-control-size);
   height: var(--mobile-composer-control-size);
+  min-height: var(--mobile-composer-control-size);
   flex-basis: var(--mobile-composer-control-size);
 }
 
 .app-shell[data-layout="mobile"] .composer-turn-slot .thread-navigation-mobile--composer {
   width: var(--mobile-composer-control-size);
   height: var(--mobile-composer-control-size);
+}
+
+.app-shell[data-layout="mobile"] .goal-status,
+.app-shell[data-layout="mobile"] .queued-messages {
+  border-radius: var(--composer-radius);
 }

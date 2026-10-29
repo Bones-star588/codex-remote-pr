@@ -71,7 +71,9 @@ and atomic public precache. No dependency was installed or third-party code copi
   controller change before reloading. Failed installs retain the working version.
 - Bound the operation to 120 seconds and worker build replies to five seconds;
   cancellation removes listeners and prevents a delayed reload.
-- Preserve login, session-storage drafts, push subscriptions and private caches.
+- Preserve login, session-storage main-chat text drafts, push subscriptions and private caches.
+  Reloading clears temporary side chats, unsent images and skill selections;
+  the dialog states this before the user starts the update.
   Activation messages accept only same-origin clients. Manual activation retains
   old public modules for other open tabs; natural activation performs old-cache cleanup.
 - `/update.html` is a small independent build entry with inline styling and no

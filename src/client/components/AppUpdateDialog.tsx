@@ -7,7 +7,7 @@ export function AppUpdateDialog({ onClose }: { onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const operation = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState('检查服务器版本，下载完成后刷新此页面。');
+  const [status, setStatus] = useState('更新将刷新页面。主会话文字草稿会保留；临时侧聊、待发图片和技能选择会清除。');
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     dialog.current?.showModal();
