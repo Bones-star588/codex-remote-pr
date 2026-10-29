@@ -163,6 +163,9 @@ Relative file links resolve against that chat's host directory, including on a
 phone. Reopening a file reuses its tab. Code and JSON have syntax highlighting,
 line numbers, wrapping, copy and download controls; native `:42` and `#L42` links
 select the referenced line. Markdown and HTML offer preview/source switching.
+Native `codex-file-citation` references in assistant replies appear as compact
+blue filename links and open the same inspector. Literal examples in code and
+user messages remain unchanged.
 Images and PDFs open in the same panel. PDF rendering is loaded on demand and
 provides page navigation, zoom and page-text copying. Office and other
 binary files currently offer downloads rather than document rendering.
@@ -654,7 +657,7 @@ npm test
 npm run build
 ```
 
-The suite has **293 tests across 47 test files**, including readable-history detection, Safari overscroll direction and fine touch motion, isolated HTTP POST failure recovery, parallel transport selection, initial conversation-context filling, native read coalescing and timeout recovery, bounded host/device snapshots, foreground request priority, parallel session startup, returning-device hints, static-shell caching, native timing, activity folding, gesture-aware history insertion, bounded HTTP reads, preview canvas sizing, local attachment retention, conversation navigation, side-chat event isolation and recovery, child-task filtering, assistant citation display, device push registration/routing/retries, HTTP realtime fallback, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
+The suite has **309 tests across 48 test files**, including readable-history detection, Safari overscroll direction and fine touch motion, isolated HTTP POST failure recovery, parallel transport selection, initial conversation-context filling, native read coalescing and timeout recovery, bounded host/device snapshots, foreground request priority, parallel session startup, returning-device hints, static-shell caching, native timing, activity folding, gesture-aware history insertion, bounded HTTP reads, preview canvas sizing, local attachment retention, conversation navigation, side-chat event isolation and recovery, child-task filtering, assistant citation display, device push registration/routing/retries, HTTP realtime fallback, queue dispatch, real PTY input, interruption, directory isolation, screen restoration, exit, and connection lifecycle tests. CI runs type checking, tests, and a production build on Windows, macOS, and Ubuntu. The macOS job also checks shell syntax and validates the generated LaunchAgent with the native plist tools. These checks do not replace testing against a signed-in desktop; an Ubuntu build does not establish Linux desktop support.
 
 ```text
 src/client/       React workspace, composer, history, approvals, reconnect
