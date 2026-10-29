@@ -9,7 +9,7 @@ import { permissionLabel, type PermissionProfile } from '../../shared/permission
 import type { ComposerAttachment, ContextUsage, ModelInfo, ProjectInfo, SkillInfo, SkillsResult } from '../types';
 import { modelDisplayName, reasoningLabel, reasoningOptionsForModel } from '../workspace-model';
 import { findSlashCommand, parseSlashQuery, slashOptions, type SlashCommandId, type SlashOption } from '../slash-commands';
-import { composerKeyboardAction } from '../composer-keyboard';
+import { composerKeyboardAction, insertComposerNewline } from '../composer-keyboard';
 import { SlashMenu } from './SlashMenu';
 
 interface ComposerProps {
@@ -106,6 +106,22 @@ export function Composer({
       else sessionStorage.removeItem(`draft:${draftKey}`);
     }
     setSlashDismissed(false);
+  };
+
+  const insertNewline = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const next = insertComposerNewline(draftRef.current, {
+      start: textarea.selectionStart ?? draftRef.current.length,
+      end: textarea.selectionEnd ?? draftRef.current.length
+    });
+    updateDraft(next.text);
+    window.requestAnimationFrame(() => {
+      const current = textareaRef.current;
+      if (!current) return;
+      current.focus({ preventScroll: true });
+      current.setSelectionRange(next.caret, next.caret);
+    });
   };
   useEffect(() => {
     setSlashIndex(Math.max(0, options.findIndex((option) => !option.disabledReason)));
@@ -475,6 +491,12 @@ export function Composer({
             updateDraft(event.target.value);
             setMenu(null);
           }}
+          onBeforeInput={(event) => {
+            const input = event.nativeEvent as InputEvent;
+            if (input.isComposing || (input.inputType !== 'insertLineBreak' && input.inputType !== 'insertParagraph')) return;
+            event.preventDefault();
+            insertNewline();
+          }}
           onKeyDown={(event) => {
             const action = composerKeyboardAction({
               key: event.key,
@@ -483,7 +505,13 @@ export function Composer({
               isComposing: event.nativeEvent.isComposing,
               keyCode: event.keyCode
             });
-            if (action === 'none' || action === 'newline') return;
+            if (action === 'none') return;
+            if (action === 'newline') {
+              event.preventDefault();
+              event.stopPropagation();
+              insertNewline();
+              return;
+            }
             if (action === 'dismiss-slash') {
                 event.preventDefault(); event.stopPropagation(); setSlashDismissed(true); return;
             }

@@ -14,6 +14,23 @@ export interface ComposerKeyboardInput {
   keyCode?: number;
 }
 
+export interface ComposerTextSelection {
+  start: number;
+  end: number;
+}
+
+export function insertComposerNewline(text: string, selection: ComposerTextSelection): {
+  text: string;
+  caret: number;
+} {
+  const start = Math.max(0, Math.min(selection.start, text.length));
+  const end = Math.max(start, Math.min(selection.end, text.length));
+  return {
+    text: `${text.slice(0, start)}\n${text.slice(end)}`,
+    caret: start + 1
+  };
+}
+
 /**
  * Keep Enter inside the textarea. Sending is deliberately owned by the
  * visible send button, while slash-menu navigation keeps its non-text keys.

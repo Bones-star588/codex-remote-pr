@@ -1,10 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { composerKeyboardAction } from './composer-keyboard';
+import { composerKeyboardAction, insertComposerNewline } from './composer-keyboard';
 
 describe('composer keyboard behavior', () => {
   it('keeps plain Enter and Shift+Enter as real newlines', () => {
     expect(composerKeyboardAction({ key: 'Enter', shiftKey: false, slashOpen: false })).toBe('newline');
     expect(composerKeyboardAction({ key: 'Enter', shiftKey: true, slashOpen: false })).toBe('newline');
+  });
+
+  it('inserts a newline at the current selection and replaces selected text', () => {
+    expect(insertComposerNewline('ab', { start: 1, end: 1 })).toEqual({ text: 'a\nb', caret: 2 });
+    expect(insertComposerNewline('hello world', { start: 5, end: 11 })).toEqual({ text: 'hello\n', caret: 6 });
+  });
+
+  it('clamps an out-of-range mobile selection safely', () => {
+    expect(insertComposerNewline('abc', { start: 99, end: 120 })).toEqual({ text: 'abc\n', caret: 4 });
   });
 
   it('does not interfere with IME composition', () => {
