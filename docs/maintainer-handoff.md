@@ -12,8 +12,8 @@ a merge or successful CI alone does not establish deployment.
 The README languages describe supported behavior. Dated acceptance records retain
 their original scope and do not establish current physical-device performance.
 
-This closeout corrects notification privacy and history timeout documentation and
-increments the patch version. It adds no connection, history or UI behavior.
+This closeout corrects notification privacy and history timeout documentation.
+It adds no connection, history or UI behavior and keeps application version 0.1.4.
 The previous functional batch merged PR #2: native asynchronous question forms,
 lazy execution details and 15-second chat/timing downloads.
 See [the investigation](history-questions-investigation.md) for that review's scope.
@@ -56,11 +56,12 @@ run as the host user outside model permission profiles.
 2. Develop in the public source checkout. Compare reviewed changes against the
    running installation before copying; never reset a private deployment to an
    old Git base or publish its local data.
-3. Increment the patch once per completed change batch unless explicitly directed
-   otherwise. Align package, lockfile, visible version, local build and edge.
+3. Increment the patch once per completed functional change batch unless explicitly
+   directed otherwise. Neat closeout, handoff and documentation-only updates do
+   not increment it. Align package, lockfile, visible version, local build and edge.
 4. Run appropriate checks. Application changes require typecheck, tests and build.
-   Documentation-only changes need link/privacy checks and a build when the
-   visible version changes; record which functional tests were not repeated.
+   Documentation-only changes need link/privacy checks; they do not require a
+   release build or service restart. Record which functional tests were not repeated.
 5. Back up the affected installation files and build. Preserve configuration,
    authentication, notification keys/subscriptions and retained attachments.
 6. Publish only the reviewed public files, verify remote revision and CI, and

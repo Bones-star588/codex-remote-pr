@@ -290,7 +290,8 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 
 ## Publication and Privacy
 
-- Increment the package patch version once per completed change batch by default.
+- Increment the package patch version once per completed functional change batch.
+  Neat closeout, handoff and documentation-only updates do not increment it.
   Keep package.json, the lockfile, deployed assets and the visible version aligned.
   An explicit user version takes precedence.
 - After completing and validating project changes, push the public repository
