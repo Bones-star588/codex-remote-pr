@@ -1,9 +1,11 @@
 import type { Plugin } from 'vite';
 
-export function serviceWorkerSource(files: string[], version: string): string {
+export function serviceWorkerSource(files: string[], version: string, appVersion = '0.0.0'): string {
   return `
 const CACHE = ${JSON.stringify(`codex-static-${version}`)};
 const FILES = ${JSON.stringify(files)};
+const BUILD = ${JSON.stringify({ version: appVersion, buildId: version })};
+let userActivated = false;
 const isStatic = url => url.origin === self.location.origin &&
   (url.pathname.startsWith('/assets/') || FILES.includes(url.pathname));
 self.addEventListener('install', event => event.waitUntil(
@@ -14,10 +16,21 @@ self.addEventListener('install', event => event.waitUntil(
   })))
 ));
 self.addEventListener('activate', event => event.waitUntil(
-  caches.keys().then(keys => Promise.all(keys.filter(key =>
+  caches.keys().then(keys => Promise.all((userActivated ? [] : keys).filter(key =>
     key.startsWith('codex-static-') && key !== CACHE).map(key => caches.delete(key))))
     .then(() => self.clients.claim())
 ));
+self.addEventListener('message', event => {
+  if (typeof event.source?.url !== 'string' ||
+    !event.source.url.startsWith(self.location.origin + '/')) return;
+  if (event.data?.type === 'codex-update:build') event.ports?.[0]?.postMessage(BUILD);
+  if (event.data?.type === 'codex-update:activate') {
+    // Other open tabs may still import their installed build's lazy modules.
+    // Natural activation after the old clients close performs cache cleanup.
+    userActivated = true;
+    event.waitUntil(self.skipWaiting());
+  }
+});
 self.addEventListener('fetch', event => {
   const request = event.request;
   const url = new URL(request.url);
@@ -68,11 +81,12 @@ self.addEventListener('notificationclick', event => {
 `;
 }
 
-export function pwaPlugin(): Plugin {
+export function pwaPlugin(appVersion: string): Plugin {
   return {
     name: 'remote-static-cache',
     apply: 'build',
     transformIndexHtml(_html, context) {
+      if (context.path === '/update.html') return [];
       const workspace = Object.values(context.bundle ?? {}).find(
         value => value.type === 'chunk' && value.name === 'Workspace'
       );
@@ -81,12 +95,13 @@ export function pwaPlugin(): Plugin {
       }, injectTo: 'head' }] : [];
     },
     generateBundle(_options, bundle) {
-      const entry = Object.values(bundle).find(value => value.type === 'chunk' && value.isEntry);
+      const entry = Object.values(bundle).find(value => value.type === 'chunk' && value.isEntry && value.name === 'index');
       if (!entry) return;
       const files = ['/', '/codex-mark.svg', '/icon-192.png', '/icon-512.png', '/manifest.webmanifest',
         ...Object.keys(bundle).filter(name => /\.(js|css)$/.test(name) && !/^assets\/(?:TerminalPanel|FilePreview|PdfPreview)/.test(name))
           .map(name => `/${name}`)];
-      this.emitFile({ type: 'asset', fileName: 'sw.js', source: serviceWorkerSource(files, entry.fileName) });
+      this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ version: appVersion, buildId: entry.fileName }) });
+      this.emitFile({ type: 'asset', fileName: 'sw.js', source: serviceWorkerSource(files, entry.fileName, appVersion) });
     }
   };
 }

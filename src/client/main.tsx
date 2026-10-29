@@ -13,7 +13,10 @@ window.addEventListener('keydown', prioritizeInteraction);
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     window.setTimeout(() => {
-      void navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(() => undefined);
+      void navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(registration => {
+        console.debug('[app-update] registered', { active: registration.active?.state,
+          waiting: registration.waiting?.state, installing: registration.installing?.state });
+      }).catch(error => console.warn('[app-update] registration failed', error));
     }, 2000);
   }, { once: true });
 }

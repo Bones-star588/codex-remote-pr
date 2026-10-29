@@ -10,6 +10,7 @@ import { buildSidebarGroups, connectionLabel } from '../workspace-model';
 import { WorkspaceFolderDialog } from './WorkspaceFolderDialog';
 import { api } from '../api';
 import { NotificationSettings } from './NotificationSettings';
+import { AppUpdateDialog } from './AppUpdateDialog';
 
 interface SidebarProps {
   remote: RemoteState;
@@ -36,6 +37,7 @@ export function Sidebar({
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [updateOpen, setUpdateOpen] = useState(false);
   const [expansion, setExpansion] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(localStorage.getItem('sidebar-project-expansion') ?? '{}') as Record<string, boolean>; }
     catch { return {}; }
@@ -180,6 +182,9 @@ export function Sidebar({
               <a className="connection-link" href={origin} key={origin}>局域网 · {new URL(origin).host}</a>)}
             <div className="account-menu-separator" />
             <button type="button" role="menuitem" onClick={() => {
+              setAccountOpen(false); setUpdateOpen(true);
+            }}><RefreshCw size={15} /><span>刷新版本</span></button>
+            <button type="button" role="menuitem" onClick={() => {
               setAccountOpen(false); setNotificationsOpen(true);
             }}><Bell size={15} /><span>消息通知</span></button>
             <button type="button" role="menuitem" onClick={onLogout}><LogOut size={15} /><span>退出登录</span></button>
@@ -210,6 +215,7 @@ export function Sidebar({
       )}
       {folderDialogOpen && <WorkspaceFolderDialog remote={remote} onSelect={onNewTask} onClose={() => setFolderDialogOpen(false)} />}
       {notificationsOpen && <NotificationSettings onClose={() => setNotificationsOpen(false)} />}
+      {updateOpen && <AppUpdateDialog onClose={() => setUpdateOpen(false)} />}
     </aside>
   );
 }
