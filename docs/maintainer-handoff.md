@@ -12,7 +12,13 @@ a merge or successful CI alone does not establish deployment.
 The README languages describe supported behavior. Dated acceptance records retain
 their original scope and do not establish current physical-device performance.
 
-The 0.1.6 functional batch integrates PR #4's plain sidebar title and removal
+The 0.1.7 functional batch integrates PR #5's phone conversation-index sheet
+refinements and independent sidebar spinner layer. Maintainer corrections scope
+the trigger background/focus changes to mobile and preserve the next patch
+version. Physical iOS animation smoothness is not confirmed. See
+[the integration review](pr-5-review.md).
+
+The preceding 0.1.6 functional batch integrates PR #4's plain sidebar title and removal
 of the help shortcut. The proposed further button shrinking was rejected:
 mobile remains 36px and desktop retains its existing sizes. See
 [the integration review](pr-4-review.md) for scope and verification.

@@ -224,7 +224,7 @@ function ThreadRow({ thread, active, needsAttention, onClick, onArchive, onError
     <div className="thread-row-container"><button type="button" className={`thread-row${active ? ' thread-row--active' : ''}`} onClick={onClick}
       aria-current={active ? 'page' : undefined} title={displayThreadTitle(thread)} data-thread-id={thread.id}>
       <span className="thread-state" aria-hidden="true">
-        {needsAttention ? <CircleAlert size={13} /> : running ? <LoaderCircle size={12} className="spin" /> : null}
+        {needsAttention ? <CircleAlert size={13} /> : running ? <span className="thread-running-spinner"><LoaderCircle size={12} /></span> : null}
       </span>
       {needsAttention && <span className="sr-only">等待审批：</span>}
       <span className="thread-row-title">{displayThreadTitle(thread)}</span>
