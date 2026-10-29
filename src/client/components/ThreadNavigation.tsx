@@ -25,11 +25,17 @@ export const ThreadNavigation = memo(function ThreadNavigation({ turns, streamRe
   const [hovered, setHovered] = useState<number | null>(null);
   const [preview, setPreview] = useState<{ index: number; x: number; y: number } | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileTriggerTarget, setMobileTriggerTarget] = useState<HTMLElement | null>(null);
   const railRef = useRef<HTMLDivElement>(null);
   const mobileRef = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const buttonsRef = useRef<Array<HTMLButtonElement | null>>([]);
   const previewId = useId();
+
+  useEffect(() => {
+    setMobileTriggerTarget(streamRef.current?.closest('.thread-screen')
+      ?.querySelector<HTMLElement>('[data-thread-navigation-slot]') ?? null);
+  }, []);
 
   useEffect(() => {
     const stream = streamRef.current;
@@ -131,10 +137,15 @@ export const ThreadNavigation = memo(function ThreadNavigation({ turns, streamRe
       <div className="navigation-prompt">{previewEntry.prompt}</div>
       {previewEntry.reply && <div className="navigation-reply">{previewEntry.reply}</div>}
     </div>, document.body)}
-    <button type="button" ref={triggerRef} className="thread-navigation-mobile icon-button" aria-label="对话回合"
-      aria-haspopup="dialog" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}>
-      {busy ? <LoaderCircle size={17} className="spin" /> : <List size={18} />}
-    </button>
+    {(() => {
+      const trigger = <button type="button" ref={triggerRef}
+        className={`thread-navigation-mobile icon-button composer-circle-button${mobileTriggerTarget ? ' thread-navigation-mobile--composer' : ''}`}
+        aria-label="对话回合" aria-haspopup="dialog" aria-expanded={mobileOpen}
+        onClick={() => setMobileOpen(true)}>
+        {busy ? <LoaderCircle size={17} className="spin" /> : <List size={18} />}
+      </button>;
+      return mobileTriggerTarget ? createPortal(trigger, mobileTriggerTarget) : trigger;
+    })()}
     <dialog ref={mobileRef} className="thread-navigation-dialog" aria-label="对话回合"
       onCancel={() => setMobileOpen(false)}
       onClose={() => { setMobileOpen(false); triggerRef.current?.focus(); }}

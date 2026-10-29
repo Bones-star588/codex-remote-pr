@@ -260,8 +260,10 @@ Self-hosted React and Node.js workspace for Codex Desktop.
 - Device Web Push is opt-in, uses authenticated same-origin routes, and adds no
   notification reads to startup. Persist VAPID keys and subscriptions only in
   private runtime data. Watch ordinary chats opened/created through Remote;
-  exclude children and ephemeral chats. Send generic status only, never prompt,
-  reply, path or command content. Revoke the device subscription before logout;
+  exclude children and ephemeral chats. Include the conversation title and a
+  bounded final reply preview, never tool output or command bodies. Title metadata
+  may delay delivery by at most 1.5 seconds; skip it without subscribers.
+  Revoke the device subscription before logout;
   do not claim browser-session expiry revokes OS push. Test delivery acceptance
   separately from actual iPhone/iPad notification display. Native push delivery
   does not depend on a browser connection. Retry transient network/429/5xx

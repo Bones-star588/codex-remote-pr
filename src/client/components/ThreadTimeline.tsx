@@ -53,6 +53,7 @@ interface ThreadTimelineProps {
   outlineError?: string | null;
   viewingHistory?: boolean;
   hasNewerHistory?: boolean;
+  newerHistoryCursor?: string | null;
   loadingLaterHistory?: boolean;
   revealingHistory?: boolean;
   onLoadLater?: () => Promise<void>;
@@ -80,6 +81,7 @@ export function ThreadTimeline({
   outlineError = null,
   viewingHistory = false,
   hasNewerHistory = false,
+  newerHistoryCursor = null,
   loadingLaterHistory = false,
   revealingHistory = false,
   onLoadLater,
@@ -110,6 +112,11 @@ export function ThreadTimeline({
   const scrollActivityRef = useRef<HistoryScroll | null>(null);
   if (!scrollActivityRef.current) scrollActivityRef.current = new HistoryScroll(() => loadWhenIdleRef.current());
   const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const [navigationContext, setNavigationContext] = useState(false);
+  const laterSentinelRef = useRef<HTMLDivElement | null>(null);
+  const laterAttemptRef = useRef<string | null>(null);
+  const laterPendingRef = useRef(false);
+  const loadLaterRef = useRef<() => void>(() => {});
   const previousSectionsRef = useRef<TimelineSection[]>([]);
   const entries = useMemo(() => buildTimelineEntries(items, activeTurnId,
     previousSectionsRef.current.flatMap(section => section.entries)), [items, activeTurnId]);
@@ -124,6 +131,7 @@ export function ThreadTimeline({
     if (node) stream.scrollTop += node.getBoundingClientRect().top - stream.getBoundingClientRect().top - 24;
   }, []);
   const navigate = useCallback(async (target: NavigationTarget) => {
+    setNavigationContext(true);
     earlierBoundaryRef.current = null;
     continuationTopRef.current = null;
     onCancelHistoryReveal?.();
@@ -150,6 +158,51 @@ export function ThreadTimeline({
     });
   }, [onRevealHistory, onCancelHistoryReveal, alignNavigationTarget]);
   const handleNavigate = useCallback((target: NavigationTarget) => { void navigate(target); }, [navigate]);
+  useEffect(() => {
+    const stream = streamRef.current;
+    const sentinel = laterSentinelRef.current;
+    if (!stream || !sentinel || !hasNewerHistory || !onLoadLater) {
+      loadLaterRef.current = () => {};
+      return;
+    }
+    let frame = 0;
+    const load = () => {
+      if (loadingLaterHistory || loadingHistory || revealingHistory || laterPendingRef.current ||
+          !navigator.onLine || document.visibilityState !== 'visible' ||
+          stream.scrollHeight - stream.scrollTop - stream.clientHeight > stream.clientHeight * 2) return;
+      const key = `${newerHistoryCursor}:${items.length}:${items.at(-1) ? itemKey(items.at(-1)!) : ''}`;
+      if (laterAttemptRef.current === key) return;
+      laterAttemptRef.current = key;
+      laterPendingRef.current = true;
+      void onLoadLater().catch(error => onActionError?.(error)).finally(() => {
+        laterPendingRef.current = false;
+        // React can commit the new cursor before this promise settles.
+        // Recheck the current page, whose attempt key prevents idle retries.
+        frame = requestAnimationFrame(() => loadLaterRef.current());
+      });
+    };
+    loadLaterRef.current = load;
+    const recover = () => {
+      if (document.visibilityState !== 'visible' || !navigator.onLine || laterPendingRef.current) return;
+      laterAttemptRef.current = null;
+      load();
+    };
+    const observer = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) load(); },
+      { root: stream, rootMargin: `0px 0px ${stream.clientHeight * 2}px 0px` });
+    observer.observe(sentinel);
+    stream.addEventListener('scroll', load, { passive: true });
+    window.addEventListener('online', recover);
+    document.addEventListener('visibilitychange', recover);
+    load();
+    return () => {
+      observer.disconnect();
+      stream.removeEventListener('scroll', load);
+      window.removeEventListener('online', recover);
+      document.removeEventListener('visibilitychange', recover);
+      cancelAnimationFrame(frame);
+      loadLaterRef.current = () => {};
+    };
+  }, [hasNewerHistory, newerHistoryCursor, onLoadLater, items, loadingLaterHistory, loadingHistory, revealingHistory, onActionError]);
   const rememberReadingPosition = useCallback(() => {
     const stream = streamRef.current;
     const inner = innerRef.current;
@@ -341,6 +394,8 @@ export function ThreadTimeline({
       className="message-stream"
       aria-label="会话记录"
       onWheel={event => {
+        if (!laterPendingRef.current) laterAttemptRef.current = null;
+        loadLaterRef.current();
         navigationAnchorRef.current = null;
         wantsEarlierRef.current = event.deltaY < 0;
         if (!wantsEarlierRef.current) continuationTopRef.current = null;
@@ -348,6 +403,8 @@ export function ThreadTimeline({
         scrollActivityRef.current!.activity();
       }}
       onTouchStart={event => {
+        if (!laterPendingRef.current) laterAttemptRef.current = null;
+        loadLaterRef.current();
         navigationAnchorRef.current = null;
         scrollActivityRef.current!.startTouch(event.touches[0]?.clientY ?? null);
         stickToBottomRef.current = false;
@@ -367,6 +424,8 @@ export function ThreadTimeline({
       onKeyDownCapture={event => {
         navigationAnchorRef.current = null;
         if (['Home', 'PageUp', 'ArrowUp', 'End', 'PageDown', 'ArrowDown'].includes(event.key)) {
+          if (!laterPendingRef.current) laterAttemptRef.current = null;
+          loadLaterRef.current();
           wantsEarlierRef.current = ['Home', 'PageUp', 'ArrowUp'].includes(event.key);
           if (!wantsEarlierRef.current) continuationTopRef.current = null;
           if (wantsEarlierRef.current && !loadingEarlierRef.current) earlierAttemptRef.current = null;
@@ -412,7 +471,8 @@ export function ThreadTimeline({
         </div>
       )}
       {sections.map((section) => section.user
-        ? <MessageItem item={(section.entries[0] as Extract<TimelineEntry, { type: 'message' }>).item} key={section.key} />
+        ? <MessageItem item={(section.entries[0] as Extract<TimelineEntry, { type: 'message' }>).item}
+            showFull={navigationContext || viewingHistory} key={section.key} />
         : <ResponseSection section={section} timing={section.showTiming && section.turnId ? turnTimings[section.turnId] : undefined}
             active={section.turnId === activeTurnId} onInteract={preserveActivityPosition} key={section.key}
             onFork={onFork} onError={onActionError} />
@@ -422,10 +482,9 @@ export function ThreadTimeline({
           <TurnDuration timing={turnTimings[activeTurnId]} active />
         </div></div>
       )}
-      {hasNewerHistory && <button type="button" className="history-trim history-later"
-        disabled={loadingLaterHistory || revealingHistory} onClick={() => { void onLoadLater?.(); }}>
-        {loadingLaterHistory ? '正在加载' : '显示后续记录'}
-      </button>}
+      {hasNewerHistory && <div ref={laterSentinelRef} className="history-sentinel" aria-busy={loadingLaterHistory}>
+        {loadingLaterHistory && <LoaderCircle size={15} className="spin" role="status" aria-label="正在加载后续记录" />}
+      </div>}
       </div>
     </div>
     {(awayFromBottom || viewingHistory) && (
@@ -578,13 +637,13 @@ function TurnDuration({ timing, active, finalStartedAtMs }: {
   return <span className="turn-duration">{text}</span>;
 }
 
-const MessageItem = memo(function MessageItem({ item }: { item: ThreadItem }) {
+const MessageItem = memo(function MessageItem({ item, showFull = false }: { item: ThreadItem; showFull?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   if (item.type === 'userMessage') {
     const text = (item.content ?? []).filter((entry) => entry.type === 'text')
       .map((entry) => userMessageText(entry.text ?? '')).filter(Boolean).join('\n\n');
     const images = (item.content ?? []).filter((entry) => entry.type === 'image' || entry.type === 'localImage');
-    const long = text.length > 900;
+    const long = text.length > 900 && !showFull;
     return (
       <article className="message message--user" data-user-key={itemKey(item)} data-turn-id={item.turnId}
         data-scroll-anchor={itemKey(item)}>

@@ -110,14 +110,26 @@ describe('turn navigation', () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the native backwards cursor for single-item turns and removes its inclusive boundary', async () => {
+  it('returns a single-item target immediately and retains native cursors for automatic continuation', async () => {
     const request = vi.fn()
       .mockResolvedValueOnce({ data: [entry('only')], nextCursor: null, backwardsCursor: 'native:boundary' })
       .mockResolvedValueOnce({ data: [entry('only'), entry('old', 'before')], nextCursor: null })
       .mockResolvedValueOnce({ data: [entry('only'), entry('new', 'after')], nextCursor: null });
     const page = await readThreadHistoryAround(request, 'thread', 'target', 'only');
-    expect(page.items.map(e => e.item)).toEqual([{ id: 'old' }, { id: 'only' }, { id: 'new' }]);
-    expect(request.mock.calls[1]![1]).toMatchObject({ cursor: 'native:boundary' });
+    expect(page.items.map(e => e.item)).toEqual([{ id: 'only' }]);
+    expect(page).toMatchObject({ nextCursor: 'native:boundary', newerCursor: 'native:boundary' });
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it('returns the request and full reply in one native read when the target is in the first turn page', async () => {
+    const request = vi.fn().mockResolvedValue({ data: [entry('user'), entry('reply')],
+      nextCursor: 'after-reply', backwardsCursor: 'before-user' });
+    const page = await readThreadHistoryAround(request, 'thread', 'target', 'user');
+    expect(page.items.map(e => e.item)).toEqual([{ id: 'user' }, { id: 'reply' }]);
+    expect(page).toMatchObject({ nextCursor: 'before-user', newerCursor: 'after-reply' });
+    expect(request).toHaveBeenCalledExactlyOnceWith('thread/items/list', {
+      threadId: 'thread', turnId: 'target', limit: 100, sortDirection: 'asc'
+    });
   });
 
   it('locates a steering message using its predecessor, including a second message in the turn', async () => {

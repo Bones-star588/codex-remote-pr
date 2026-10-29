@@ -18,6 +18,45 @@ interface NotificationPayload {
   threadId?: string;
 }
 
+type ThreadReader = (threadId: string) => Promise<unknown>;
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : null;
+}
+
+function firstText(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const text = value.trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+function truncateReply(value: string, limit = 100): string {
+  const characters = Array.from(value.trim());
+  return characters.length > limit ? `${characters.slice(0, limit).join('')}…` : characters.join('');
+}
+
+function replyText(params: Record<string, unknown>): string | null {
+  const turn = recordValue(params.turn);
+  const items = Array.isArray(turn?.items) ? turn.items : [];
+  for (const phase of ['final_answer', null]) {
+    for (const item of [...items].reverse()) {
+      const candidate = recordValue(item);
+      if (candidate?.type !== 'agentMessage' || (candidate.phase ?? null) !== phase) continue;
+      const text = firstText(candidate.text);
+      if (text) return truncateReply(text);
+    }
+  }
+  return null;
+}
+
+function threadTitle(value: unknown): string | null {
+  const thread = recordValue(value);
+  return firstText(thread?.name, thread?.preview);
+}
+
 function subscriptionValue(value: unknown): PushSubscription | null {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Partial<PushSubscription>;
@@ -43,7 +82,7 @@ export class PushNotifications {
   private readonly subscriptions: Map<string, PushSubscription>;
   private readonly watchedThreads: Set<string>;
 
-  constructor(dataDir: string, private readonly subject: string) {
+  constructor(dataDir: string, private readonly subject: string, private readonly readThread?: ThreadReader) {
     this.file = path.join(dataDir, 'web-push.json');
     fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     if (fs.existsSync(this.file)) {
@@ -91,24 +130,46 @@ export class PushNotifications {
     this.save();
   }
 
+  private async conversationTitle(threadId: string, params: Record<string, unknown>): Promise<string> {
+    const fromEvent = threadTitle(params.thread) ?? firstText(params.threadName, params.name);
+    if (fromEvent) return truncateReply(fromEvent);
+    if (this.readThread) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([
+          Promise.resolve().then(() => this.readThread!(threadId)),
+          new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 1500); })
+        ]);
+        const fromNative = threadTitle(recordValue(result)?.thread);
+        if (fromNative) return truncateReply(fromNative);
+      } catch { /* Title metadata must not prevent status delivery. */ }
+      finally { clearTimeout(timer); }
+    }
+    return 'Codex';
+  }
+
   async notifyTurn(params: Record<string, unknown>): Promise<void> {
     const threadId = typeof params.threadId === 'string' ? params.threadId : '';
     const turn = params.turn as { id?: string; status?: string } | undefined;
-    if (!this.watchedThreads.has(threadId) || !turn?.id) return;
-    const body = turn.status === 'completed' ? '\u4efb\u52a1\u5df2\u5b8c\u6210'
+    if (!this.subscriptions.size || !this.watchedThreads.has(threadId) || !turn?.id) return;
+    const status = turn.status === 'completed' ? '\u4efb\u52a1\u5df2\u5b8c\u6210'
       : turn.status === 'interrupted' ? '\u4efb\u52a1\u5df2\u505c\u6b62'
       : turn.status === 'failed' ? '\u4efb\u52a1\u6267\u884c\u5931\u8d25' : null;
-    if (body) await this.notify({
-      title: 'Codex', body, tag: `codex-turn-${threadId}`,
-      url: `/?thread=${encodeURIComponent(threadId)}`, threadId
-    });
+    if (status) {
+      const title = await this.conversationTitle(threadId, params);
+      const reply = turn.status === 'completed' ? replyText(params) : null;
+      await this.notify({
+        title, body: reply ? `${status}：${reply}` : status, tag: `codex-turn-${threadId}`,
+        url: `/?thread=${encodeURIComponent(threadId)}`, threadId
+      });
+    }
   }
 
   async notifyApproval(params: Record<string, unknown>): Promise<void> {
     const threadId = typeof params.threadId === 'string' ? params.threadId : '';
-    if (!this.watchedThreads.has(threadId)) return;
+    if (!this.subscriptions.size || !this.watchedThreads.has(threadId)) return;
     await this.notify({
-      title: 'Codex', body: '\u4efb\u52a1\u9700\u8981\u4f60\u7684\u786e\u8ba4',
+      title: await this.conversationTitle(threadId, params), body: '\u4efb\u52a1\u9700\u8981\u4f60\u7684\u786e\u8ba4',
       tag: `codex-approval-${threadId}`, url: `/?thread=${encodeURIComponent(threadId)}`, threadId
     });
   }

@@ -1,0 +1,94 @@
+/* Mobile-only chrome. Keep physical safe areas, remove duplicate keyboard spacing. */
+.app-shell[data-layout="mobile"] {
+  --mobile-header-height: 44px;
+  --mobile-edge: 8px;
+  --mobile-header-top: env(safe-area-inset-top, 0px);
+  --mobile-bottom-inset: env(safe-area-inset-bottom, 0px);
+  --mobile-chrome-height: calc(var(--mobile-header-top) + var(--mobile-header-height));
+  position: fixed;
+  top: var(--mobile-viewport-top, 0px);
+  left: 0;
+  height: var(--mobile-viewport-height, 100dvh);
+  padding-top: var(--mobile-chrome-height);
+}
+
+.app-shell[data-layout="mobile"][data-keyboard-open="true"] {
+  --mobile-bottom-inset: 0px;
+}
+
+.app-shell[data-layout="mobile"] .workspace-main {
+  height: 100%;
+}
+
+.app-shell[data-layout="mobile"] .workspace-header {
+  position: absolute;
+  top: 0;
+  height: var(--mobile-chrome-height);
+  min-height: var(--mobile-chrome-height);
+  padding: var(--mobile-header-top) 4px 0;
+}
+
+.app-shell[data-layout="mobile"] .workspace-header-start > .icon-button {
+  width: 44px;
+  height: 44px;
+  margin-right: 2px;
+}
+
+.app-shell[data-layout="mobile"] .workspace-header-actions > .icon-button {
+  width: 44px;
+  height: 44px;
+}
+
+.app-shell[data-layout="mobile"] .sidebar,
+.app-shell[data-layout="mobile"] .mobile-backdrop,
+.app-shell[data-layout="mobile"] .inspector,
+.app-shell[data-layout="mobile"] .inspector-backdrop {
+  position: absolute;
+  top: var(--mobile-chrome-height);
+  bottom: 0;
+  height: auto;
+}
+
+.app-shell[data-layout="mobile"] .task-menu {
+  top: var(--mobile-chrome-height);
+}
+
+.app-shell[data-layout="mobile"] .thread-bottom,
+.app-shell[data-layout="mobile"] .home-composer-dock {
+  padding: 4px var(--mobile-edge) calc(4px + var(--mobile-bottom-inset));
+}
+
+.app-shell[data-layout="mobile"] .composer textarea {
+  min-height: 40px;
+  max-height: 120px;
+  padding: 10px 12px 2px;
+  font-size: 16px;
+  line-height: 20px;
+}
+
+.app-shell[data-layout="mobile"] .composer-toolbar {
+  min-height: 44px;
+  padding: 0 6px 4px;
+}
+
+.app-shell[data-layout="mobile"] .composer-setting {
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.app-shell[data-layout="mobile"] .composer-toolbar-left {
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.app-shell[data-layout="mobile"] .composer-circle-button {
+  width: 44px;
+  height: 44px;
+  flex-basis: 44px;
+}
+
+.app-shell[data-layout="mobile"] .composer-turn-slot .thread-navigation-mobile--composer {
+  width: 44px;
+  height: 44px;
+}

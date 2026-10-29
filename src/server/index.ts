@@ -39,6 +39,7 @@ import { PushNotifications } from './push-notifications.js';
 import { isTaskThread } from '../shared/thread-source.js';
 import { httpConnections, type RemotePeer } from './http-connections.js';
 import { metadataRouter } from './metadata-router.js';
+import { threadDockRouter } from './thread-dock-router.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -59,7 +60,11 @@ const eventJournal = new EventJournal();
 const localImages = new LocalImages(path.join(config.dataDir, 'image-attachments'));
 const metadataReader = new MetadataReader((method, params) => codexBridge.request(method, params));
 const workspaceSnapshots = new WorkspaceSnapshots((method, params) => codexBridge.request(method, params));
-const pushNotifications = new PushNotifications(config.dataDir, config.publicOrigin ?? 'https://example.com');
+const pushNotifications = new PushNotifications(
+  config.dataDir,
+  config.publicOrigin ?? 'https://example.com',
+  threadId => codexBridge.request('thread/read', { threadId, includeTurns: false })
+);
 const watchedThreads = new Map<RemotePeer, Set<string>>();
 const ephemeralChats = new EphemeralChats<RemotePeer>(threadId => codexBridge.request('thread/unsubscribe', { threadId }));
 const queueDispatcher = new QueueDispatcher(<T,>(method: import('../shared/protocol.js').ClientRpcMethod, params: unknown) =>
@@ -265,6 +270,7 @@ app.get('/api/threads', requireAuth, asyncRoute(async (req, res) => {
 }));
 
 app.use('/api/metadata', metadataRouter(requireAuth, metadataReader.read));
+app.use('/api/thread/dock', threadDockRouter(requireAuth, (method, params) => codexBridge.request(method, params)));
 
 app.use('/api/notifications', requireAuth, (req, _res, next) => {
   assertTrustedOrigin(req);

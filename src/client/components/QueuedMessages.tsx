@@ -3,13 +3,15 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ChatTransport } from '../chat-transport';
 import { queuedDraft, replaceQueuedText, type ChatInput, type QueuedSubmission } from '../queued-messages';
+import { api, isAbortedRequest } from '../api';
 
-export function QueuedMessages({ transport, threadId, activeTurnId, connected, onError, onOpenSideChat,
+export function QueuedMessages({ transport, threadId, activeTurnId, connected, readable, onError, onOpenSideChat,
   queueEnabled, onQueueEnabledChange }: {
   transport: ChatTransport;
   threadId: string;
   activeTurnId: string | null;
   connected: boolean;
+  readable: boolean;
   onError: (error: unknown) => void;
   onOpenSideChat: (input: ChatInput) => void;
   queueEnabled: boolean;
@@ -25,27 +27,40 @@ export function QueuedMessages({ transport, threadId, activeTurnId, connected, o
   turnRef.current = activeTurnId;
 
   useEffect(() => {
-    if (!connected) return;
+    if (!readable) { setMessages([]); return; }
     let disposed = false;
+    const controller = new AbortController();
     const refresh = async () => {
+      const startedAt = performance.now();
+      console.debug('[thread-dock] queue read started');
       const request = ++version.current;
       const collected: QueuedSubmission[] = [];
       let cursor: string | null = null;
+      const cursors = new Set<string>();
       do {
-        const page: { data: QueuedSubmission[]; nextCursor?: string | null } = await transport.rpc(
-          'thread/queue/list', { threadId, limit: 100, ...(cursor ? { cursor } : {}) });
+        const page: { data: QueuedSubmission[]; nextCursor?: string | null } = await api(
+          `/api/thread/dock/queue?${new URLSearchParams({ threadId, ...(cursor ? { cursor } : {}) })}`,
+          { cache: 'no-store', signal: controller.signal, timeoutMs: 6000 });
+        if (disposed || request !== version.current) return;
+        if (!Array.isArray(page.data) || page.data.some(message => !message || typeof message.id !== 'string' ||
+            typeof message.clientUserMessageId !== 'string' || !Array.isArray(message.input)) ||
+            page.nextCursor != null && typeof page.nextCursor !== 'string') throw new Error('Invalid queued message response.');
         collected.push(...page.data);
+        if (!disposed && request === version.current) setMessages([...collected]);
         cursor = page.nextCursor ?? null;
+        if (cursor && cursors.has(cursor)) throw new Error('Repeated queued message cursor.');
+        if (cursor) cursors.add(cursor);
       } while (cursor);
+      console.debug('[thread-dock] queue read finished', { elapsedMs: performance.now() - startedAt, count: collected.length });
       if (!disposed && request === version.current) setMessages(collected);
     };
-    const load = () => { void refresh().catch(error => { if (!disposed) onError(error); }); };
+    const load = () => { void refresh().catch(error => { if (!disposed && !isAbortedRequest(error)) onError(error); }); };
     load();
     const unsubscribe = transport.subscribe((method, params) => {
       if (params.threadId === threadId && ['thread/queue/changed', 'turn/started', 'turn/completed'].includes(method)) load();
     });
-    return () => { disposed = true; version.current++; unsubscribe(); };
-  }, [connected, threadId, transport]);
+    return () => { disposed = true; controller.abort(); version.current++; unsubscribe(); };
+  }, [readable, connected, threadId, transport]);
 
   useEffect(() => {
     if (!menu) return;

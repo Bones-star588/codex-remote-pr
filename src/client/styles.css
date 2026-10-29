@@ -2097,6 +2097,46 @@ kbd {
   padding: 8px 24px max(12px, env(safe-area-inset-bottom));
 }
 
+.goal-status {
+  display: flex;
+  width: min(var(--content-max), 100%);
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin-inline: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  color: var(--accent-strong);
+}
+
+.goal-status-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+}
+
+.goal-status-copy strong { font-size: 12px; font-weight: 600; }
+.goal-status-copy span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.goal-status-duration {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.goal-status--complete { color: var(--success, #17803d); }
+.goal-status--paused, .goal-status--blocked,
+.goal-status--usageLimited, .goal-status--budgetLimited { color: var(--warning, #a15c00); }
+
 .thread-bottom > .composer-wrap,
 .approval-dock {
   width: min(var(--content-max), 100%);
@@ -2917,3 +2957,17 @@ kbd {
     transition-duration: 0.01ms !important;
   }
 }
+
+.goal-status { flex-wrap: wrap; }
+.goal-status-heading { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+.goal-status-copy .goal-status-duration { overflow: visible; color: var(--muted); }
+.goal-status-actions { display: flex; flex: 0 0 auto; }
+.goal-status-actions .icon-button { width: 32px; height: 32px; }
+.goal-editor { display: grid; flex: 0 0 100%; min-width: 0; gap: 8px; color: var(--ink); }
+.goal-editor textarea { width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 6px; padding: 8px; background: var(--surface); font: inherit; }
+.goal-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.goal-editor-actions button { min-height: 32px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 12px; background: var(--surface); }
+.app-shell[data-layout="mobile"] .goal-status { gap: 4px; padding: 4px 6px; }
+.app-shell[data-layout="mobile"] .goal-status-actions .icon-button { width: 44px; height: 44px; }
+.app-shell[data-layout="mobile"] .goal-editor textarea { font-size: 16px; }
+.app-shell[data-layout="mobile"] .goal-editor-actions button { min-height: 44px; }

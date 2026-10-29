@@ -41,6 +41,8 @@ import './subagents.css';
 import type { PreviewTarget } from '../shared/file-preview';
 import { markStartup } from './startup';
 import { unlinkDeviceNotifications } from './push-notifications';
+import { toggleInspectorLauncher, type InspectorView } from './inspector-state';
+import { GoalStatus } from './components/GoalStatus';
 
 interface WorkspaceProps {
   authenticated: boolean;
@@ -64,7 +66,7 @@ export function Workspace({ authenticated, onAuthExpired, bootstrap, bootstrapRe
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
-  const [inspectorView, setInspectorView] = useState<'changes' | 'activity' | 'files'>('changes');
+  const [inspectorView, setInspectorView] = useState<InspectorView>('changes');
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [newTaskModel, setNewTaskModel] = useState('');
@@ -415,7 +417,11 @@ export function Workspace({ authenticated, onAuthExpired, bootstrap, bootstrapRe
             <button
               type="button"
               className={`icon-button${inspectorOpen ? ' is-active' : ''}`}
-              onClick={() => { setInspectorView('changes'); setInspectorOpen((value) => inspectorView === 'changes' ? !value : true); }}
+              onClick={() => {
+                const next = toggleInspectorLauncher(inspectorOpen, inspectorView);
+                setInspectorView(next.view);
+                setInspectorOpen(next.open);
+              }}
               aria-label="打开任务检查器"
               title="打开任务检查器"
               aria-pressed={inspectorOpen}
@@ -647,6 +653,7 @@ function ThreadScreen({
         outlineError={remote.outlineError}
         viewingHistory={remote.viewingHistory}
         hasNewerHistory={remote.hasNewerHistory}
+        newerHistoryCursor={remote.newerHistoryCursor}
         loadingLaterHistory={remote.loadingLaterHistory}
         revealingHistory={remote.revealingHistory}
         onLoadLater={remote.loadLaterHistory}
@@ -658,12 +665,15 @@ function ThreadScreen({
       />
 
       <div className="thread-bottom">
+        <GoalStatus key={thread.id} goal={remote.activeGoal} disabled={!remote.connected || !remote.threadReady || remote.showArchived}
+          onUpdate={update => remote.setGoal(thread.id, update)} onDelete={() => remote.clearGoal(thread.id)} onError={onError} />
         <ApprovalDock
           requests={remote.serverRequests.filter((request) => request.params.threadId === thread.id)}
           onRespond={remote.respondToRequest}
           onError={onError}
         />
         {!remote.isNewThread && <QueuedMessages transport={remote.chatTransport} threadId={thread.id}
+          readable={remote.authenticated && !remote.showArchived}
           activeTurnId={remote.activeTurnId} connected={remote.connected && remote.threadReady}
           onError={onError} onOpenSideChat={onOpenSideChat}
           queueEnabled={queueEnabled} onQueueEnabledChange={setQueueEnabled} />}

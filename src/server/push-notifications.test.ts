@@ -59,7 +59,7 @@ describe('private standard Web Push subscriptions', () => {
     expect(new PushNotifications(directory, 'https://remote.example.test').status(device.endpoint)).toBe(false);
   });
 
-  it('sends actual push-adapter payloads with generic text and the selected chat link only', async () => {
+  it('includes the conversation name and the current reply preview in completion notifications', async () => {
     const send = vi.spyOn(webPush, 'sendNotification').mockResolvedValue(sent);
     const { notifications } = create();
     const device = subscription();
@@ -67,8 +67,8 @@ describe('private standard Web Push subscriptions', () => {
     notifications.watch('chat/with space');
     await notifications.notifyTurn({
       threadId: 'chat/with space',
-      turn: { id: 'turn', status: 'completed', items: [{ text: 'PRIVATE_CHAT_TEXT' }] },
-      cwd: 'PRIVATE_PATH'
+      thread: { name: '实现登录流程' },
+      turn: { id: 'turn', status: 'completed', items: [{ type: 'agentMessage', text: '已完成登录流程，并更新了相关测试。' }] }
     });
     await notifications.notifyApproval({
       threadId: 'chat/with space', command: 'PRIVATE_COMMAND', requestId: 'request'
@@ -76,14 +76,32 @@ describe('private standard Web Push subscriptions', () => {
     expect(send).toHaveBeenCalledTimes(2);
     const payload = JSON.parse(send.mock.calls[0]![1] as string);
     expect(payload).toMatchObject({
-      title: 'Codex', body: '\u4efb\u52a1\u5df2\u5b8c\u6210',
+      title: '实现登录流程', body: '任务已完成：已完成登录流程，并更新了相关测试。',
       threadId: 'chat/with space', url: '/?thread=chat%2Fwith%20space'
     });
     expect(send.mock.calls[0]![2]).toMatchObject({
       TTL: 300, timeout: 8000, urgency: 'high', contentEncoding: 'aes128gcm',
       vapidDetails: { publicKey: notifications.publicKey, subject: 'https://remote.example.test' }
     });
-    expect(JSON.stringify(send.mock.calls)).not.toContain('PRIVATE_');
+  });
+
+  it('falls back to the native thread title and truncates long replies by Unicode characters', async () => {
+    const send = vi.spyOn(webPush, 'sendNotification').mockResolvedValue(sent);
+    const readThread = vi.fn(async () => ({ thread: { name: '来自桌面的任务' } }));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-push-'));
+    directories.push(directory);
+    const notifications = new PushNotifications(directory, 'https://remote.example.test', readThread);
+    const device = subscription();
+    notifications.subscribe(device);
+    notifications.watch('native-title');
+    const reply = `${'a'.repeat(100)}结尾不应出现`;
+    await notifications.notifyTurn({
+      threadId: 'native-title', turn: { id: 'turn', status: 'completed', items: [{ type: 'agentMessage', text: reply }] }
+    });
+    const payload = JSON.parse(send.mock.calls[0]![1] as string);
+    expect(payload.title).toBe('来自桌面的任务');
+    expect(payload.body).toBe(`任务已完成：${'a'.repeat(100)}…`);
+    expect(readThread).toHaveBeenCalledWith('native-title');
   });
 
   it('ignores unwatched side/subagent chats and unfinished turns', async () => {
@@ -96,6 +114,58 @@ describe('private standard Web Push subscriptions', () => {
     await notifications.notifyApproval({ threadId: 'child' });
     await notifications.notifyTurn({ threadId: 'main', turn: { id: 'turn', status: 'inProgress' } });
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('does not read title metadata when no devices are subscribed', async () => {
+    const { directory } = create();
+    const readThread = vi.fn();
+    const notifications = new PushNotifications(directory, 'https://remote.example.test', readThread);
+    notifications.watch('main');
+    await notifications.notifyTurn({ threadId: 'main', turn: { id: 'turn', status: 'completed' } });
+    await notifications.notifyApproval({ threadId: 'main' });
+    expect(readThread).not.toHaveBeenCalled();
+  });
+
+  it('delivers with a default title after 1.5 seconds even when native metadata hangs', async () => {
+    vi.useFakeTimers();
+    const send = vi.spyOn(webPush, 'sendNotification').mockResolvedValue(sent);
+    const { directory } = create();
+    let rejectRead!: (error: Error) => void;
+    const readThread = vi.fn(() => new Promise((_, reject) => { rejectRead = reject; }));
+    const notifications = new PushNotifications(directory, 'https://remote.example.test', readThread);
+    notifications.subscribe(subscription());
+    notifications.watch('main');
+    const pending = notifications.notifyTurn({
+      threadId: 'main', turn: { id: 'turn', status: 'completed', items: [{ type: 'agentMessage', text: 'Ready' }] }
+    });
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(send).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(JSON.parse(send.mock.calls[0]![1] as string)).toMatchObject({ title: 'Codex', body: '任务已完成：Ready' });
+    rejectRead(new Error('Late native failure'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('prefers final replies and excludes commentary and tool bodies from the reply preview', async () => {
+    const send = vi.spyOn(webPush, 'sendNotification').mockResolvedValue(sent);
+    const { notifications } = create();
+    notifications.subscribe(subscription());
+    notifications.watch('main');
+    await notifications.notifyTurn({
+      threadId: 'main', thread: { name: 'Task' }, turn: { id: 'turn', status: 'completed', items: [
+        { type: 'agentMessage', phase: 'final_answer', text: 'Done' },
+        { type: 'agentMessage', phase: 'commentary', text: 'PRIVATE_COMMENTARY' },
+        { type: 'commandExecution', text: 'PRIVATE_COMMAND' }
+      ] }
+    });
+    expect(JSON.parse(send.mock.calls[0]![1] as string).body).toBe('任务已完成：Done');
+    await notifications.notifyTurn({
+      threadId: 'main', thread: { name: 'Task' },
+      turn: { id: 'turn-2', status: 'completed', items: [{ type: 'agentMessage', phase: 'commentary', text: 'PRIVATE_COMMENTARY' }] }
+    });
+    expect(JSON.parse(send.mock.calls[1]![1] as string).body).toBe('任务已完成');
   });
 
   it('retries transient background delivery without any browser connection', async () => {

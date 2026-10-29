@@ -9,6 +9,7 @@ import { permissionLabel, type PermissionProfile } from '../../shared/permission
 import type { ComposerAttachment, ContextUsage, ModelInfo, ProjectInfo, SkillInfo, SkillsResult } from '../types';
 import { modelDisplayName, reasoningLabel, reasoningOptionsForModel } from '../workspace-model';
 import { findSlashCommand, parseSlashQuery, slashOptions, type SlashCommandId, type SlashOption } from '../slash-commands';
+import { composerKeyboardAction, insertComposerNewline } from '../composer-keyboard';
 import { SlashMenu } from './SlashMenu';
 
 interface ComposerProps {
@@ -106,6 +107,34 @@ export function Composer({
     }
     setSlashDismissed(false);
   };
+
+  const insertNewline = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const next = insertComposerNewline(draftRef.current, {
+      start: textarea.selectionStart ?? draftRef.current.length,
+      end: textarea.selectionEnd ?? draftRef.current.length
+    });
+    updateDraft(next.text);
+    window.requestAnimationFrame(() => {
+      const current = textareaRef.current;
+      if (!current) return;
+      current.focus({ preventScroll: true });
+      current.setSelectionRange(next.caret, next.caret);
+    });
+  };
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (layout !== 'mobile' || !textarea) return;
+    const beforeInput = (event: InputEvent) => {
+      if (!event.cancelable || event.isComposing ||
+          (event.inputType !== 'insertLineBreak' && event.inputType !== 'insertParagraph')) return;
+      event.preventDefault();
+      insertNewline();
+    };
+    textarea.addEventListener('beforeinput', beforeInput);
+    return () => textarea.removeEventListener('beforeinput', beforeInput);
+  }, [layout, draftKey, temporary]);
   useEffect(() => {
     setSlashIndex(Math.max(0, options.findIndex((option) => !option.disabledReason)));
   }, [draft, skills, hasSavedThread, activeTurnId]);
@@ -146,11 +175,8 @@ export function Composer({
     };
     recognition.onresult = (event) => {
       const transcript = Array.from(event.results).map((result) => result[0]?.transcript ?? '').join('');
-      setDraft((current) => {
-        const next = `${current}${current && !/\s$/.test(current) ? ' ' : ''}${transcript}`;
-        if (!temporary) sessionStorage.setItem(`draft:${draftKey}`, next);
-        return next;
-      });
+      const current = draftRef.current;
+      updateDraft(`${current}${current && !/\s$/.test(current) ? ' ' : ''}${transcript}`);
     };
     recognition.start();
   };
@@ -475,28 +501,42 @@ export function Composer({
             setMenu(null);
           }}
           onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-            if (slashOpen) {
-              if (event.key === 'Escape') {
-                event.preventDefault(); event.stopPropagation(); setSlashDismissed(true); return;
-              }
-              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                event.preventDefault();
-                const enabled = options.map((option, index) => option.disabledReason ? -1 : index).filter((index) => index >= 0);
-                const at = enabled.indexOf(slashIndex);
-                setSlashIndex(enabled[(at + (event.key === 'ArrowDown' ? 1 : -1) + enabled.length) % enabled.length] ?? 0);
-                return;
-              }
-              if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
-                const option = options[slashIndex];
-                if (option && !option.disabledReason) {
-                  event.preventDefault(); void chooseSlash(option); return;
-                }
-                if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); return; }
-              }
+            const action = composerKeyboardAction({
+              layout,
+              key: event.key,
+              shiftKey: event.shiftKey,
+              slashOpen,
+              isComposing: event.nativeEvent.isComposing,
+              keyCode: event.keyCode
+            });
+            if (action === 'none') return;
+            if (action === 'submit') {
+              event.preventDefault();
+              void submit();
+              return;
             }
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault(); void submit();
+            if (action === 'newline') {
+              event.preventDefault();
+              event.stopPropagation();
+              insertNewline();
+              return;
+            }
+            if (action === 'dismiss-slash') {
+                event.preventDefault(); event.stopPropagation(); setSlashDismissed(true); return;
+            }
+            if (action === 'move-up' || action === 'move-down') {
+              event.preventDefault();
+              const enabled = options.map((option, index) => option.disabledReason ? -1 : index).filter((index) => index >= 0);
+              const at = enabled.indexOf(slashIndex);
+              setSlashIndex(enabled[(at + (action === 'move-down' ? 1 : -1) + enabled.length) % enabled.length] ?? 0);
+              return;
+            }
+            if (action === 'choose-slash') {
+              event.preventDefault();
+              const option = options[slashIndex];
+              if (option && !option.disabledReason) {
+                void chooseSlash(option);
+              }
             }
           }}
           placeholder={placeholder ?? (activeTurnId ? '补充要求' : variant === 'home' ? '有什么需要处理？' : '继续向 Codex 提问')}
@@ -538,6 +578,7 @@ export function Composer({
               {effort && <span className="composer-effort">{reasoningLabel(modelInfo, effort)}</span>}
               <ChevronDown size={13} aria-hidden="true" />
             </button>
+            <span className="composer-turn-slot" data-thread-navigation-slot={variant === 'thread' ? '' : undefined} />
           </div>
           <div className="composer-submit">
             {contextPercent !== null && <span className="context-usage" role="img" tabIndex={0}

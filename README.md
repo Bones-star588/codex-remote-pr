@@ -27,6 +27,8 @@ Desktop capture: **2560 × 1440**. Phone capture: **390 × 844 CSS pixels**. The
 
 The mobile layout activates below 720 CSS pixels wide, or below 980 pixels when the width/height ratio is less than 1.18. Touch screens narrower than 1024px and shorter than 540px also retain the phone layout in landscape. Dynamic viewport height and safe-area spacing are supported. The acceptance matrix in `scripts/acceptance-viewports.json` includes 2560×1440, 1920×1080, 1440×900, 1024×768, 402×874 at DPR 3 (1206×2622 physical pixels), its 874×402 landscape orientation (2622×1206), 390×844, and 320×568. Browser controls can reduce the available viewport; these are simulated dimensions, not physical-phone network acceptance.
 
+Phones use compact header and composer spacing. Mobile layout follows the visible viewport when the keyboard opens and removes the duplicate bottom safe-area gap. Physical display safe areas remain protected. Desktop appearance is unchanged. Keyboard geometry has unit coverage; real iOS keyboard acceptance is separate.
+
 ## Features
 
 - **Shared desktop chats.** Open and continue chats through the same desktop backend, including activity originating in Desktop.
@@ -82,17 +84,17 @@ The marks at the left of the conversation follow native turn summaries. Hover
 or focus a mark to preview the request and final reply; click or press Enter to
 jump. Up/Down and Home/End move keyboard focus, and Escape closes the preview.
 The current reading position is highlighted. Narrow conversation panels and
-touch devices use a 44px list button and a selectable sheet.
+touch devices use a 44px list button beside the model selector and a selectable sheet.
 
 The outline follows all native summary cursors independently of the latest
-40-record history page. A jump reads a bounded window around the target, with
-older/newer paging and a return-to-latest button. New activity does not interrupt
-an older window. Native summaries can omit follow-up user messages within the
+40-record history page. A jump reads up to 100 target-turn records in one native request when a reversible cursor is available. Nearby context continues automatically as you scroll, without a show-more button; user text in the navigation window is expanded. Up to five windows are reused in memory for 30 seconds and invalidated by native changes. Older/newer paging remains bounded, with a return-to-latest button. New activity does not interrupt an older window. Native summaries can omit follow-up user messages within the
 same turn; these additional marks appear when their history pages are loaded.
 The outline therefore does not claim to index every raw steering message before
 that history has been read.
 
 ![Conversation navigation and request preview](docs/images/navigation.png)
+
+Goal and queued-message reads start over authenticated HTTP when a chat is selected, alongside history loading. They do not wait for realtime synchronization or thread resume; send/edit actions still require readiness. The Goal bar supports native pause/start, objective editing and deletion. Deletion requires a second click in the bar, and only explicit user actions submit goal mutations.
 
 ## Side Chats and Chat Actions
 
@@ -506,8 +508,11 @@ Expired endpoints are removed; unsubscribing stops further attempts.
 VAPID keys, device subscriptions and notification chat scope are private runtime
 data in `data/web-push.json`. Keep that file across updates and out of Git.
 Browser push services, including Apple or the browser vendor, deliver encrypted
-messages. Payloads contain a generic status and chat identifier, without prompts,
-reply text, filenames or command output. Disable affects this device; successful
+messages. Notifications include the conversation title, status, chat identifier
+and up to 100 characters of the final reply. A title may fall back to the chat's
+native preview; this content can appear on the device's lock screen. Tool and
+command output are excluded. Title lookup falls back after 1.5 seconds.
+Disable affects this device; successful
 logout also removes its subscription. Expiring browser login alone does not
 revoke an existing OS push subscription; use Disable or remove the site's
 notification permission. Delivery depends on system settings, Focus modes and

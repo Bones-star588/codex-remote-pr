@@ -5,6 +5,7 @@ import { App } from './App';
 import './styles.css';
 import './reference-layout.css';
 import './side-chat.css';
+import './mobile-layout.css';
 import { prioritizeInteraction } from './background-work';
 
 window.addEventListener('pointerdown', prioritizeInteraction, { passive: true });

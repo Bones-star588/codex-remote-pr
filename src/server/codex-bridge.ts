@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events';
 import type { ClientRpcMethod } from '../shared/protocol.js';
 import { config } from './config.js';
 import { desktopBridge } from './desktop-bridge.js';
+import { validateGoalMutation } from '../shared/goal-mutations.js';
 
 interface JsonRpcRequest {
   id: number | string;
@@ -31,6 +32,7 @@ type Pending = {
 const READ_METHODS = new Set<ClientRpcMethod>([
   'thread/list',
   'thread/read',
+  'thread/goal/get',
   'thread/turns/list',
   'thread/items/list',
   'thread/queue/list',
@@ -53,6 +55,8 @@ const READ_METHODS = new Set<ClientRpcMethod>([
 ]);
 
 const WRITE_METHODS = new Set<ClientRpcMethod>([
+  'thread/goal/set',
+  'thread/goal/clear',
   'project/create',
   'fs/createDirectory',
   'thread/start',
@@ -157,6 +161,7 @@ export class CodexBridge extends EventEmitter {
     if (!READ_METHODS.has(method) && !WRITE_METHODS.has(method)) {
       throw new Error(`Method ${method} is not allowed by this remote client.`);
     }
+    validateGoalMutation(method, params);
 
     await this.ensureStarted();
     const requestParams = method === 'thread/start'

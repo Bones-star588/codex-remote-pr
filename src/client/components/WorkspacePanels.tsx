@@ -3,6 +3,7 @@ import {
   clampPanelWidth, defaultPanelWidths, fitPanelWidths, panelMinimums, panelWidthMaximum,
   type PanelSide, type PanelWidths
 } from '../panel-layout';
+import { useMobileViewport } from '../useMobileViewport';
 
 const storageKey = 'workspace-panel-widths';
 
@@ -27,6 +28,7 @@ interface WorkspacePanelsProps {
 
 export function WorkspacePanels({ children, layout, sidebarCollapsed, inspectorOpen }: WorkspacePanelsProps) {
   const shellRef = useRef<HTMLDivElement>(null);
+  useMobileViewport(shellRef, layout === 'mobile');
   const [viewport, setViewport] = useState(() => window.innerWidth);
   const [preferred, setPreferred] = useState(readWidths);
   const preferredRef = useRef(preferred);
