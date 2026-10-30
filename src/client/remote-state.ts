@@ -57,6 +57,30 @@ export function upsertItem(items: ThreadItem[], next: ThreadItem, append = false
   return copy;
 }
 
+/** Apply a native turn payload in one pass, preserving bounded historical windows. */
+export function mergeEmbeddedTurnItems(items: ThreadItem[], turnId: string, incoming: unknown, viewingHistory: boolean): ThreadItem[] {
+  if (!Array.isArray(incoming) || !incoming.length) return items;
+  const positions = new Map(items.map((item, index) => [itemKey(item), index]));
+  let result = items;
+  for (const item of incoming) {
+    if (!item || typeof item.id !== 'string' || !item.id || typeof item.type !== 'string') continue;
+    const next = { ...item, turnId } as ThreadItem;
+    const key = itemKey(next), index = positions.get(key);
+    if (index === undefined && viewingHistory) continue;
+    if (result === items) result = [...items];
+    if (index === undefined) {
+      positions.set(key, result.length);
+      result.push(next);
+    } else {
+      const current = result[index]!;
+      result[index] = { ...next,
+        ...(next.startedAtMs == null && current.startedAtMs != null ? { startedAtMs: current.startedAtMs } : {}),
+        ...(next.completedAtMs == null && current.completedAtMs != null ? { completedAtMs: current.completedAtMs } : {}) };
+    }
+  }
+  return result;
+}
+
 export function itemKey(item: { id: string; turnId?: string }): string {
   return JSON.stringify([item.turnId ?? '', item.id]);
 }
